@@ -2,7 +2,8 @@
 //  JobView.swift
 //  SecureScan
 //
-//  Job screen: Plan (web editor) / 3D / Files.
+//  Job screen: Plan (web editor) · 3D · Items · Files, one bottom dock
+//  (state-dependent primary action, Documents, mic). docs/UX2.md.
 //
 
 import SwiftUI
@@ -29,6 +30,8 @@ final class JobViewModel: ObservableObject {
     /// Document kinds the editor makes (nil until it has loaded once).
     @Published var documentKinds: Set<String>?
     @Published var makingDocument = false
+    /// A problem making a document, shown as an alert on the job screen.
+    @Published var alertText: String?
     /// nil until the editor has loaded: whether it has SecureScan.setPricesVisible.
     @Published var editorHidesPrices: Bool?
     @Published var pricesVisible = PriceLock.pricesVisible
@@ -135,7 +138,7 @@ final class JobViewModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
             guard let editor, editor.ready else {
-                message = "The plan editor didn't load, so the \(k.title.lowercased()) couldn't be made."
+                alertText = "The plan didn't load, so the \(k.title.lowercased()) couldn't be made. Try again."
                 return
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -251,98 +254,152 @@ final class TranscriptBox: @unchecked Sendable {
     init(_ value: Result<[GroupedNote], Error>) { self.value = value }
 }
 
+/// The job screen's sections.
+enum JobTab: Int, CaseIterable, Identifiable {
+    case plan, model, items, files
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .plan: return "Plan"
+        case .model: return "3D"
+        case .items: return "Items"
+        case .files: return "Files"
+        }
+    }
+
+    /// SECURESCAN_TAB (automated screenshots): 0-3 or plan / 3d / items / files.
+    static func fromEnvironment() -> JobTab {
+        let v = (ProcessInfo.processInfo.environment["SECURESCAN_TAB"] ?? "").lowercased()
+        if let n = Int(v), let t = JobTab(rawValue: n) { return t }
+        return JobTab.allCases.first { $0.title.lowercased() == v } ?? .plan
+    }
+}
+
+extension JobViewModel {
+    /// Job pack, through the editor's own pack builder (it sends `exportPack`).
+    func makeJobPack() {
+        guard !makingDocument else { return }
+        makingDocument = true
+        requestedTab = 0
+        Task {
+            defer { makingDocument = false }
+            for _ in 0..<50 {
+                if let e = editor, e.ready { break }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            guard let editor, editor.ready else {
+                alertText = "The plan didn't load, so the job pack couldn't be made. Try again."
+                return
+            }
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            if !(await editor.startJobPack()) {
+                alertText = "This version of the plan editor can't make the job pack from here. Use Export on the plan."
+            }
+        }
+    }
+
+    /// The one primary action of the job screen.
+    enum DockAction: Equatable {
+        case scope(done: Int, total: Int)
+        case continueOnSite
+        case nextVisit(Int)
+        case none
+    }
+
+    var dockAction: DockAction {
+        let scope = hasPlan && scopeTotal > 0
+        if scope && scopeDone < scopeTotal { return .scope(done: scopeDone, total: scopeTotal) }
+        if canReturnVisit {
+            let n = visitInfo?.n ?? 1
+            let started = meta?.createdAt ?? Date()
+            return Calendar.current.isDateInToday(started) && n == 1 ? .continueOnSite : .nextVisit(n + 1)
+        }
+        if scope { return .scope(done: scopeDone, total: scopeTotal) }
+        return .none
+    }
+}
+
 struct JobView: View {
     @StateObject private var vm: JobViewModel
     @ObservedObject private var recorder = VoiceRecorder.shared
     @Environment(\.dismiss) private var dismiss
-    /// SECURESCAN_TAB (0 Plan, 1 3D, 2 Files) picks the starting tab for automated screenshots.
-    @State private var tab = Int(ProcessInfo.processInfo.environment["SECURESCAN_TAB"] ?? "0") ?? 0
+    @State private var tab = JobTab.fromEnvironment()
+    @State private var showDocuments = false
 
     init(jobID: UUID) {
         _vm = StateObject(wrappedValue: JobViewModel(jobID: jobID))
     }
 
     var body: some View {
-        TabView(selection: $tab) {
-            PlanTab(vm: vm, onClose: { dismiss() })
-                .tabItem { Label("Plan", systemImage: "square.split.2x2") }
-                .tag(0)
-            ModelTab(vm: vm)
-                .tabItem { Label("3D", systemImage: "cube") }
-                .tag(1)
-            FilesTab(vm: vm)
-                .tabItem { Label("Files", systemImage: "folder") }
-                .tag(2)
+        VStack(spacing: 0) {
+            Picker("Section", selection: $tab) {
+                ForEach(JobTab.allCases) { t in Text(t.title).tag(t) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 10)
+
+            ZStack {
+                // The editor stays loaded behind the other sections, so
+                // switching back is instant and documents can always be made.
+                PlanTab(vm: vm, onClose: { dismiss() })
+                    .opacity(tab == .plan ? 1 : 0)
+                    .allowsHitTesting(tab == .plan)
+                    .accessibilityHidden(tab != .plan)
+                switch tab {
+                case .plan: EmptyView()
+                case .model: ModelTab(vm: vm)
+                case .items: ItemsTab(vm: vm)
+                case .files: FilesTab(vm: vm)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle(vm.meta?.displayAddress ?? "Job")
+        .background(Color(.systemGroupedBackground))
+        .safeAreaInset(edge: .bottom, spacing: 0) { dock }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                RecordToggle(recorder: recorder, compact: true) { vm.toggleRecordNote() }
-                    .disabled(recorder.isRecording && !recorder.isRecordingJob(vm.folder))
+            ToolbarItem(placement: .principal) {
+                Text(vm.meta?.displayAddress ?? "Job")
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.9)
             }
-        }
-        .safeAreaInset(edge: .top) {
-            VStack(spacing: 6) {
-                if vm.unplacedCount > 0 {
-                    HStack(spacing: 10) {
-                        Text(Recovery.banner(unplaced: vm.unplacedCount)).font(.footnote.bold())
-                        Spacer()
-                        Button("Place them") { vm.regenerate() }
-                            .font(.footnote.bold())
-                            .buttonStyle(.borderedProminent)
-                            .disabled(vm.busy)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal)
-                }
-                if vm.hasPlan && vm.scopeTotal > 0 {
-                    Button { vm.openScope() } label: {
-                        Label("See scope on site · \(vm.scopeDone) of \(vm.scopeTotal) done", systemImage: "arkit")
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(MarkupControls.accent(.quote))
-                    .padding(.horizontal)
-                }
-                if vm.hasPlan { DocumentBar(vm: vm) }
-                if let status = vm.voiceStatus {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text(status).font(.footnote)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.thinMaterial, in: Capsule())
-                }
-                if let v = vm.visitInfo, v.isReturn, tab != 0 {
-                    HStack(spacing: 10) {
-                        Text("Visit \(v.n) · \(v.label.isEmpty ? v.type.capitalized : v.label)").font(.footnote.bold())
-                        Spacer()
-                        Button("Return visit") { vm.openReturnVisit() }.font(.footnote.bold())
-                        Button("On the plan") { vm.remeasureOnPlan() }.font(.footnote)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal)
-                }
-            }
+            ToolbarItem(placement: .topBarTrailing) { moreMenu }
         }
         .onAppear {
             vm.processVoice()
             vm.refreshVisitInfo()
-            if ProcessInfo.processInfo.environment["SECURESCAN_PREVIEW"] == "revisit" { vm.showRevisit = true }
-            if let k = ProcessInfo.processInfo.environment["SECURESCAN_DOCUMENT"].flatMap(DocumentKind.init(rawValue:)) {
+            let env = ProcessInfo.processInfo.environment
+            if env["SECURESCAN_PREVIEW"] == "revisit" { vm.showRevisit = true }
+            if env["SECURESCAN_PREVIEW"] == "documents" {
+                Task { try? await Task.sleep(nanoseconds: 1_500_000_000); showDocuments = true }
+            }
+            if let k = env["SECURESCAN_DOCUMENT"].flatMap(DocumentKind.init(rawValue:)) {
                 vm.makeDocument(k)
             }
         }
         .onChange(of: vm.planVersion) { _, _ in vm.refreshVisitInfo() }
         .onChange(of: vm.requestedTab) { _, t in
-            if let t { tab = t; vm.requestedTab = nil }
+            if let t, let jt = JobTab(rawValue: t) { tab = jt; vm.requestedTab = nil }
         }
         .onReceive(NotificationCenter.default.publisher(for: .pricesVisibleChanged)) { _ in
             vm.pricesVisible = PriceLock.pricesVisible
+        }
+        .sheet(isPresented: $showDocuments) {
+            DocumentsSheet(vm: vm) { choice in
+                showDocuments = false
+                // Let the sheet go before the share sheet is presented.
+                Task {
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    switch choice {
+                    case .document(let k): vm.makeDocument(k)
+                    case .jobPack: vm.makeJobPack()
+                    }
+                }
+            }
         }
         .fullScreenCover(isPresented: $vm.showScope) {
             RevisitView(folder: vm.folder, scope: true,
@@ -361,6 +418,184 @@ struct JobView: View {
         } message: {
             Text(recorder.problem ?? "")
         }
+        .alert("Documents", isPresented: Binding(get: { vm.alertText != nil }, set: { if !$0 { vm.alertText = nil } })) {
+            Button("OK") { vm.alertText = nil }
+        } message: {
+            Text(vm.alertText ?? "")
+        }
+    }
+
+    // MARK: Bottom dock
+
+    private var dock: some View {
+        HStack(spacing: 12) {
+            primary
+            IconButton(systemImage: "doc.text", label: "Documents") { showDocuments = true }
+                .disabled(!vm.hasPlan || vm.makingDocument)
+            MicButton(recorder: recorder, folder: vm.folder, transcribing: vm.voiceStatus != nil) { vm.toggleRecordNote() }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background {
+            Rectangle().fill(.bar)
+                .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5) }
+                .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    @ViewBuilder
+    private var primary: some View {
+        switch vm.dockAction {
+        case .scope(let done, let total):
+            PrimaryButton(title: "See scope on site · \(done) of \(total)", systemImage: "arkit") { vm.openScope() }
+        case .continueOnSite:
+            PrimaryButton(title: "Continue on site", systemImage: "viewfinder") { vm.openReturnVisit() }
+        case .nextVisit(let n):
+            PrimaryButton(title: "Start visit \(n)", systemImage: "viewfinder") { vm.openReturnVisit() }
+        case .none:
+            PrimaryButton(title: "Continue on site", systemImage: "viewfinder", enabled: false) {}
+        }
+    }
+
+    // MARK: … menu
+
+    private var moreMenu: some View {
+        Menu {
+            if vm.canReturnVisit {
+                Button { vm.openReturnVisit() } label: { Label("Return visit", systemImage: "viewfinder") }
+            }
+            if vm.visitInfo?.isReturn == true {
+                Button { vm.remeasureOnPlan() } label: { Label("Re-measure on the plan", systemImage: "square.split.2x2") }
+            }
+            if vm.hasPlan && vm.scopeTotal > 0 {
+                Button { vm.openScope() } label: { Label("See scope on site", systemImage: "arkit") }
+            }
+            Button { showDocuments = true } label: { Label("Documents", systemImage: "doc.text") }
+                .disabled(!vm.hasPlan)
+            Divider()
+            Button { tab = .items } label: { Label("All items", systemImage: "list.bullet") }
+            Button { tab = .files } label: { Label("Job details", systemImage: "info.circle") }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("More")
+    }
+}
+
+/// The dock's mic: a 44 pt circle; while recording a red capsule with the time.
+struct MicButton: View {
+    @ObservedObject var recorder: VoiceRecorder
+    let folder: JobFolder
+    let transcribing: Bool
+    let action: () -> Void
+
+    static func elapsed(_ t: TimeInterval) -> String {
+        let s = max(0, Int(t))
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+                         : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            if recorder.isRecordingJob(folder), let start = recorder.startedAt {
+                HStack(spacing: 6) {
+                    Circle().fill(DS.Color.wet).frame(width: 8, height: 8)
+                    TimelineView(.periodic(from: start, by: 1)) { ctx in
+                        Text(MicButton.elapsed(ctx.date.timeIntervalSince(start)))
+                            .font(.system(size: 15, weight: .semibold))
+                            .monospacedDigit()
+                    }
+                    Image(systemName: "stop.fill").font(.system(size: 13, weight: .bold))
+                }
+                .foregroundStyle(DS.Color.wet)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(DS.Color.wet.opacity(0.12), in: Capsule())
+                .contentShape(Capsule())
+            } else if transcribing {
+                ProgressView()
+                    .frame(width: 44, height: 44)
+                    .background(.regularMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(.primary.opacity(0.08), lineWidth: 1))
+            } else {
+                IconButtonLabel(systemImage: "mic")
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(recorder.isRecording && !recorder.isRecordingJob(folder))
+        .accessibilityLabel(recorder.isRecordingJob(folder) ? "Stop recording voice note" : "Record voice note")
+    }
+}
+
+/// Documents: what this job can produce, one tap each.
+struct DocumentsSheet: View {
+    enum Choice { case document(DocumentKind), jobPack }
+
+    @ObservedObject var vm: JobViewModel
+    let onChoose: (Choice) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(vm.offeredDocuments) { k in
+                        let ok = vm.documentAvailable(k)
+                        row(icon: k.icon, title: k.title, caption: ok ? Self.caption(k) : "Available after the plan editor update", enabled: ok) {
+                            onChoose(.document(k))
+                        }
+                    }
+                }
+                Section {
+                    row(icon: "shippingbox", title: "Job pack", caption: "Plans, photos, notes and audio in one file", enabled: true) {
+                        onChoose(.jobPack)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Documents")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.height(vm.offeredDocuments.count > 2 ? 470 : 400), .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    static func caption(_ k: DocumentKind) -> String {
+        switch k {
+        case .initial: return "Readings, photos and the plan"
+        case .quote: return "Priced scope of works"
+        case .scope: return "What to remove and dry, no prices"
+        case .monitoring: return "Drying progress across visits"
+        case .final: return "Final readings and sign-off"
+        }
+    }
+
+    private func row(icon: String, title: String, caption: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(enabled ? DS.Color.accent : .secondary)
+                    .frame(width: 40, height: 40)
+                    .background((enabled ? DS.Color.accent : Color.secondary).opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(DS.Font.body.weight(.medium)).foregroundStyle(enabled ? .primary : .secondary)
+                    Text(caption).font(DS.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 }
 
@@ -407,30 +642,3 @@ struct EditorContainer: UIViewControllerRepresentable {
     }
 }
 
-/// Top of the job screen: what do you want out of this job.
-struct DocumentBar: View {
-    @ObservedObject var vm: JobViewModel
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(vm.offeredDocuments) { k in
-                let ok = vm.documentAvailable(k)
-                Button { vm.makeDocument(k) } label: {
-                    VStack(spacing: 2) {
-                        Label(k.title, systemImage: k.icon)
-                            .font(.footnote.bold())
-                            .lineLimit(1).minimumScaleFactor(0.75)
-                        if !ok { Text("after update").font(.caption2).foregroundStyle(.secondary) }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    .opacity(ok ? 1 : 0.6)
-                }
-                .buttonStyle(.plain)
-                .disabled(vm.makingDocument)
-                .accessibilityLabel(ok ? "Make the \(k.title.lowercased())" : "\(k.title), available after the editor update")
-            }
-        }
-        .padding(.horizontal)
-    }
-}

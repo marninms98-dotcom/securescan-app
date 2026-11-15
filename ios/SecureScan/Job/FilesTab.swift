@@ -2,7 +2,8 @@
 //  FilesTab.swift
 //  SecureScan
 //
-//  Share plan.json / model.usdz, job summary, and "Regenerate plan from scan".
+//  Job › Files: the job's facts, share actions, voice recordings, and the
+//  maintenance actions under "Advanced".
 //
 
 import SwiftUI
@@ -10,85 +11,87 @@ import SwiftUI
 struct FilesTab: View {
     @ObservedObject var vm: JobViewModel
     @State private var confirmRegenerate = false
+    @State private var showAdvanced = false
 
     var body: some View {
         List {
-            if vm.canReturnVisit {
-                Section {
-                    Button { vm.openReturnVisit() } label: {
-                        Label("Return visit — find my points in the camera", systemImage: "viewfinder.circle")
-                            .font(.headline)
-                    }
-                    Button { vm.remeasureOnPlan() } label: {
-                        Label("Re-measure on the plan", systemImage: "square.split.2x2")
-                    }
-                } header: {
-                    Text("Back on site")
-                } footer: {
-                    Text("Return visit lines the camera up with this job's plan (two corners, or automatically), then shows every saved point on its wall so you can re-measure it, log new items, mark equipment removed and removals done. Re-measure on the plan works on any phone.")
-                }
-            }
             Section("Job") {
-                LabeledContent("Address", value: vm.meta?.displayAddress ?? "–")
-                if let ref = vm.meta?.jobRef, !ref.isEmpty { LabeledContent("Job ref", value: ref) }
-                LabeledContent("Rooms", value: "\(vm.meta?.roomCount ?? 0)")
-                LabeledContent("Total floor area", value: String(format: "%.1f m²", vm.meta?.totalArea ?? 0))
-                LabeledContent("Readings", value: "\(vm.meta?.readingCount ?? 0)")
-                if let note = vm.meta?.note {
-                    Label(note, systemImage: "info.circle").font(.footnote).foregroundStyle(.orange)
+                fact("Address", vm.meta?.displayAddress ?? "–")
+                if let ref = vm.meta?.jobRef, !ref.isEmpty { fact("Job / claim ref", ref) }
+                fact("Rooms", "\(vm.meta?.roomCount ?? 0)")
+                fact("Floor area", String(format: "%.1f m²", vm.meta?.totalArea ?? 0))
+                fact("Readings", "\(vm.meta?.readingCount ?? 0)")
+                if let v = vm.visitInfo { fact("Visit", "\(v.n) · \(v.label.isEmpty ? v.type.capitalized : v.label)") }
+                fact("Started", (vm.meta?.createdAt ?? Date()).formatted(date: .abbreviated, time: .shortened))
+            }
+
+            Section("Share") {
+                Button { vm.makeJobPack() } label: {
+                    rowLabel("Job pack", systemImage: "shippingbox")
+                }
+                .disabled(!vm.hasPlan || vm.makingDocument)
+                if vm.hasPlan {
+                    ShareLink(item: vm.folder.planURL) { rowLabel("Plan file (plan.json)", systemImage: "doc.text") }
+                }
+                if vm.hasModel {
+                    ShareLink(item: vm.folder.modelURL) { rowLabel("3D model (USDZ)", systemImage: "cube") }
                 }
             }
 
             if !vm.recordings.isEmpty {
-                Section {
+                Section("Voice recordings") {
                     ForEach(vm.recordings, id: \.file) { rec in
                         VoiceRow(rec: rec, busy: vm.voiceStatus != nil) { vm.transcribeAgain(rec) }
                     }
-                } header: {
-                    Text("Voice notes")
-                } footer: {
-                    Text("The audio is always kept in the job folder. Notes appear with the plan's site notes; corrections you make there are kept if you transcribe again.")
                 }
-            }
-
-            Section("Share") {
-                if vm.hasPlan {
-                    ShareLink(item: vm.folder.planURL) { Label("Share plan.json", systemImage: "doc.text") }
-                } else {
-                    Text("No plan.json yet").foregroundStyle(.secondary)
-                }
-                if vm.hasModel {
-                    ShareLink(item: vm.folder.modelURL) { Label("Share model.usdz (3D)", systemImage: "cube") }
-                }
-                Text("For the full job pack (summary, plans, photos, audio, 3D) use Export › Job pack on the Plan tab.")
-                    .font(.footnote).foregroundStyle(.secondary)
             }
 
             Section {
-                Button {
-                    confirmRegenerate = true
-                } label: {
-                    HStack {
-                        Label("Regenerate plan from scan", systemImage: "arrow.triangle.2.circlepath")
-                        if vm.busy { Spacer(); ProgressView() }
+                DisclosureGroup(isExpanded: $showAdvanced) {
+                    Button { confirmRegenerate = true } label: {
+                        HStack {
+                            rowLabel("Rebuild plan from scan", systemImage: "arrow.triangle.2.circlepath")
+                            if vm.busy { Spacer(); ProgressView() }
+                        }
                     }
+                    .disabled(vm.busy)
+                    if let msg = vm.message {
+                        Text(msg).font(DS.Font.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    Text("Files app › On My iPhone › SecureScan › Jobs")
+                        .font(DS.Font.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.85)
+                } label: {
+                    Text("Advanced").font(DS.Font.body)
                 }
-                .disabled(vm.busy)
-                if let msg = vm.message { Text(msg).font(.footnote) }
-            } footer: {
-                Text("Rebuilds walls, doors, rooms and the positions of readings and sources from the saved scan. Your markup, room names, address, job ref, site notes and edits to readings are kept.")
-            }
-
-            Section {
-                Text("Files are also visible in the Files app under On My iPhone › SecureScan › Jobs.")
-                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
+        .listStyle(.insetGrouped)
+        .contentMargins(.top, 0, for: .scrollContent)
         .onAppear { vm.recordings = JobFiles.loadVoice(vm.folder) }
-        .confirmationDialog("Regenerate the plan?", isPresented: $confirmRegenerate, titleVisibility: .visible) {
-            Button("Regenerate") { vm.regenerate() }
+        .confirmationDialog("Rebuild the plan from the scan?", isPresented: $confirmRegenerate, titleVisibility: .visible) {
+            Button("Rebuild") { vm.regenerate() }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your marks, names and edits are kept.")
         }
+    }
+
+    private func fact(_ title: String, _ value: String) -> some View {
+        LabeledContent {
+            Text(value).multilineTextAlignment(.trailing).lineLimit(2).monospacedDigit()
+        } label: {
+            Text(title)
+        }
+        .font(DS.Font.body)
+    }
+
+    private func rowLabel(_ title: String, systemImage: String) -> some View {
+        Label {
+            Text(title).foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: systemImage).foregroundStyle(DS.Color.accent)
+        }
+        .font(DS.Font.body)
     }
 }
 
@@ -98,29 +101,29 @@ struct VoiceRow: View {
     let transcribe: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Label(title, systemImage: "waveform")
-                Spacer()
-                Text(stateText).font(.footnote).foregroundStyle(rec.state == "failed" ? Color.orange : Color.secondary)
+        HStack(spacing: 12) {
+            Image(systemName: "waveform")
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(DS.Font.body).monospacedDigit()
+                Text(stateText).font(DS.Font.caption).foregroundStyle(rec.state == "failed" ? DS.Color.damp : .secondary).lineLimit(1)
             }
-            if let e = rec.error, rec.state == "failed" {
-                Text(e).font(.caption).foregroundStyle(.secondary)
-            }
+            Spacer(minLength: 8)
             if rec.state == "failed" || rec.state == "transcribed" {
-                let label: String = rec.state == "failed" ? "Transcribe again" : "Transcribe again (keeps your corrections)"
-                Button(label) { transcribe() }
-                    .font(.callout)
+                Button(rec.state == "failed" ? "Retry" : "Redo") { transcribe() }
+                    .font(DS.Font.callout.weight(.semibold))
+                    .foregroundStyle(DS.Color.accent)
+                    .buttonStyle(.borderless)
                     .disabled(busy)
             }
         }
-        .padding(.vertical, 2)
     }
 
     private var title: String {
-        var t = rec.number
+        var t = "Recording " + (Int(rec.number).map(String.init) ?? rec.number)
         if let d = ISOTime.date(rec.startedAt) { t += " · " + d.formatted(date: .omitted, time: .shortened) }
-        if let s = rec.duration { t += " · " + RecordToggle.elapsed(s) }
+        if let s = rec.duration { t += " · " + MicButton.elapsed(s) }
         return t
     }
 
@@ -128,8 +131,8 @@ struct VoiceRow: View {
         switch rec.state {
         case "recording": return "Recording"
         case "saved": return "Waiting to transcribe"
-        case "transcribed": return "\(rec.noteCount ?? 0) note\(rec.noteCount == 1 ? "" : "s")"
-        default: return "Not transcribed"
+        case "transcribed": return "\(rec.noteCount ?? 0) note\(rec.noteCount == 1 ? "" : "s") on the plan"
+        default: return rec.error ?? "Not transcribed"
         }
     }
 }

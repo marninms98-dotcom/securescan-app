@@ -537,6 +537,21 @@ final class EditorViewController: UIViewController, WKScriptMessageHandler, WKNa
         }
     }
 
+    /// Job pack from the job screen's Documents menu: runs the editor's own
+    /// pack builder, which posts `exportPack` (handled above). Uses the public
+    /// SecureScan.exportPack() when the editor has it, else its page-level
+    /// exportPack(). False when neither exists.
+    func startJobPack() async -> Bool {
+        guard isReady, let webView else { return false }
+        if exportWouldShowPrices { refusePricedExport(); return true }
+        let js = "var s = window.SecureScan; if (s && typeof s.exportPack === 'function') { s.exportPack(); return true; } if (typeof exportPack === 'function') { exportPack(); return true; } return false;"
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            webView.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                if case .success(let v) = result { c.resume(returning: (v as? Bool) ?? false) } else { c.resume(returning: false) }
+            }
+        }
+    }
+
     // MARK: Automation (CI screenshots and the report check only)
 
     private var automationDone = false

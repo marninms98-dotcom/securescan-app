@@ -3,12 +3,16 @@
 //  SecureScan
 //
 //  Settings: "Show prices" behind the office PIN (set by the owner the first
-//  time it is turned on). A convenience lock, not security - see PriceLock.
+//  time it is turned on; a convenience lock, not security - see PriceLock),
+//  the scan engine, a demo job, version.
 //
 
 import SwiftUI
 
 struct SettingsView: View {
+    /// "Add a demo job": the jobs list makes it and opens it.
+    var onAddDemo: (() -> Void)? = nil
+
     @Environment(\.dismiss) private var dismiss
     @State private var showPrices = PriceLock.pricesVisible
     @State private var asking: Ask?
@@ -20,6 +24,13 @@ struct SettingsView: View {
     enum Ask: Identifiable {
         case setNew, enter, change
         var id: Int { hashValue }
+    }
+
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "–"
+        let b = info?["CFBundleVersion"] as? String ?? "–"
+        return "\(v) (\(b))"
     }
 
     var body: some View {
@@ -35,22 +46,40 @@ struct SettingsView: View {
                             showPrices = false
                         }
                     }))
+                    .tint(DS.Color.accent)
                     if showPrices {
                         Button("Change office PIN") { pin = ""; pin2 = ""; problem = nil; asking = .change }
                     }
+                } header: {
+                    Text("Prices")
                 } footer: {
-                    Text(showPrices
-                         ? "This phone shows rates and totals, and can make the Quote."
-                         : "Prices are hidden: the crew can scope a job (Scope of works) without seeing any money. Turning prices on needs the office PIN.")
+                    Text(showPrices ? "This iPhone shows rates and makes quotes." : "Crew see the scope without prices. Office PIN to turn on.")
                 }
+
                 Section {
-                    Toggle("Mark while scanning", isOn: $markWhileScanning)
+                    Picker("Scan engine", selection: $markWhileScanning) {
+                        Text("Classic").tag(false)
+                        Text("Scan and mark").tag(true)
+                    }
+                    .pickerStyle(.menu)
+                    .tint(.secondary)
+                } header: {
+                    Text("Scanning")
                 } footer: {
-                    Text("New: scan the room and log readings, lines, photos and the scope on one screen. Off: the classic scan, then Mark up this room. Try it on a phone first.")
+                    Text(markWhileScanning ? "Mark readings and removals while the room scans." : "Scan each room first, then mark it up.")
                 }
-                Section {
-                    Text("The office PIN keeps prices off the crew's screens. It is a convenience lock, not security.")
-                        .font(.footnote).foregroundStyle(.secondary)
+
+                if let onAddDemo {
+                    Section {
+                        Button("Add a demo job", action: onAddDemo)
+                    } footer: {
+                        Text("A sample house to try the plan, 3D and documents.")
+                    }
+                }
+
+                Section("About") {
+                    LabeledContent("Version", value: version)
+                    LabeledContent("LiDAR scanning", value: JobsListView.lidarSupported ? "Available" : "Not on this iPhone")
                 }
             }
             .navigationTitle("Settings")

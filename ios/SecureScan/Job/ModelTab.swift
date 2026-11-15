@@ -601,14 +601,15 @@ struct ModelTab: View {
     @StateObject private var model = ModelViewModel()
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
+            Color(uiColor: ModelViewModel.background).ignoresSafeArea(edges: .horizontal)
             if model.scene != nil {
                 SceneContainer(model: model)
             } else if model.loading {
-                ProgressView("Loading 3D…")
+                ProgressView()
             } else {
                 ContentUnavailableView("No 3D view", systemImage: "cube.transparent",
-                                       description: Text(model.error ?? vm.meta?.note ?? "This job has no 3D model."))
+                                       description: Text(model.error ?? "This job has no 3D model yet."))
             }
             if model.scene != nil { controls }
         }
@@ -616,27 +617,32 @@ struct ModelTab: View {
         .onChange(of: vm.planVersion) { _, v in model.load(folder: vm.folder, version: v) }
     }
 
+    /// One quiet line top-left; icon buttons top-right (like Maps).
     private var controls: some View {
-        VStack(spacing: 8) {
-            if model.usingPlanFallback {
-                Text("No scanned 3D model for this job — showing walls drawn from the plan.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 10) {
-                Toggle(isOn: $model.showMarkers) { Text("Markers").font(.headline) }
-                    .toggleStyle(.button)
-                Button { model.snapshotAndShare() } label: { Label("Save image", systemImage: "camera") }
-                    .buttonStyle(.bordered)
-                if vm.hasModel {
-                    Button { Presenter.quickLook(vm.folder.modelURL) } label: { Label("AR", systemImage: "arkit") }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Open in AR Quick Look")
+        VStack {
+            HStack(alignment: .top, spacing: 12) {
+                if model.usingPlanFallback {
+                    Text("Drawn from the plan")
+                        .font(DS.Font.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                Spacer()
+                VStack(spacing: 12) {
+                    IconButton(systemImage: model.showMarkers ? "mappin.and.ellipse" : "mappin.slash",
+                               label: model.showMarkers ? "Hide markers" : "Show markers",
+                               tint: model.showMarkers ? DS.Color.accent : .primary) { model.showMarkers.toggle() }
+                    IconButton(systemImage: "camera", label: "Save image") { model.snapshotAndShare() }
+                    if vm.hasModel {
+                        IconButton(systemImage: "arkit", label: "Open in AR Quick Look") { Presenter.quickLook(vm.folder.modelURL) }
+                    }
                 }
             }
+            Spacer()
         }
-        .padding(10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .padding()
+        .padding(16)
     }
 }
 

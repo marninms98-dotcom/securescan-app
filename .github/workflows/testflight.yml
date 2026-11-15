@@ -9,10 +9,9 @@
 # and profile in the cloud. Nothing here stores or prints the key.
 name: TestFlight
 
+# Manual only: a build goes to testers when it is started on purpose.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   upload:
