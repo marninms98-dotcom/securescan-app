@@ -246,39 +246,69 @@ struct LiveScanView: View {
 
     private var modeRow: some View {
         HStack(spacing: 12) {
-            Picker("Mode", selection: $work) {
-                Text("Inspect").tag(WorkMode.inspect)
-                Text(PriceLock.pricesVisible ? "Quote" : "Scope").tag(WorkMode.quote)
+            modePicker
+            undoButton
+        }
+    }
+
+    private var quoteLabel: String { PriceLock.pricesVisible ? "Quote" : "Scope" }
+
+    private var modePicker: some View {
+        Picker("Mode", selection: $work) {
+            Text("Inspect").tag(WorkMode.inspect)
+            Text(quoteLabel).tag(WorkMode.quote)
+        }
+        .pickerStyle(.segmented)
+        .onChange(of: work) { _, newValue in workChanged(newValue) }
+        .onChange(of: tool) { _, newValue in toolChanged(newValue) }
+    }
+
+    private func workChanged(_ w: WorkMode) {
+        if !w.tools.contains(tool) { tool = w.tools.first ?? .reading }
+    }
+
+    private func toolChanged(_ t: MarkupMode) {
+        live.snapEnds = (t == .wallRemoval || t == .moisture)
+    }
+
+    private func undoTapped() {
+        model.undoLast()
+        live.undoUsed()
+    }
+
+    @ViewBuilder private var undoButton: some View {
+        if live.undoVisible && model.totalCount > 0 {
+            Button(action: undoTapped) {
+                Label("Undo", systemImage: "arrow.uturn.backward").font(.subheadline.bold())
+                    .frame(minWidth: 88, minHeight: 44)
             }
-            .pickerStyle(.segmented)
-            .onChange(of: work) { _, w in if !w.tools.contains(tool) { tool = w.tools.first ?? .reading } }
-            .onChange(of: tool) { _, t in live.snapEnds = (t == .wallRemoval || t == .moisture) }
-            if live.undoVisible && model.totalCount > 0 {
-                Button { model.undoLast(); live.undoUsed() } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward").font(.subheadline.bold())
-                        .frame(minWidth: 88, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-            }
+            .buttonStyle(.bordered)
         }
     }
 
     private var toolRow: some View {
         HStack(spacing: 12) {
             ForEach(work.tools) { t in
-                Button { tool = t } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: t.icon).font(.body.weight(.semibold))
-                        Text(t.title).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .foregroundStyle(tool == t ? Color.white : Color.primary)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(tool == t ? Color.accentColor : Color.clear))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(t.title)
+                toolButton(t)
             }
         }
+    }
+
+    private func toolButton(_ t: MarkupMode) -> some View {
+        let on: Bool = (tool == t)
+        let fg: Color = on ? Color.white : Color.primary
+        let bg: Color = on ? Color.accentColor : Color.clear
+        return Button(action: { tool = t }) {
+            VStack(spacing: 3) {
+                Image(systemName: t.icon).font(.body.weight(.semibold))
+                Text(t.title).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .foregroundStyle(fg)
+            .background(RoundedRectangle(cornerRadius: 10).fill(bg))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(t.title)
     }
 
     @ViewBuilder private var wallRemovalExtras: some View {
