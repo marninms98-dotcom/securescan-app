@@ -83,9 +83,9 @@ enum DemoSeed {
         }
     }
 
-    @discardableResult
     enum Thumb { case same, flipH, flipV, rotate }
 
+    @discardableResult
     private static func variant(address: String, ref: String, created: Date, thumb: Thumb = .same,
                                 change: (inout [String: Any]) -> Void) throws -> JobFolder {
         var meta = try JobProcessor.createDemoJob()
