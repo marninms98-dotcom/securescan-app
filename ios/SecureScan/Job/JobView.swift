@@ -438,7 +438,7 @@ struct JobView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.bottom, 4)
         .background {
             Rectangle().fill(.bar)
                 .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5) }
@@ -545,7 +545,11 @@ struct DocumentsSheet: View {
     let onChoose: (Choice) -> Void
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            Text("Documents")
+                .font(DS.Font.bodyBold)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
             List {
                 Section {
                     ForEach(vm.offeredDocuments) { k in
@@ -556,16 +560,19 @@ struct DocumentsSheet: View {
                     }
                 }
                 Section {
-                    row(icon: "shippingbox", title: "Job pack", caption: "Plans, photos, notes and audio in one file", enabled: true) {
+                    row(icon: "shippingbox", title: "Job pack", caption: "Plans, photos, notes and audio", enabled: true) {
                         onChoose(.jobPack)
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Documents")
-            .navigationBarTitleDisplayMode(.inline)
+            .listSectionSpacing(16)
+            .contentMargins(.top, 8, for: .scrollContent)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .presentationDetents([.height(vm.offeredDocuments.count > 2 ? 470 : 400), .large])
+        .background(Color(.systemGroupedBackground))
+        .presentationBackground(Color(.systemGroupedBackground))
+        .presentationDetents([.height(vm.offeredDocuments.count > 2 ? 420 : 350)])
         .presentationDragIndicator(.visible)
     }
 

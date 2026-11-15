@@ -110,17 +110,17 @@ enum ItemsModel {
         switch r.kind {
         case "removal":
             let what = r.material == "flooring" ? "Flooring to lift" : "\(removalName(r.material)) to remove"
-            return FixItem(id: r.id, title: what, detail: "Its ends weren't on a wall. Draw it on the plan.")
+            return FixItem(id: r.id, title: what, detail: "Not on the plan yet")
         case "reading":
-            return FixItem(id: r.id, title: "Reading" + (r.value.map { " · \(fmt($0)) %" } ?? ""), detail: "Saved, not on the plan yet.")
+            return FixItem(id: r.id, title: "Reading" + (r.value.map { " · \(fmt($0)) %" } ?? ""), detail: "Not on the plan yet")
         case "photo":
-            return FixItem(id: r.id, title: "Photo", detail: r.note.isEmpty ? "Saved, not on the plan yet." : r.note)
+            return FixItem(id: r.id, title: "Photo", detail: r.note.isEmpty ? "Not on the plan yet" : r.note)
         case "equipment":
-            return FixItem(id: r.id, title: PlanDocument.equipmentName(r.material), detail: "Saved, not on the plan yet.")
+            return FixItem(id: r.id, title: PlanDocument.equipmentName(r.material), detail: "Not on the plan yet")
         case "source":
-            return FixItem(id: r.id, title: "Water source", detail: r.note.isEmpty ? "Saved, not on the plan yet." : r.note)
+            return FixItem(id: r.id, title: "Water source", detail: r.note.isEmpty ? "Not on the plan yet" : r.note)
         default:
-            return FixItem(id: r.id, title: kindName(r.kind), detail: "Saved, not on the plan yet.")
+            return FixItem(id: r.id, title: kindName(r.kind), detail: "Not on the plan yet")
         }
     }
 

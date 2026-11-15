@@ -53,7 +53,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Prices")
                 } footer: {
-                    Text(showPrices ? "This iPhone shows rates and makes quotes." : "Crew see the scope without prices. Office PIN to turn on.")
+                    Text(showPrices ? "This iPhone shows rates and makes quotes." : "Crew see the scope, not the money. Needs the office PIN.")
                 }
 
                 Section {

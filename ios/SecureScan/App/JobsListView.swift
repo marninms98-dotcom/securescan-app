@@ -97,6 +97,9 @@ struct JobsListView: View {
 
     private var list: some View {
         List {
+            Section { searchField }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             ForEach(filtered) { job in
                 Section {
                     NavigationLink(value: job.id) {
@@ -135,7 +138,30 @@ struct JobsListView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(12)
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search address or claim")
+        .contentMargins(.top, 4, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    /// In the list (iOS 26 would put a system search bar at the bottom, under New job).
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search address or claim", text: $search)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !search.isEmpty {
+                Button { search = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .font(DS.Font.body)
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var emptyState: some View {
@@ -250,19 +276,9 @@ struct JobCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .monospacedDigit()
-                HStack(spacing: 8) {
-                    if let summary { StatusBadge(status: summary.status) }
-                    Text(dateLine)
-                        .font(DS.Font.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    if let n = summary?.toFix, n > 0 {
-                        Label("\(n) to fix", systemImage: "exclamationmark.circle.fill")
-                            .labelStyle(.titleAndIcon)
-                            .font(DS.Font.caption.weight(.semibold))
-                            .foregroundStyle(DS.Color.damp)
-                            .lineLimit(1)
-                    }
+                ViewThatFits(in: .horizontal) {
+                    statusLine(withRef: true)
+                    statusLine(withRef: false)
                 }
                 .padding(.top, 2)
             }
@@ -292,10 +308,23 @@ struct JobCard: View {
         return parts.joined(separator: " · ")
     }
 
-    private var dateLine: String {
-        let d = summary?.lastVisit ?? job.createdAt
-        var s = JobCard.day(d)
-        if !job.jobRef.isEmpty && job.jobRef != "DEMO" { s += " · " + job.jobRef }
+    private func statusLine(withRef: Bool) -> some View {
+        HStack(spacing: 6) {
+            if let summary { StatusBadge(status: summary.status) }
+            if let n = summary?.toFix, n > 0 {
+                StatusBadge(title: "\(n) to fix", color: DS.Color.damp)
+            }
+            Text(dateLine(withRef: withRef))
+                .font(DS.Font.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    private func dateLine(withRef: Bool) -> String {
+        var s = JobCard.day(summary?.lastVisit ?? job.createdAt)
+        if withRef && !job.jobRef.isEmpty && job.jobRef != "DEMO" { s += " · " + job.jobRef }
         return s
     }
 
@@ -309,16 +338,20 @@ struct JobCard: View {
 
 /// The job's state, as a small tinted capsule.
 struct StatusBadge: View {
-    let status: JobStatus
+    let title: String
+    let color: Color
+
+    init(status: JobStatus) { title = status.title; color = status.color }
+    init(title: String, color: Color) { self.title = title; self.color = color }
 
     var body: some View {
-        Text(status.title)
-            .font(DS.Font.caption.weight(.semibold))
-            .foregroundStyle(status.color)
+        Text(title)
+            .font(DS.Font.captionBold)
+            .foregroundStyle(color)
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, 8)
             .frame(height: 22)
-            .background(status.color.opacity(0.12), in: Capsule())
+            .background(color.opacity(0.12), in: Capsule())
     }
 }
