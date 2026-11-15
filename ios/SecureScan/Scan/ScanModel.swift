@@ -2,11 +2,12 @@
 //  ScanModel.swift
 //  SecureScan
 //
-//  State of the scan screen: rooms captured so far, items logged, the
-//  Next room / Finish flow, and saving everything to the job folder as it
-//  happens (rooms/<n>.json and readings-raw.json) so a failed merge or a
-//  crash never loses what was captured. One capture model for all six input
-//  types: one sheet, one toast pattern, one counter, Undo last, a list.
+//  The first visit: rooms captured so far, everything marked, the Room done /
+//  Next room / Finish flow, and saving to the job folder as it happens
+//  (rooms/<n>.json and readings-raw.json) so a failed merge or a crash never
+//  loses what was captured. It is the CaptureEngine behind the one capture
+//  screen for both scan cameras (classic RoomCaptureView, live ARSCNView):
+//  marking during the scan and after a room is the same screen.
 //
 
 import Foundation
@@ -14,68 +15,50 @@ import CoreImage
 import RoomPlan
 import ARKit
 import SwiftUI
+import simd
 
-/// Hands a CIImage to the background JPEG encoder (CIImage is immutable).
+/// Hands a CIImage to a background encoder (CIImage is immutable).
 final class ImageBox: @unchecked Sendable {
     let image: CIImage?
     init(_ image: CIImage?) { self.image = image }
 }
 
-/// One "Log" tap waiting for the user to finish the sheet.
-struct PendingLog: Identifiable {
-    let id: String
-    let seq: Int
-    let roomIndex: Int
-    let takenAt: String
-    let capture: FrameCapture
-    let photoTask: Task<Data?, Never>
-}
-
 @MainActor
-final class ScanModel: ObservableObject, LogSheetModel {
+final class ScanModel: ObservableObject, CaptureEngine {
 
     enum Phase: Equatable {
         case scanning                // a room is being scanned
         case processingRoom          // waiting for RoomPlan to finish a room
         case roomFailed(String)      // last room failed; rooms before it are kept
-        case roomDone                // a room is saved: Mark up this room / Scan next room / Finish
-        case preparingMarkup         // building the plan so far for the AR mark-up
+        case roomDone                // a room is saved: mark it, next room, or finish
         case finishing(String)       // merging / exporting / building the plan
     }
 
     @Published var phase: Phase = .scanning
     @Published private(set) var roomsDone = 0
-    @Published private(set) var readingCount = 0
-    @Published private(set) var photoCount = 0
     @Published private(set) var totalCount = 0
-    @Published var toast: String?
-    @Published var pending: PendingLog?
-    @Published var lastMaterial = "wall"
-    @Published var lastEquipmentType = "airMover"
-    @Published var lastKind = "reading"
-    @Published var lastRemovalItem = "plasterboard"
     @Published var alert: String?
-    @Published var showItems = false
-    var attachPhoto = true
-    /// The AR mark-up screen for the rooms so far, when open.
-    @Published var markup: RevisitModel?
-    let flow = CaptureFlow()
+    @Published var confirmClose = false
 
     let job: JobMeta
     let folder: JobFolder
     weak var controller: (any ScanCaptureControlling)?
     /// Simulator screenshots only: no camera, nothing is deleted.
     let preview: Bool
+    private(set) lazy var hud = CaptureHUDModel(engine: self)
 
     private var rooms: [CapturedRoom] = []
     private(set) var raw: [RawReading] = []
+    private var extras: ScanExtras
     private var nextSeq = 1
     private var finishRequested = false
+    private var finishNow = false
     private var discarded = false
     private var finalized = false
     private var photoWrites: [Task<Void, Never>] = []
     private let onFinished: (UUID) -> Void
     private let onDiscarded: () -> Void
+    private var marksCache: (key: String, marks: [OverlayMark])?
 
     init(job: JobMeta, preview: Bool = false, onFinished: @escaping (UUID) -> Void, onDiscarded: @escaping () -> Void) {
         self.job = job
@@ -84,39 +67,278 @@ final class ScanModel: ObservableObject, LogSheetModel {
         self.onFinished = onFinished
         self.onDiscarded = onDiscarded
         self.raw = JobFiles.loadRawReadings(folder)
+        self.extras = ScanExtras.load(folder)
         self.nextSeq = (raw.map(\.seq).max() ?? 0) + 1
         recount()
         if !preview { ScanOpenMarker.mark(folder) }
     }
 
     var currentRoomNumber: Int { roomsDone + 1 }
-    var nextReadingNumber: Int { readingCount + 1 }
-    var nextPhotoNumber: Int { photoCount + 1 }
-    var canLog: Bool {
-        switch phase {
-        case .finishing, .preparingMarkup: return false
-        default: return !flow.isBusy && markup == nil
-        }
-    }
     var hasAnything: Bool { roomsDone > 0 || !raw.isEmpty || JobFiles.hasAudio(folder) }
     var hasAudio: Bool { JobFiles.hasAudio(folder) }
-
-    /// Logged items, newest first, for the list.
     var loggedItems: [RawReading] { raw.sorted { $0.seq > $1.seq } }
 
-    // MARK: Voice notes
+    /// The room being scanned (or, after Room done, the one just saved): 1-based.
+    private var activeRoom: Int { phase == .roomDone ? max(roomsDone, 1) : roomsDone + 1 }
+
+    // MARK: CaptureEngine - what the screen says
+
+    var roomName: String { extras.roomNames["\(activeRoom)"] ?? "Room \(activeRoom)" }
+
+    var phaseText: String {
+        switch phase {
+        case .scanning: return "Scanning"
+        case .processingRoom: return "Saving room"
+        case .roomFailed: return "Room didn't save"
+        case .roomDone: return "Marking"
+        case .finishing: return "Finishing"
+        }
+    }
+
+    var coaching: String? {
+        switch phase {
+        case .scanning: return controller?.coaching
+        case .roomFailed(let m): return m
+        case .processingRoom: return "Hold still a moment"
+        default: return nil
+        }
+    }
+
+    var quietActions: [QuietAction] {
+        switch phase {
+        case .scanning: return [QuietAction(id: "roomDone", title: "Room done"), QuietAction(id: "finish", title: "Finish")]
+        case .roomDone: return [QuietAction(id: "next", title: "Next room"), QuietAction(id: "finish", title: "Finish")]
+        case .roomFailed: return [QuietAction(id: "retry", title: "Scan again"), QuietAction(id: "finish", title: "Finish")]
+        case .processingRoom: return [QuietAction(id: "roomDone", title: "Room done", enabled: false), QuietAction(id: "finish", title: "Finish")]
+        case .finishing: return []
+        }
+    }
+
+    var showsTools: Bool {
+        if case .finishing = phase { return false }
+        return true
+    }
+
+    var busyText: String? {
+        if case .finishing(let t) = phase { return t }
+        return nil
+    }
+
+    var isReturnVisit: Bool { false }
+    var isScopeOnSite: Bool { false }
+    var canRenameRoom: Bool { true }
+
+    var recordingSince: Date? {
+        let r = VoiceRecorder.shared
+        return r.isRecording ? r.startedAt : nil
+    }
+
+    func perform(quiet id: String) {
+        switch id {
+        case "roomDone": nextRoom()
+        case "next": scanNextRoom()
+        case "retry": retryRoom()
+        case "finish": finish()
+        default: break
+        }
+    }
+
+    /// Confirm only when something would be lost.
+    func requestClose() {
+        if hasAnything || phase == .scanning && roomsDone == 0 && preview == false && controller?.liveWorld.walls.isEmpty == false {
+            confirmClose = true
+        } else {
+            discard()
+        }
+    }
 
     func toggleRecording() {
         let recorder = VoiceRecorder.shared
         if recorder.isRecording {
             recorder.stop()
-            showToast("Voice note saved")
+            hud.showToast("Voice note saved")
         } else {
             Task {
-                if await recorder.start(folder: folder) { showToast("Recording voice notes") }
+                if await recorder.start(folder: folder) { hud.showToast("Recording") }
                 else if let p = recorder.problem { alert = p; recorder.problem = nil }
             }
         }
+        objectWillChange.send()
+    }
+
+    func renameRoom(_ name: String) {
+        extras.roomNames["\(activeRoom)"] = name
+        if !preview { extras.save(folder) }
+        objectWillChange.send()
+        if finishRequested && phase == .roomDone { finalize() }
+    }
+
+    func roomSections() -> [String] {
+        if phase == .roomDone, let r = rooms.last { return ScanWorld.sectionLabels(r) }
+        return controller?.liveSections ?? []
+    }
+
+    // MARK: CaptureEngine - the world
+
+    var world: CaptureWorld { controller?.liveWorld ?? .empty }
+
+    func aimSample() -> AimSample? { ScanWorld.aimSample(controller?.arSession) }
+
+    func projector(viewport: CGSize) -> Projector? { ScanWorld.projector(controller?.arSession, viewport: viewport) }
+
+    func overlayMarks() -> [OverlayMark] {
+        let w = world
+        let key = "\(raw.count)|\(raw.last?.id ?? "")|\(extras.airflow.count)|\(Int(((w.floorY ?? 0) * 50).rounded()))|\(w.walls.count)"
+        if let c = marksCache, c.key == key { return c.marks }
+        let m = ScanMarks.build(raw, world: w, extras: extras)
+        marksCache = (key, m)
+        return m
+    }
+
+    func shot(photo: Bool) -> CaptureShot? {
+        guard canCapture else { return nil }
+        return ScanWorld.shot(controller?.arSession, prefix: "ar-", photo: photo)
+    }
+
+    private var canCapture: Bool {
+        switch phase {
+        case .finishing: return false
+        default: return !discarded
+        }
+    }
+
+    // MARK: CaptureEngine - saving
+
+    func save(_ d: CaptureDraft) async -> Result<SavedCapture, PlainWords.Problem> {
+        let room = roomName
+        let roomIndex = phase == .roomDone ? max(roomsDone - 1, 0) : roomsDone
+        switch d {
+        case .reading(let s, let value, let material, let reference):
+            var r = record(s, kind: "reading", material: material, roomIndex: roomIndex)
+            r.value = value
+            r.reference = reference
+            commit(r, photo: s.photo)
+            let n = raw.filter { $0.kind == "reading" }.count
+            return .success(SavedCapture(entry: entry(r, kind: "reading", title: "\(CaptureCopy.readingTag(n)) · \(CaptureCopy.number(value))%",
+                                                      detail: "\(CaptureCopy.materialName(material)) · \(room)", photo: true)))
+        case .photo(let s, let caption):
+            let r = record(s, kind: "photo", material: "wall", note: caption, roomIndex: roomIndex)
+            commit(r, photo: s.photo)
+            let n = raw.filter { $0.kind == "photo" }.count
+            return .success(SavedCapture(entry: entry(r, kind: "photo", title: CaptureCopy.photoTag(n), detail: caption.isEmpty ? room : caption, photo: true)))
+        case .source(let s, let cause, let note):
+            let label = note.trimmingCharacters(in: .whitespaces).isEmpty ? cause : "\(cause) — \(note)"
+            let r = record(s, kind: "source", material: "wall", note: label, roomIndex: roomIndex)
+            commit(r, photo: s.photo)
+            return .success(SavedCapture(entry: entry(r, kind: "source", title: "Source", detail: cause, photo: true)))
+        case .equipment(let s, let type, let asset):
+            var r = record(s, kind: "equipment", material: type, note: asset, roomIndex: roomIndex)
+            if let h = s.hit, let fy = world.floorY { r.hit = [h.x, fy, h.z] }
+            commit(r, photo: s.photo)
+            let n = raw.filter { $0.kind == "equipment" && $0.material == type }.count
+            return .success(SavedCapture(entry: entry(r, kind: "equipment", title: "\(CaptureCopy.equipmentName(type)) \(n)", detail: room, photo: true),
+                                         airflowFor: type == "airMover" ? r.id : nil))
+        case .mark(let m):
+            return .success(saveMark(m, roomIndex: roomIndex, room: room))
+        }
+    }
+
+    private func saveMark(_ m: MarkDraft, roomIndex: Int, room: String) -> SavedCapture {
+        guard let first = m.shots.first else { return SavedCapture(entry: CaptureStack.Entry(id: "", ids: [], kind: "mark", title: "", detail: "", hasPhoto: false)) }
+        let measure = m.meaning.isArea ? m.area.map(CaptureCopy.area) : m.length.map(CaptureCopy.length)
+        let title = [m.meaning.tag, measure].compactMap { $0 }.joined(separator: " · ")
+        let problem = MarkCheck.problem(meaning: m.meaning, points: m.shots.compactMap(\.hit), world: world)
+        switch m.meaning {
+        case .moistureLine:
+            var ids: [String] = []
+            for (i, s) in m.shots.enumerated() {
+                var shot = s
+                if i > 0 { shot.id = CaptureIDs.new("ar-") }
+                let r = record(shot, kind: "boundary", material: "wall", roomIndex: roomIndex)
+                commit(r, photo: i == 0 ? s.photo : nil)
+                ids.append(r.id)
+            }
+            var e = CaptureStack.Entry(id: ids[0], ids: ids, kind: "mark", title: title, detail: room, hasPhoto: first.photo != nil)
+            e.needsFix = problem?.sentence
+            return SavedCapture(entry: e)
+        case .wetFloor:
+            var r = record(first, kind: "affected", material: "floor", note: "Wet area", roomIndex: roomIndex)
+            r.corners = m.shots.map(Self.pose9)
+            commit(r, photo: first.photo)
+            return SavedCapture(entry: entry(r, kind: "mark", title: title, detail: room, photo: first.photo != nil))
+        case .liftFlooring:
+            var r = record(first, kind: "removal", material: "flooring", roomIndex: roomIndex)
+            r.heightMm = 0
+            r.corners = m.wholeRoom ? nil : m.shots.map(Self.pose9)
+            r.wholeRoom = m.wholeRoom ? true : nil
+            r.floorType = m.floorType
+            r.underlay = m.underlay ? true : nil
+            commit(r, photo: first.photo)
+            let t = "\(MarkIntent.floorTypes.first { $0.key == m.floorType }?.name ?? "Flooring")\(measure.map { " · \($0)" } ?? "")"
+            return SavedCapture(entry: entry(r, kind: "mark", title: t, detail: room, photo: first.photo != nil))
+        case .skirting, .wallLining, .cabinetry:
+            var r = record(first, kind: "removal", material: m.meaning.removalItem ?? "other", roomIndex: roomIndex)
+            if m.shots.count >= 2 {
+                let e = m.shots[m.shots.count - 1]
+                r.endCameraPosition = Self.arr(e.camera)
+                r.endCameraForward = Self.arr(e.forward)
+                r.endHit = e.hit.map(Self.arr)
+            }
+            r.heightMm = Double(m.heightMm)
+            commit(r, photo: first.photo)
+            var e = entry(r, kind: "mark", title: title, detail: room, photo: first.photo != nil)
+            e.needsFix = problem?.sentence
+            return SavedCapture(entry: e)
+        }
+    }
+
+    private func entry(_ r: RawReading, kind: String, title: String, detail: String, photo: Bool) -> CaptureStack.Entry {
+        CaptureStack.Entry(id: r.id, ids: [r.id], kind: kind, title: title, detail: detail, hasPhoto: photo && r.photoFile != nil)
+    }
+
+    private func record(_ s: CaptureShot, kind: String, material: String, note: String = "", roomIndex: Int) -> RawReading {
+        let seq = nextSeq
+        nextSeq += 1
+        var r = RawReading(id: s.id, seq: seq, kind: kind, value: nil, material: material, reference: false, note: note,
+                           takenAt: s.takenAt, roomIndex: roomIndex,
+                           cameraPosition: Self.arr(s.camera), cameraForward: Self.arr(s.forward),
+                           hit: s.hit.map(Self.arr), hitKind: s.hitKind,
+                           photoFile: s.photo == nil ? nil : "photos/\(s.id).jpg", resolved: nil)
+        r.hitNormal = s.normal.map(Self.arr)
+        return r
+    }
+
+    func remove(ids: [String]) { for id in ids { delete(id) } }
+
+    func edit(id: String, _ e: ItemEdit) {
+        switch e {
+        case .reading(let v, let m): updateRaw(id) { $0.value = v; $0.material = m }
+        case .caption(let t): updateRaw(id) { $0.note = t }
+        }
+    }
+
+    func equipmentUnits() -> [EquipmentGuard.Unit] {
+        var counts: [String: Int] = [:]
+        return raw.sorted { $0.seq < $1.seq }.compactMap { r -> EquipmentGuard.Unit? in
+            guard r.kind == "equipment", let h = r.hit, h.count == 3 else { return nil }
+            counts[r.material, default: 0] += 1
+            let tag = r.note.isEmpty ? "\(CaptureCopy.equipmentShort[r.material] ?? "EQ") \(counts[r.material] ?? 1)" : r.note
+            return EquipmentGuard.Unit(id: r.id, type: r.material, pos: PlanVec(h[0], h[2]), hasAirflow: extras.airflow[r.id] != nil, tag: tag)
+        }
+    }
+
+    func setAirflow(id: String, direction: WorldVec) -> Bool {
+        extras.airflow[id] = [PlanDocument.r4(direction.x), PlanDocument.r4(direction.z)]
+        if !preview { extras.save(folder) }
+        marksCache = nil
+        return true
+    }
+
+    func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary? {
+        if case .processingRoom = phase, tool != .photo {
+            return EnginePrimary(title: "Saving the room…", enabled: false, action: {})
+        }
+        return nil
     }
 
     // MARK: Rooms
@@ -132,72 +354,32 @@ final class ScanModel: ObservableObject, LogSheetModel {
         controller?.startRoom()
     }
 
-    /// Finish on the scan screen ends the room and offers "Mark up this
-    /// room" first; `now` (the choice card's Finish, "Save what's captured")
-    /// builds the job straight away.
+    /// Finish: ends the room being scanned (then asks its name), or builds the job.
+    /// `now` ("Save what's captured"): no room-name question, build as soon as the room is in.
     func finish(now: Bool = false) {
-        flow.cancel()
         switch phase {
         case .scanning:
-            finishRequested = now
+            finishRequested = true
+            finishNow = now
             phase = .processingRoom
             controller?.finishRoom()
-            if now { finishSafetyNet() }
+            finishSafetyNet()
         case .processingRoom:
-            if now { finishRequested = true; finishSafetyNet() }
+            finishRequested = true
+            finishNow = finishNow || now
+            finishSafetyNet()
         case .roomFailed, .roomDone:
-            if now || phase != .roomDone { finalize() }
-        case .finishing, .preparingMarkup:
+            finalize()
+        case .finishing:
             break
         }
     }
 
-    /// From the choice card: back to RoomPlan for the next room.
     func scanNextRoom() {
         guard phase == .roomDone else { return }
         phase = .scanning
         controller?.startRoom()
         VoiceRecorder.shared.ensureRunning()
-    }
-
-    /// "Mark up this room": builds the plan of the rooms so far (walls and the
-    /// plan frame), then opens the AR mark-up on the scan's own ARSession when
-    /// it is still running; otherwise on a new session that relocalises with
-    /// the world map saved now, or failing that is aligned by two corners.
-    func markUp() {
-        guard phase == .roomDone, !preview else { return }
-        phase = .preparingMarkup
-        let folder = self.folder
-        let writes = photoWrites
-        Task {
-            for w in writes { await w.value }        // photos on disk before the plan embeds them
-            do {
-                _ = try await Task.detached(priority: .userInitiated) {
-                    try JobProcessor.buildPlan(folder: folder, modelNote: nil)
-                }.value
-            } catch {
-                self.phase = .roomDone
-                self.alert = "The plan so far could not be built (\(error.localizedDescription)). Scan the next room or Finish; nothing is lost."
-                return
-            }
-            let session = self.controller?.arSession
-            let running = session?.currentFrame != nil
-            if !running, let c = self.controller { _ = await c.saveWorldMap(to: folder.worldMapURL, timeout: 3) }
-            let start = MarkupStart.strategy(sharedSessionRunning: running,
-                                             hasPlanFrame: JobFiles.loadFrame(folder) != nil,
-                                             hasWorldMap: FileManager.default.fileExists(atPath: folder.worldMapURL.path))
-            let m = RevisitModel(folder: folder, firstScan: self, session: start == .sharedSession ? session : nil,
-                                 start: start, roomNumber: self.roomsDone)
-            self.markup = m
-            self.phase = .roomDone
-        }
-    }
-
-    /// Back from the mark-up screen to the choice card.
-    func closeMarkup() {
-        markup?.flow.cancel()
-        markup = nil
-        recount()
     }
 
     /// If RoomPlan never reports back, finish with what we have.
@@ -218,7 +400,7 @@ final class ScanModel: ObservableObject, LogSheetModel {
         onDiscarded()
     }
 
-    /// Called by ScanViewController when RoomPlan has processed a room.
+    /// Called by the scan camera when RoomPlan has processed a room.
     func roomProcessed(_ room: CapturedRoom, error: Error?) {
         guard !discarded, !finalized else { return }
         if error == nil || !room.walls.isEmpty {
@@ -229,33 +411,21 @@ final class ScanModel: ObservableObject, LogSheetModel {
                 alert = "Room \(rooms.count) could not be saved to disk: \(error.localizedDescription)"
             }
             roomsDone = rooms.count
-            if finishRequested {
-                finalize()
-            } else {
-                showToast("Room \(roomsDone) saved")
-                phase = .roomDone
-                // Keep the voice recording going while marking up.
-                VoiceRecorder.shared.ensureRunning()
-            }
+            phase = .roomDone
+            if finishNow { finalize(); return }
+            VoiceRecorder.shared.ensureRunning()
+            // Name it now (RoomPlan's sections pre-select); Finish continues after the name.
+            hud.askRoomName()
         } else {
-            let message = error?.localizedDescription ?? "Unknown error"
-            if finishRequested {
-                finalize()
-            } else {
-                phase = .roomFailed("That room didn't save (\(message)). Rooms already saved are kept.")
-            }
+            let message = PlainWords.roomFailed(error?.localizedDescription)
+            if finishRequested { finalize() } else { phase = .roomFailed(message) }
         }
     }
 
-    /// The live screen could not build a room (no CapturedRoom to hand over):
-    /// the same as a failed room on the classic screen, including Finish.
+    /// The live screen could not build a room.
     func liveRoomFailed(_ message: String) {
         guard !discarded, !finalized else { return }
-        if finishRequested {
-            finalize()
-        } else {
-            phase = .roomFailed(message)
-        }
+        if finishRequested { finalize() } else { phase = .roomFailed(PlainWords.roomFailed(message)) }
     }
 
     private func finalize() {
@@ -272,15 +442,13 @@ final class ScanModel: ObservableObject, LogSheetModel {
             onDiscarded()
             return
         }
+        extras.save(folder)
         let writes = photoWrites
         Task {
-            // Save the AR world map (for return visits) while the session still runs.
             if !rooms.isEmpty, let c = self.controller {
                 _ = await c.saveWorldMap(to: folder.worldMapURL)
             }
             self.controller?.shutdown()
-            // Make sure every logged photo is on disk before the plan embeds them,
-            // and the voice recording is closed and converted.
             for w in writes { await w.value }
             await VoiceRecorder.shared.waitForConversions()
             let note = await JobProcessor.exportModel(rooms: rooms, folder: folder)
@@ -290,7 +458,7 @@ final class ScanModel: ObservableObject, LogSheetModel {
                     try JobProcessor.buildPlan(folder: folder, modelNote: note ?? "")
                 }.value
             } catch {
-                self.alert = "The plan could not be built: \(error.localizedDescription). Your rooms and readings are saved — open the job and use Files › Regenerate plan."
+                self.alert = "The plan couldn't be drawn yet. Everything you captured is saved — open the job and choose Files › Regenerate plan."
                 return
             }
             ScanOpenMarker.clear(folder)
@@ -298,144 +466,31 @@ final class ScanModel: ObservableObject, LogSheetModel {
         }
     }
 
-    /// Dismiss the build-failure alert and open the job anyway.
     func acknowledgeFinalAlert() {
         guard alert != nil else { return }
         alert = nil
         if finalized { onFinished(job.id) }
     }
 
-    // MARK: Logging
-
-    func beginLog() {
-        guard canLog, pending == nil else { return }
-        guard let p = capturePending() else {
-            showToast("Camera not ready — try again")
-            return
-        }
-        pending = p
-    }
-
-    /// Camera pose + raycast now, photo encoded in the background.
-    private func capturePending() -> PendingLog? {
-        guard let capture = controller?.captureFrame() else { return nil }
-        // The CIImage wraps ARKit's camera pixel buffer: only the encode task keeps
-        // it (briefly), not the pending item, so ARKit's buffer pool isn't starved.
-        let box = ImageBox(capture.image)
-        let task = Task.detached(priority: .userInitiated) { FrameEncoder.jpeg(from: box.image) }
-        var pose = capture
-        pose.image = nil
-        let seq = nextSeq
-        nextSeq += 1
-        return PendingLog(id: "ar-" + UUID().uuidString.prefix(8).lowercased(), seq: seq,
-                          roomIndex: rooms.count, takenAt: PlanDocument.iso(Date()),
-                          capture: pose, photoTask: task)
-    }
-
-    func cancelLog() { pending = nil }
-
-    static func arr(_ v: SIMD3<Float>) -> [Double] { [Double(v.x), Double(v.y), Double(v.z)] }
-
-    /// Saves the pending item. kind: "reading" | "boundary" | "photo" | "source" |
-    /// "equipment" (material = type) | "floorType" (material = floor type).
-    func saveLog(kind: String, value: Double?, material: String, reference: Bool, note: String) {
-        guard let p = pending else { return }
-        pending = nil
-        if kind == "reading" { lastMaterial = material }
-        if kind == "equipment" { lastEquipmentType = material }
-        if kind != "floorType" { lastKind = kind }
-        let c = p.capture
-        var r = RawReading(id: p.id, seq: p.seq, kind: kind, value: kind == "reading" ? value : nil,
-                           material: material, reference: kind == "reading" && reference, note: note,
-                           takenAt: p.takenAt, roomIndex: p.roomIndex,
-                           cameraPosition: Self.arr(c.cameraPosition), cameraForward: Self.arr(c.cameraForward),
-                           hit: c.hit.map(Self.arr), hitKind: c.hitKind, photoFile: "photos/\(p.id).jpg", resolved: nil)
-        r.hitNormal = c.hitNormal.map(Self.arr)
-        if kind == "floorType" { r.floorType = material }
-        let photo = attachPhoto
-        attachPhoto = true
-        if !photo { r.photoFile = nil }
-        commit(r, photoTask: photo ? p.photoTask : nil)
-        switch kind {
-        case "reading": logged("Reading \(readingCount)", "\(Self.format(value ?? 0))%")
-        case "photo": logged("Photo P\(photoCount)", note.isEmpty ? nil : note)
-        case "source": logged("Source", note.isEmpty ? nil : note)
-        case "equipment": logged(PlanDocument.equipmentName(material), note.isEmpty ? nil : note)
-        case "floorType": logged("Floor type", material.capitalized)
-        default: logged(LogKind.name(kind), nil)
-        }
-    }
-
-    // MARK: Removals (two taps on a wall, or floor corners)
-
-    func startRemoval(item: String) {
-        guard let p = pending else { return }
-        pending = nil
-        lastRemovalItem = item
-        lastKind = "removal"
-        flow.begin(item: item, start: p)
-    }
-
-    func endHere() {
-        guard let c = controller?.captureFrame() else { showToast("Camera not ready — try again"); return }
-        var pose = c
-        pose.image = nil
-        flow.setEnd(pose)
-    }
-
-    func addCorner() {
-        guard let c = controller?.captureFrame() else { showToast("Camera not ready — try again"); return }
-        var pose = c
-        pose.image = nil
-        flow.addCorner(pose)
-    }
-
-    func saveRemoval(item: String, heightMm: Int, note: String, floorType: String?, underlay: Bool) {
-        guard let d = flow.finish(item: item, heightMm: heightMm, note: note, floorType: floorType, underlay: underlay) else { return }
-        let s = d.start
-        var r = RawReading(id: s.id, seq: s.seq, kind: "removal", value: nil, material: d.item, reference: false, note: d.note,
-                           takenAt: s.takenAt, roomIndex: s.roomIndex,
-                           cameraPosition: Self.arr(s.capture.cameraPosition), cameraForward: Self.arr(s.capture.cameraForward),
-                           hit: s.capture.hit.map(Self.arr), hitKind: s.capture.hitKind,
-                           photoFile: "photos/\(s.id).jpg", resolved: nil)
-        r.hitNormal = s.capture.hitNormal.map(Self.arr)
-        if let e = d.end {
-            r.endCameraPosition = Self.arr(e.cameraPosition)
-            r.endCameraForward = Self.arr(e.cameraForward)
-            r.endHit = e.hit.map(Self.arr)
-        }
-        r.heightMm = d.item == "flooring" ? 0 : Double(d.heightMm)
-        if !d.corners.isEmpty {
-            r.corners = d.corners.map { c in Self.arr(c.cameraPosition) + Self.arr(c.cameraForward) + (c.hit.map(Self.arr) ?? []) }
-        }
-        r.wholeRoom = d.wholeRoom ? true : nil
-        r.floorType = d.floorType
-        r.underlay = d.underlay ? true : nil
-        commit(r, photoTask: s.photoTask)
-        logged("Removal", d.item == "flooring" ? "Flooring\(d.wholeRoom ? " · whole room" : "")" : "\(RemovalItems.name(d.item)) to \(d.heightMm) mm")
-    }
-
     // MARK: Saving, undo, delete
 
-    /// Appends a record, persists it at once, writes its photo when ready.
-    func commit(_ record: RawReading, photoTask: Task<Data?, Never>?) {
+    static func arr(_ v: SIMD3<Float>) -> [Double] { [Double(v.x), Double(v.y), Double(v.z)] }
+    static func arr(_ v: WorldVec) -> [Double] { [v.x, v.y, v.z] }
+    static func pose9(_ s: CaptureShot) -> [Double] { arr(s.camera) + arr(s.forward) + (s.hit.map(arr) ?? []) }
+
+    /// Appends a record, persists it at once, writes its photo files when ready.
+    func commit(_ record: RawReading, photo: Task<CapturedPhoto?, Never>?) {
         raw.append(record)
         persistRaw()
         recount()
-        // The photo is written when the JPEG is ready; if it fails the record
-        // simply loses its photo.
+        marksCache = nil
+        guard record.photoFile != nil, let photo, !preview else { return }
         let folder = self.folder
         let id = record.id
-        guard let photoFile = record.photoFile, let photoTask else { return }
         let write = Task {
-            let data = await photoTask.value
-            // Scan discarded meanwhile, or the item undone: don't recreate it.
+            let p = await photo.value
             guard !self.discarded, self.raw.contains(where: { $0.id == id }) else { return }
-            var ok = false
-            if let data {
-                try? FileManager.default.createDirectory(at: folder.photosDir, withIntermediateDirectories: true)
-                ok = (try? data.write(to: folder.url.appendingPathComponent(photoFile), options: .atomic)) != nil
-            }
+            let ok = p.map { PhotoFiles.write($0, id: id, folder: folder) } ?? false
             if !ok, let i = self.raw.firstIndex(where: { $0.id == id }) {
                 self.raw[i].photoFile = nil
                 self.persistRaw()
@@ -444,108 +499,121 @@ final class ScanModel: ObservableObject, LogSheetModel {
         photoWrites.append(write)
     }
 
-    /// Removes the most recently logged item (record and photo).
-    func undoLast() {
-        guard let last = raw.max(by: { $0.seq < $1.seq }) else { return }
-        delete(last.id)
-        showToast("Undone: \(describe(last).title) · \(totalCount) item\(totalCount == 1 ? "" : "s")")
-    }
-
-    /// The next capture number (AR mark-up records share the scan's order).
-    func allocateSeq() -> Int {
-        defer { nextSeq += 1 }
-        return nextSeq
-    }
-
-    /// Changes a raw record in place (AR mark-up edits) and saves at once.
     func updateRaw(_ id: String, _ change: (inout RawReading) -> Void) {
         guard let i = raw.firstIndex(where: { $0.id == id }) else { return }
         change(&raw[i])
         persistRaw()
         recount()
+        marksCache = nil
     }
 
     func delete(_ id: String) {
         guard let i = raw.firstIndex(where: { $0.id == id }) else { return }
-        let r = raw.remove(at: i)
-        if let f = r.photoFile { try? FileManager.default.removeItem(at: folder.url.appendingPathComponent(f)) }
+        raw.remove(at: i)
+        if !preview { PhotoFiles.remove(id: id, folder: folder) }
+        extras.airflow[id] = nil
         persistRaw()
         recount()
-        // Once a mark-up has built plan.json the item is in there too (a later
-        // build keeps document items), so take it out of the plan as well.
-        if !preview, let data = try? Data(contentsOf: folder.planURL),
-           let doc = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-           let out = MarkupEdit.delete(doc, id: id),
-           let clean = PlanDocument.sanitised(out) as? [String: Any],
-           let bytes = try? PlanDocument.data(clean) {
-            try? bytes.write(to: folder.planURL, options: .atomic)
-        }
-    }
-
-    func describe(_ r: RawReading) -> (title: String, detail: String) {
-        switch r.kind {
-        case "reading": return ("Reading", r.value.map { "\(Self.format($0))% · \(r.material)" } ?? r.material)
-        case "equipment": return (PlanDocument.equipmentName(r.material), r.note)
-        case "removal":
-            let what = RemovalItems.name(r.material)
-            return ("Removal", r.material == "flooring" ? what + (r.floorType.map { " · \($0)" } ?? "")
-                                                       : "\(what) to \(Int(r.heightMm ?? 0)) mm")
-        case "floorType": return ("Floor type", (r.floorType ?? r.material).capitalized)
-        case "affected": return ("Wet area", r.note)
-        case "boundary": return ("Moisture line", "")
-        default: return (LogKind.name(r.kind), r.note)
-        }
+        marksCache = nil
     }
 
     private func persistRaw() {
         guard !preview else { return }
         do { try JobFiles.saveRawReadings(raw, folder) }
-        catch { alert = "Couldn't save readings: \(error.localizedDescription)" }
+        catch { alert = "Couldn't save what you captured: \(error.localizedDescription)" }
     }
 
     private func recount() {
-        readingCount = raw.filter { $0.kind == "reading" }.count
-        photoCount = raw.filter { $0.kind == "photo" }.count
         totalCount = raw.count
-    }
-
-    /// The one confirmation pattern for every type: "<what> logged · <detail> · N items".
-    private func logged(_ what: String, _ detail: String?) {
-        var parts = ["\(what) logged"]
-        if let d = detail, !d.isEmpty { parts.append(d) }
-        parts.append("\(totalCount) item\(totalCount == 1 ? "" : "s")")
-        showToast(parts.joined(separator: " · "))
-    }
-
-    func showToast(_ text: String) {
-        toast = text
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
-            if self?.toast == text { self?.toast = nil }
-        }
-    }
-
-    /// Simulator screenshots: open the Log sheet without a camera frame.
-    func previewLogSheet() {
-        let pose = FrameCapture(cameraPosition: .zero, cameraForward: SIMD3<Float>(0, 0, -1), hit: nil, hitKind: nil, image: nil)
-        lastKind = "removal"
-        pending = PendingLog(id: "preview", seq: 0, roomIndex: 0, takenAt: "", capture: pose, photoTask: Task { nil })
-    }
-
-    /// Simulator screenshots: show the removal bar as if Start here had been tapped.
-    func previewRemovalBar() {
-        let pose = FrameCapture(cameraPosition: .zero, cameraForward: SIMD3<Float>(0, 0, -1), hit: nil, hitKind: nil, image: nil)
-        let p = PendingLog(id: "preview", seq: 0, roomIndex: 0, takenAt: "", capture: pose, photoTask: Task { nil })
-        flow.begin(item: "skirting", start: p)
-    }
-
-    /// Simulator screenshots: the card shown when a room is saved.
-    func previewRoomDone() {
-        roomsDone = 1
-        phase = .roomDone
     }
 
     nonisolated static func format(_ v: Double) -> String {
         v.rounded() == v ? String(Int(v)) : String(format: "%.1f", v)
+    }
+}
+
+/// readings-raw.json items -> overlay marks (scan world space).
+enum ScanMarks {
+    static func build(_ raw: [RawReading], world: CaptureWorld, extras: ScanExtras) -> [OverlayMark] {
+        func v(_ a: [Double]?) -> WorldVec? { a.flatMap { $0.count == 3 ? WorldVec($0[0], $0[1], $0[2]) : nil } }
+        let fy = world.floorY
+        var out: [OverlayMark] = []
+        var readingN = 0, photoN = 0
+        var equipN: [String: Int] = [:]
+        var run: [WorldVec] = []
+        var runId = ""
+        func flushRun() {
+            if run.count >= 2 { out.append(OverlayMark(id: runId, style: .moisture, points: run, tag: "Moisture line")) }
+            run = []
+        }
+        for r in raw.sorted(by: { $0.seq < $1.seq }) {
+            let p = v(r.hit) ?? v(r.resolved)
+            if r.kind != "boundary" { flushRun() }
+            switch r.kind {
+            case "reading":
+                readingN += 1
+                guard let p else { continue }
+                out.append(OverlayMark(id: r.id, style: .reading(status: OverlayBuild.status(r.value, reference: false), reference: r.reference),
+                                       points: [p], value: r.value.map(CaptureCopy.number), tag: CaptureCopy.readingTag(readingN)))
+            case "photo":
+                photoN += 1
+                guard let p else { continue }
+                out.append(OverlayMark(id: r.id, style: .photo, points: [p], tag: CaptureCopy.photoTag(photoN)))
+            case "source":
+                guard let p else { continue }
+                let cause = r.note.components(separatedBy: " — ").first ?? r.note
+                out.append(OverlayMark(id: r.id, style: .source, points: [p], tag: cause.isEmpty || cause == "Unknown" ? "Source" : "\(cause) leak"))
+            case "equipment":
+                guard let p else { continue }
+                equipN[r.material, default: 0] += 1
+                let tag = r.note.isEmpty ? "\(CaptureCopy.equipmentShort[r.material] ?? "EQ") \(equipN[r.material] ?? 1)" : r.note
+                out.append(OverlayMark(id: r.id, style: .equipment(type: r.material, planned: false),
+                                       points: [WorldVec(p.x, fy ?? p.y, p.z)], airflow: extras.direction(r.id), tag: tag))
+            case "boundary":
+                guard let p else { continue }
+                if let last = run.last, simd_distance(last, p) > 3 { flushRun() }
+                if run.isEmpty { runId = r.id }
+                run.append(p)
+            case "affected":
+                let poly = (r.corners ?? []).compactMap { c -> WorldVec? in c.count >= 9 ? WorldVec(c[6], fy ?? c[7], c[8]) : nil }
+                guard poly.count >= 3 else { continue }
+                out.append(OverlayMark(id: r.id, style: .wetFloor, points: poly,
+                                       tag: "Wet floor · \(CaptureCopy.area(FloorArea.area(poly.map { PlanVec($0.x, $0.z) })))"))
+            case "removal":
+                if r.material == "flooring" {
+                    var poly = (r.corners ?? []).compactMap { c -> WorldVec? in c.count >= 9 ? WorldVec(c[6], fy ?? c[7], c[8]) : nil }
+                    if r.wholeRoom == true, let cam = v(r.cameraPosition), let room = world.room(containing: PlanVec(cam.x, cam.z)) {
+                        poly = room.polygon.map { WorldVec($0.x, fy ?? cam.y - 1.4, $0.y) }
+                    }
+                    guard poly.count >= 3 else { continue }
+                    let type = MarkIntent.floorTypes.first { $0.key == r.floorType }?.name ?? "Flooring"
+                    out.append(OverlayMark(id: r.id, style: .liftFlooring, points: poly,
+                                           tag: "\(type) · \(CaptureCopy.area(FloorArea.area(poly.map { PlanVec($0.x, $0.z) })))"))
+                } else {
+                    guard let a = p, let b = v(r.endHit) else { continue }
+                    let (wa, wb) = onWall(a, b, world: world)
+                    let base = fy ?? min(a.y, b.y)
+                    let len = simd_distance(PlanVec(wa.x, wa.y), PlanVec(wb.x, wb.y))
+                    let skirting = r.material == "skirting"
+                    let name = skirting ? "Skirting" : (r.material == "cabinetry" ? "Cabinetry" : "Wall lining")
+                    out.append(OverlayMark(id: r.id, style: skirting ? .skirting : .lining,
+                                           points: [WorldVec(wa.x, base, wa.y), WorldVec(wb.x, base, wb.y)],
+                                           top: skirting ? nil : (r.heightMm ?? 600) / 1000, tag: "\(name) · \(CaptureCopy.length(len))"))
+                }
+            default:
+                break
+            }
+        }
+        flushRun()
+        return out
+    }
+
+    /// The two ends of a wall stretch moved onto the nearest wall line (x, z).
+    static func onWall(_ a: WorldVec, _ b: WorldVec, world: CaptureWorld) -> (PlanVec, PlanVec) {
+        let pa = PlanVec(a.x, a.z), pb = PlanVec(b.x, b.z)
+        guard let n = world.nearestWall(to: (pa + pb) / 2, maxDistance: 0.5) else { return (pa, pb) }
+        let w = n.wall
+        func proj(_ p: PlanVec) -> PlanVec { w.a + (w.b - w.a) * min(max(PlanBuilder.projectParam(p, w.a, w.b), 0), 1) }
+        return (proj(pa), proj(pb))
     }
 }
