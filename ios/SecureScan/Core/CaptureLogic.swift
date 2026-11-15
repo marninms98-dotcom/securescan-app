@@ -508,7 +508,7 @@ enum EquipmentGuard {
 // MARK: - Problems in plain words
 
 enum PlainWords {
-    struct Problem: Equatable {
+    struct Problem: Error, Equatable {
         var sentence: String
         var fix: String
     }
