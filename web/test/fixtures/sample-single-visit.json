@@ -1,0 +1,910 @@
+{
+  "version": 1,
+  "id": "6f1c2a9e-3b7d-4e52-9a10-5d2c8e4b7f31",
+  "address": "30 Sample Cr, Testwood, WA",
+  "jobRef": "CLM-00-000001",
+  "createdAt": "2026-11-12T01:20:00Z",
+  "updatedAt": "2026-11-12T02:05:00Z",
+  "walls": [
+    {
+      "id": "w1",
+      "a": [
+        0,
+        0
+      ],
+      "b": [
+        3.45,
+        0
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w2",
+      "a": [
+        3.45,
+        0
+      ],
+      "b": [
+        3.45,
+        2.52
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w3",
+      "a": [
+        3.45,
+        2.52
+      ],
+      "b": [
+        3.45,
+        3.98
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w4",
+      "a": [
+        3.45,
+        3.98
+      ],
+      "b": [
+        1.75,
+        3.98
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w5",
+      "a": [
+        1.75,
+        3.98
+      ],
+      "b": [
+        0.3,
+        3.98
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w6",
+      "a": [
+        0.3,
+        3.98
+      ],
+      "b": [
+        0.3,
+        2.52
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w7",
+      "a": [
+        0.3,
+        2.52
+      ],
+      "b": [
+        3.45,
+        2.52
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w8",
+      "a": [
+        -0.65,
+        2.52
+      ],
+      "b": [
+        0.3,
+        2.52
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w9",
+      "a": [
+        0,
+        0
+      ],
+      "b": [
+        0,
+        0.98
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w10",
+      "a": [
+        0,
+        0.98
+      ],
+      "b": [
+        -0.65,
+        0.98
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w11",
+      "a": [
+        -0.65,
+        0.98
+      ],
+      "b": [
+        -0.65,
+        2.52
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w12",
+      "a": [
+        -0.65,
+        2.52
+      ],
+      "b": [
+        -0.65,
+        7.36
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w13",
+      "a": [
+        -0.65,
+        7.36
+      ],
+      "b": [
+        0.45,
+        7.36
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w14",
+      "a": [
+        0.45,
+        7.36
+      ],
+      "b": [
+        0.45,
+        5.0
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w15",
+      "a": [
+        0.45,
+        5.0
+      ],
+      "b": [
+        1.75,
+        5.0
+      ],
+      "height": 2.4
+    },
+    {
+      "id": "w16",
+      "a": [
+        1.75,
+        5.0
+      ],
+      "b": [
+        1.75,
+        3.98
+      ],
+      "height": 2.4
+    }
+  ],
+  "openings": [
+    {
+      "id": "o1",
+      "type": "door",
+      "wallId": "w8",
+      "a": [
+        -0.55,
+        2.52
+      ],
+      "b": [
+        0.21,
+        2.52
+      ],
+      "height": 2.04,
+      "sill": 0
+    },
+    {
+      "id": "o2",
+      "type": "door",
+      "wallId": "w5",
+      "a": [
+        1.57,
+        3.98
+      ],
+      "b": [
+        0.75,
+        3.98
+      ],
+      "height": 2.04,
+      "sill": 0
+    },
+    {
+      "id": "o3",
+      "type": "window",
+      "wallId": "w2",
+      "a": [
+        3.45,
+        0.62
+      ],
+      "b": [
+        3.45,
+        2.02
+      ],
+      "height": 1.2,
+      "sill": 0.9
+    },
+    {
+      "id": "o4",
+      "type": "window",
+      "wallId": "w9",
+      "a": [
+        0,
+        0.12
+      ],
+      "b": [
+        0,
+        0.86
+      ],
+      "height": 1.2,
+      "sill": 0.9
+    },
+    {
+      "id": "o5",
+      "type": "door",
+      "wallId": "w3",
+      "a": [
+        3.45,
+        2.74
+      ],
+      "b": [
+        3.45,
+        3.56
+      ],
+      "height": 2.04,
+      "sill": 0
+    },
+    {
+      "id": "o6",
+      "type": "door",
+      "wallId": "w12",
+      "a": [
+        -0.65,
+        6.36
+      ],
+      "b": [
+        -0.65,
+        7.18
+      ],
+      "height": 2.04,
+      "sill": 0
+    },
+    {
+      "id": "o7",
+      "type": "opening",
+      "wallId": "w15",
+      "a": [
+        0.62,
+        5.0
+      ],
+      "b": [
+        1.38,
+        5.0
+      ],
+      "height": 2.1,
+      "sill": 0
+    }
+  ],
+  "rooms": [
+    {
+      "id": "r1",
+      "name": "Bedroom",
+      "polygon": [
+        [
+          0,
+          0
+        ],
+        [
+          3.45,
+          0
+        ],
+        [
+          3.45,
+          2.52
+        ],
+        [
+          -0.65,
+          2.52
+        ],
+        [
+          -0.65,
+          0.98
+        ],
+        [
+          0,
+          0.98
+        ]
+      ]
+    },
+    {
+      "id": "r2",
+      "name": "Laundry",
+      "polygon": [
+        [
+          0.3,
+          2.52
+        ],
+        [
+          3.45,
+          2.52
+        ],
+        [
+          3.45,
+          3.98
+        ],
+        [
+          0.3,
+          3.98
+        ]
+      ]
+    },
+    {
+      "id": "r3",
+      "name": "Hallway",
+      "polygon": [
+        [
+          -0.65,
+          2.52
+        ],
+        [
+          0.3,
+          2.52
+        ],
+        [
+          0.3,
+          3.98
+        ],
+        [
+          1.75,
+          3.98
+        ],
+        [
+          1.75,
+          5.0
+        ],
+        [
+          0.45,
+          5.0
+        ],
+        [
+          0.45,
+          7.36
+        ],
+        [
+          -0.65,
+          7.36
+        ]
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "id": "ob1",
+      "category": "bed",
+      "center": [
+        2.56,
+        1.12
+      ],
+      "size": [
+        1.55,
+        2.05
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "ob2",
+      "category": "table",
+      "center": [
+        0.95,
+        0.38
+      ],
+      "size": [
+        1.3,
+        0.56
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "ob3",
+      "category": "chair",
+      "center": [
+        0.95,
+        0.92
+      ],
+      "size": [
+        0.48,
+        0.48
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "ob4",
+      "category": "storage",
+      "center": [
+        -0.38,
+        1.6
+      ],
+      "size": [
+        0.42,
+        0.9
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "ob5",
+      "category": "sink",
+      "center": [
+        1.62,
+        2.88
+      ],
+      "size": [
+        0.9,
+        0.55
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "ob6",
+      "category": "washerDryer",
+      "center": [
+        2.78,
+        2.9
+      ],
+      "size": [
+        0.62,
+        0.6
+      ],
+      "rotation": 0
+    },
+    {
+      "id": "ob7",
+      "category": "storage",
+      "center": [
+        0.75,
+        2.86
+      ],
+      "size": [
+        0.75,
+        0.55
+      ],
+      "rotation": 0
+    }
+  ],
+  "markup": {
+    "sources": [
+      {
+        "id": "s1",
+        "pos": [
+          2.949,
+          2.52
+        ],
+        "label": "Burst washing machine hose",
+        "takenAt": "2026-11-12T01:30:05Z",
+        "height": 0.35,
+        "wallId": "w7",
+        "wallT": 0.841,
+        "source": "ar"
+      }
+    ],
+    "affected": [
+      {
+        "id": "a1",
+        "polygon": [
+          [
+            0.3,
+            2.52
+          ],
+          [
+            3.45,
+            2.52
+          ],
+          [
+            3.45,
+            3.98
+          ],
+          [
+            1.6,
+            3.98
+          ],
+          [
+            1.45,
+            4.55
+          ],
+          [
+            0.45,
+            4.9
+          ],
+          [
+            0.45,
+            5.75
+          ],
+          [
+            -0.65,
+            6.05
+          ],
+          [
+            -0.65,
+            3.55
+          ],
+          [
+            0.3,
+            3.3
+          ]
+        ],
+        "label": ""
+      }
+    ],
+    "removals": [
+      {
+        "id": "x1",
+        "wallId": "w7",
+        "t0": 0.301587,
+        "t1": 1,
+        "item": "plasterboard",
+        "heightMm": 1200,
+        "note": "Laundry side, cut above highest elevated reading"
+      },
+      {
+        "id": "x2",
+        "wallId": "w6",
+        "t0": 0,
+        "t1": 1,
+        "item": "skirting",
+        "heightMm": 100,
+        "note": ""
+      }
+    ],
+    "readings": [
+      {
+        "id": "m1",
+        "n": 1,
+        "pos": [
+          2.757,
+          2.52
+        ],
+        "value": 38.5,
+        "material": "skirting",
+        "note": "Skirting behind washer",
+        "photo": null,
+        "takenAt": "2026-11-12T01:31:10Z",
+        "height": 0.05,
+        "wallId": "w7",
+        "wallT": 0.78,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "m2",
+        "n": 2,
+        "pos": [
+          2.757,
+          2.52
+        ],
+        "value": 29,
+        "material": "wall",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:31:52Z",
+        "height": 0.3,
+        "wallId": "w7",
+        "wallT": 0.78,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "m3",
+        "n": 3,
+        "pos": [
+          2.757,
+          2.52
+        ],
+        "value": 17.5,
+        "material": "wall",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:32:30Z",
+        "height": 0.6,
+        "wallId": "w7",
+        "wallT": 0.78,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "m4",
+        "n": 4,
+        "pos": [
+          2.757,
+          2.52
+        ],
+        "value": 11,
+        "material": "wall",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:33:05Z",
+        "height": 1.2,
+        "wallId": "w7",
+        "wallT": 0.78,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "m5",
+        "n": 5,
+        "pos": [
+          0.3,
+          3.25
+        ],
+        "value": 24,
+        "material": "skirting",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:35:40Z",
+        "height": 0.05,
+        "wallId": "w6",
+        "wallT": 0.5,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "m6",
+        "n": 6,
+        "pos": [
+          -0.05,
+          4.45
+        ],
+        "value": 22,
+        "material": "floor",
+        "note": "Vinyl plank, hallway",
+        "photo": null,
+        "takenAt": "2026-11-12T01:38:00Z",
+        "reference": false,
+        "source": "manual"
+      },
+      {
+        "id": "m7",
+        "n": 7,
+        "pos": [
+          -0.1,
+          6.6
+        ],
+        "value": 16.5,
+        "material": "floor",
+        "note": "Edge of spread",
+        "photo": null,
+        "takenAt": "2026-11-12T01:39:15Z",
+        "reference": false,
+        "source": "manual"
+      },
+      {
+        "id": "m8",
+        "n": 8,
+        "pos": [
+          -0.65,
+          1.75
+        ],
+        "value": 9.5,
+        "material": "wall",
+        "note": "Dry control, same plasterboard, bedroom",
+        "photo": null,
+        "takenAt": "2026-11-12T01:42:00Z",
+        "height": 0.3,
+        "wallId": "w11",
+        "wallT": 0.5,
+        "reference": true,
+        "source": "ar"
+      },
+      {
+        "id": "b1",
+        "kind": "boundary",
+        "pos": [
+          0.621,
+          0
+        ],
+        "value": null,
+        "material": "wall",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:44:30Z",
+        "height": 1.5,
+        "wallId": "w1",
+        "wallT": 0.18,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "b2",
+        "kind": "boundary",
+        "pos": [
+          1.311,
+          0
+        ],
+        "value": null,
+        "material": "wall",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:45:30Z",
+        "height": 1.3,
+        "wallId": "w1",
+        "wallT": 0.38,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "b3",
+        "kind": "boundary",
+        "pos": [
+          2.001,
+          0
+        ],
+        "value": null,
+        "material": "wall",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:46:30Z",
+        "height": 1.1,
+        "wallId": "w1",
+        "wallT": 0.58,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "b4",
+        "kind": "boundary",
+        "pos": [
+          2.691,
+          0
+        ],
+        "value": null,
+        "material": "wall",
+        "note": "",
+        "photo": null,
+        "takenAt": "2026-11-12T01:47:30Z",
+        "height": 0.9,
+        "wallId": "w1",
+        "wallT": 0.78,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "p1",
+        "kind": "photo",
+        "n": 1,
+        "pos": [
+          0.3,
+          3.733
+        ],
+        "value": null,
+        "material": "wall",
+        "note": "Inspection opening — pipework in brickwork",
+        "photo": null,
+        "takenAt": "2026-11-12T01:50:00Z",
+        "height": 0.4,
+        "wallId": "w6",
+        "wallT": 0.1689,
+        "reference": false,
+        "source": "ar"
+      },
+      {
+        "id": "p2",
+        "kind": "photo",
+        "n": 2,
+        "pos": [
+          2.1,
+          3.7
+        ],
+        "value": null,
+        "material": "floor",
+        "note": "Overview — laundry, washer pulled out",
+        "photo": null,
+        "takenAt": "2026-11-12T01:52:00Z",
+        "reference": false,
+        "source": "manual"
+      }
+    ],
+    "thresholds": {
+      "damp": 15,
+      "wet": 20
+    },
+    "meter": "Ozito digital moisture meter",
+    "notes": [
+      {
+        "id": "n1",
+        "t": "2026-11-12T01:24:05Z",
+        "end": "2026-11-12T01:24:31Z",
+        "text": "Arrived on site. Owner says the washing machine hose let go overnight and the water ran through the laundry and out into the hallway.",
+        "source": "voice",
+        "audio": "audio/001.m4a",
+        "audioOffset": 0,
+        "edited": false
+      },
+      {
+        "id": "n2",
+        "t": "2026-11-12T01:29:48Z",
+        "end": "2026-11-12T01:30:02Z",
+        "text": "Hose on the back of the washer has split at the crimp. That's our source, about 350 up on the laundry wall.",
+        "source": "voice",
+        "audio": "audio/001.m4a",
+        "audioOffset": 343.1,
+        "edited": false
+      },
+      {
+        "id": "n3",
+        "t": "2026-11-12T01:33:20Z",
+        "end": "2026-11-12T01:33:41Z",
+        "text": "Behind the washer the skirting is 38 and a half, plasterboard 29 at 300 and 17 and a half at 600, back to 11 by 1200.",
+        "source": "voice",
+        "audio": "audio/001.m4a",
+        "audioOffset": 555.0,
+        "edited": false
+      },
+      {
+        "id": "n4",
+        "t": "2026-11-12T01:36:05Z",
+        "end": "2026-11-12T01:36:16Z",
+        "text": "Laundry side wall next to the door is wet at the skirting, 24 percent.",
+        "source": "voice",
+        "audio": "audio/001.m4a",
+        "audioOffset": 720.4,
+        "edited": false
+      },
+      {
+        "id": "n5",
+        "t": "2026-11-12T01:39:40Z",
+        "end": "2026-11-12T01:39:58Z",
+        "text": "Hallway vinyl is wet up to about here near the linen cupboard, that looks like the edge of the spread.",
+        "source": "voice",
+        "audio": "audio/001.m4a",
+        "audioOffset": 935.2,
+        "edited": false
+      },
+      {
+        "id": "n6",
+        "t": "2026-11-12T01:42:20Z",
+        "end": "2026-11-12T01:42:33Z",
+        "text": "Dry control in the bedroom on the same plasterboard, nine and a half.",
+        "source": "voice",
+        "audio": "audio/001.m4a",
+        "audioOffset": 1095.8,
+        "edited": false
+      },
+      {
+        "id": "n7",
+        "t": "2026-11-12T01:48:10Z",
+        "end": "2026-11-12T01:48:36Z",
+        "text": "Bedroom front wall, taped the moisture line. About 1500 at the left end coming down to around 900 towards the bed.",
+        "source": "voice",
+        "audio": "audio/001.m4a",
+        "audioOffset": 1445.0,
+        "edited": true
+      },
+      {
+        "id": "n8",
+        "t": "2026-11-12T01:56:30Z",
+        "text": "Owner has photos of the burst hose on her phone, she will email them through.",
+        "source": "typed",
+        "edited": false
+      }
+    ]
+  }
+}

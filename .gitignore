@@ -1,0 +1,8 @@
+private-fixtures/
+reference/
+web/test/out/
+.DS_Store
+xcuserdata/
+ios/*.log
+ios/build/
+ios/dd/
