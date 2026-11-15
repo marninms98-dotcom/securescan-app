@@ -1,0 +1,15 @@
+file: 1 Demo St, Wangara, WA-scope-of-works.pdf
+kind: scope
+html: 63306 bytes
+pages: 4 (editor said 4)
+page sizes (pt): 595.0x842.0 - all exact A4 page boxes
+  page 1: 595.0x842.0
+  page 2: 595.0x842.0
+  page 3: 595.0x842.0
+  page 4: 595.0x842.0
+link annotations: 20 (editor sent 20)
+links resolving to a valid page: 20 of 20
+links WebKit wrote itself (removed): 11
+text extractable via PDFKit: yes (1982 characters)
+file size: 167138 bytes (0.16 MB)
+elapsed: 1.0 s
