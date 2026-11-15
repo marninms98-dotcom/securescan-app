@@ -2,8 +2,9 @@
 //  NewJobFlow.swift
 //  SecureScan
 //
-//  New scan: address pre-filled from a one-shot GPS fix + reverse geocode
-//  (never blocks; editable), optional job ref, Start scanning -> ScanView.
+//  New job: address (typed, or "Use current location": a one-shot GPS fix +
+//  reverse geocode; location permission is asked only on that tap), optional
+//  job / claim number, Start -> the scan engine chosen in Settings.
 //
 
 import SwiftUI
@@ -17,9 +18,10 @@ struct NewJobFlow: View {
     @StateObject private var location = LocationFetcher()
     @State private var address = ""
     @State private var jobRef = ""
-    @State private var lastSuggestion = ""
     @State private var scanningJob: JobMeta?
     @State private var errorText: String?
+    @State private var needAddress = false
+    @FocusState private var addressFocused: Bool
     /// "Scan and mark together (new)"; default from Settings › Mark while scanning.
     @State private var live = UserDefaults.standard.bool(forKey: "markWhileScanning")
 
@@ -40,55 +42,73 @@ struct NewJobFlow: View {
             Form {
                 Section {
                     TextField("Street address", text: $address, axis: .vertical)
-                        .font(.title3)
+                        .font(DS.Font.body)
                         .textInputAutocapitalization(.words)
-                    if !location.status.isEmpty {
-                        Text(location.status).font(.footnote).foregroundStyle(.secondary)
+                        .lineLimit(1...3)
+                        .focused($addressFocused)
+                        .onChange(of: address) { _, a in if !a.isEmpty { needAddress = false } }
+                    Button { location.request() } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "location.fill")
+                                .foregroundStyle(DS.Color.accent)
+                            Text("Use current location")
+                                .foregroundStyle(DS.Color.accent)
+                            Spacer(minLength: 8)
+                            if location.finding {
+                                ProgressView()
+                            } else if !location.status.isEmpty {
+                                Text(location.status)
+                                    .font(DS.Font.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .font(DS.Font.body)
                     }
-                } header: { Text("Address") }
+                    .disabled(location.finding)
+                } header: {
+                    Text("Address")
+                } footer: {
+                    if needAddress {
+                        Text("Add the address to start.")
+                            .font(DS.Font.caption)
+                            .foregroundStyle(DS.Color.wet)
+                    }
+                }
 
                 Section {
-                    TextField("Claim / job number (optional)", text: $jobRef)
+                    TextField("Optional", text: $jobRef)
+                        .font(DS.Font.body)
                         .textInputAutocapitalization(.characters)
-                } header: { Text("Job ref") }
-
-                Section {
-                    Text("Scan one room at a time: walk slowly around the walls, then tap Next room in the doorway. Tap Log to record a moisture reading, a moisture-line point, a photo or the water source at the crosshair. Tap Notes to record what you say as you go.")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Job or claim number")
                 }
             }
-            .navigationTitle("New scan")
+            .navigationTitle("New job")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
             }
-            .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 10) {
-                    Button { live = UserDefaults.standard.bool(forKey: "markWhileScanning"); start() } label: {
-                        Label("Start scanning", systemImage: "viewfinder")
-                            .font(.title2.bold())
-                            .frame(maxWidth: .infinity, minHeight: 64)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                PrimaryButton("Start", icon: "viewfinder") {
+                    guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        withAnimation(DS.Motion.tray) { needAddress = true }
+                        addressFocused = true
+                        DS.Haptic.warning()
+                        return
                     }
-                    .buttonStyle(.borderedProminent)
-                    Button { live = true; start() } label: {
-                        Label("Scan and mark together (new)", systemImage: "hand.point.up.left")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                    }
-                    .buttonStyle(.bordered)
+                    live = UserDefaults.standard.bool(forKey: "markWhileScanning")
+                    start()
                 }
-                .padding()
-                .background(.bar)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .onAppear { location.start() }
             .onReceive(location.$suggestedAddress) { suggestion in
-                // Fill in only if the user hasn't typed their own address.
-                if let s = suggestion, address.isEmpty || address == lastSuggestion {
-                    address = s
-                    lastSuggestion = s
-                }
+                // The user asked for it: fill in the address (still editable).
+                if let s = suggestion { address = s }
             }
-            .alert("Problem", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
+            .alert("Can't start", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
                 Button("OK") { errorText = nil }
             } message: { Text(errorText ?? "") }
         }
@@ -123,36 +143,41 @@ struct NewJobFlow: View {
 /// values are always set on the main queue. Never blocks the form.
 final class LocationFetcher: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var status = ""
+    @Published var finding = false
     @Published var suggestedAddress: String?
 
     private let manager = CLLocationManager()
     private let geocoder = CLGeocoder()
-    private var requested = false
+    /// Set by the "Use current location" tap; permission is asked only then.
+    private var wanted = false
 
-    func start() {
+    func request() {
+        wanted = true
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         handle(manager.authorizationStatus)
     }
 
     private func handle(_ s: CLAuthorizationStatus) {
+        guard wanted else { return }
         switch s {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
-            guard !requested else { return }
-            requested = true
-            publish(status: "Finding address…")
+            wanted = false
+            publish(status: "", finding: true)
             manager.requestLocation()
         default:
-            publish(status: "Location is off — type the address.")
+            wanted = false
+            publish(status: "Location is off", finding: false)
         }
     }
 
     /// nonisolated: called from CLGeocoder's completion handler, whatever thread
     /// or isolation the SDK gives it; it only hops to the main queue.
-    nonisolated private func publish(status: String? = nil, address: String? = nil) {
+    nonisolated private func publish(status: String? = nil, address: String? = nil, finding: Bool? = false) {
         DispatchQueue.main.async {
+            if let finding { self.finding = finding }
             if let status { self.status = status }
             if let address { self.suggestedAddress = address }
         }
@@ -169,17 +194,17 @@ final class LocationFetcher: NSObject, ObservableObject, CLLocationManagerDelega
         geocoder.reverseGeocodeLocation(loc) { [weak self] placemarks, error in
             guard let self else { return }
             guard let p = placemarks?.first, error == nil else {
-                self.publish(status: "Couldn't look up the address — type it in.")
+                self.publish(status: "No address found")
                 return
             }
             let text = AddressFormatter.format(number: p.subThoroughfare, street: p.thoroughfare,
                                                suburb: p.locality, state: p.administrativeArea)
-            self.publish(status: text.isEmpty ? "No street address found here — type it in." : "From GPS — check and edit if needed.",
+            self.publish(status: text.isEmpty ? "No address found" : "",
                          address: text.isEmpty ? nil : text)
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        publish(status: "Couldn't get a GPS fix — type the address.")
+        publish(status: "No GPS fix")
     }
 }
