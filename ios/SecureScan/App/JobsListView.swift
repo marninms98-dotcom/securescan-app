@@ -11,6 +11,7 @@ import RoomPlan
 
 struct JobsListView: View {
     @ObservedObject private var store = JobStore.shared
+    @ObservedObject private var cloud = SyncCenter.shared  // SecureSuite sync hook
     @StateObject private var summaries = JobSummaries()
     @State private var path: [UUID] = []
     @State private var search = ""
@@ -41,7 +42,7 @@ struct JobsListView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if store.jobs.isEmpty {
+                if store.jobs.isEmpty && cloud.remoteOnly(localIDs: []).isEmpty {  // SecureSuite sync hook: cloud jobs show in the list
                     emptyState
                 } else {
                     list
@@ -117,7 +118,9 @@ struct JobsListView: View {
                     }
                 }
             }
-            if filtered.isEmpty {
+            // SecureSuite sync hook: jobs saved from other phones, not on this one.
+            CloudJobsSection(localIDs: Set(store.jobs.map(\.id)), search: search) { id in store.reload(); path.append(id) }
+            if filtered.isEmpty && !search.isEmpty {
                 Section {
                     Text("No job matches “\(search)”.")
                         .font(DS.Font.callout)
@@ -320,6 +323,7 @@ struct JobCard: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize()
+            SyncGlyph(jobID: job.id)  // SecureSuite sync hook
         }
     }
 
