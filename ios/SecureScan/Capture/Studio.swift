@@ -41,8 +41,8 @@ enum StudioRoom {
     ]
     static let world = CaptureWorld(floorY: 0, walls: walls,
                                     rooms: [WorldRoom(name: "Bedroom", polygon: [PlanVec(0, 0), PlanVec(width, 0), PlanVec(width, depth), PlanVec(0, depth)])])
-    /// Drawers against w1 (x 2.45...3.30, z 0...0.45, 0.80 high).
-    static let drawers = (x0: 2.45, x1: 3.30, z1: 0.45, h: 0.80)
+    /// Drawers against w3 (x 2.30...3.15, z 2.35...2.80, 0.80 high).
+    static let drawers = (x0: 2.30, x1: 3.15, z0: 2.35, z1: 2.80, h: 0.80)
     /// The doorway in w4 (z 1.75...2.57, 2.04 high): open, dark beyond.
     static let door = (z0: 1.75, z1: 2.57, h: 2.04)
 
@@ -57,19 +57,19 @@ enum StudioRoom {
         if abs(d.y) > 1e-9 {
             consider((0 - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= 0 && $0.x <= width && $0.z >= 0 && $0.z <= depth }
             consider((height - o.y) / d.y, WorldVec(0, -1, 0)) { $0.x >= 0 && $0.x <= width && $0.z >= 0 && $0.z <= depth }
-            consider((drawers.h - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.z <= drawers.z1 && $0.z >= 0 }
+            consider((drawers.h - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.z >= drawers.z0 && $0.z <= drawers.z1 }
         }
         if abs(d.z) > 1e-9 {
             consider((0 - o.z) / d.z, WorldVec(0, 0, 1)) { $0.x >= 0 && $0.x <= width && $0.y >= 0 && $0.y <= height }
             consider((depth - o.z) / d.z, WorldVec(0, 0, -1)) { $0.x >= 0 && $0.x <= width && $0.y >= 0 && $0.y <= height }
-            consider((drawers.z1 - o.z) / d.z, WorldVec(0, 0, 1)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.y <= drawers.h && $0.y >= 0 }
+            consider((drawers.z0 - o.z) / d.z, WorldVec(0, 0, -1)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.y <= drawers.h && $0.y >= 0 }
         }
         if abs(d.x) > 1e-9 {
             consider((0 - o.x) / d.x, WorldVec(1, 0, 0)) {
                 $0.z >= 0 && $0.z <= depth && $0.y >= 0 && $0.y <= height && !($0.z > door.z0 && $0.z < door.z1 && $0.y < door.h)
             }
             consider((width - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= 0 && $0.z <= depth && $0.y >= 0 && $0.y <= height }
-            consider((drawers.x0 - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= 0 && $0.z <= drawers.z1 && $0.y >= 0 && $0.y <= drawers.h }
+            consider((drawers.x0 - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= drawers.z0 && $0.z <= drawers.z1 && $0.y >= 0 && $0.y <= drawers.h }
         }
         guard let b = best else { return nil }
         return (o + d * b.0, b.1)
@@ -499,9 +499,9 @@ enum StudioSceneBuilder {
         root.addChildNode(box(0.03, 1.04, 0.035, at: WorldVec(1.3, 0.95 + 0.55, 0.03), frame))
         // Drawers.
         let dr = StudioRoom.drawers
-        root.addChildNode(box(dr.x1 - dr.x0, dr.h, dr.z1, at: WorldVec((dr.x0 + dr.x1) / 2, dr.h / 2, dr.z1 / 2), mat(0x8C6E52, rough: 0.6)))
+        root.addChildNode(box(dr.x1 - dr.x0, dr.h, dr.z1 - dr.z0, at: WorldVec((dr.x0 + dr.x1) / 2, dr.h / 2, (dr.z0 + dr.z1) / 2), mat(0x8C6E52, rough: 0.6)))
         for k in 0..<3 {
-            root.addChildNode(box(0.12, 0.018, 0.02, at: WorldVec((dr.x0 + dr.x1) / 2, 0.16 + Double(k) * 0.24, dr.z1 + 0.01), mat(0xD9D4CC, rough: 0.3)))
+            root.addChildNode(box(0.12, 0.018, 0.02, at: WorldVec((dr.x0 + dr.x1) / 2, 0.16 + Double(k) * 0.24, dr.z0 - 0.01), mat(0xD9D4CC, rough: 0.3)))
         }
         // Light: soft ambient + a ceiling light + window fill.
         let amb = SCNNode(); amb.light = SCNLight(); amb.light?.type = .ambient; amb.light?.intensity = bright ? 900 : 430
