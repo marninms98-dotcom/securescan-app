@@ -40,6 +40,8 @@ enum Dollhouse {
     struct Built {
         var scene: SCNScene
         var bounds: (min: SIMD3<Float>, max: SIMD3<Float>)
+        /// Room corners at the floor and the cut height: what the camera must fit.
+        var fitPoints: [SIMD3<Float>]
         var rooms: [Room]
         /// Furniture container (a layer the user can hide).
         var furniture: SCNNode
@@ -154,7 +156,10 @@ enum Dollhouse {
         }
         if lo.x > hi.x { lo = SIMD3(-1, 0, -1); hi = SIMD3(1, 1, 1) }
         addShadowCatcher(root, lo: lo, hi: hi)
-        return Built(scene: scene, bounds: (lo, hi), rooms: rooms, furniture: furniture)
+        var fit: [SIMD3<Float>] = []
+        for r in rooms { for p in r.polygon { for y in [Float(0), Float(cutHeight)] { fit.append(SIMD3(Float(p.x), y, Float(p.y))) } } }
+        if fit.isEmpty { fit = [lo, hi] }
+        return Built(scene: scene, bounds: (lo, hi), fitPoints: fit, rooms: rooms, furniture: furniture)
     }
 
     /// One wall stretch t0...t1 (0...1 along a->b), from...to metres high. The
@@ -213,14 +218,14 @@ enum Dollhouse {
         let ambient = SCNNode()
         ambient.light = SCNLight()
         ambient.light!.type = .ambient
-        ambient.light!.intensity = 520
+        ambient.light!.intensity = 700
         ambient.light!.color = UIColor(red: 1, green: 0.99, blue: 0.97, alpha: 1)
         root.addChildNode(ambient)
 
         let key = SCNNode()
         let l = SCNLight()
         l.type = .directional
-        l.intensity = 620
+        l.intensity = 600
         l.castsShadow = true
         l.shadowMode = .deferred
         l.shadowColor = UIColor(white: 0, alpha: 0.22)
@@ -238,7 +243,7 @@ enum Dollhouse {
         let fill = SCNNode()
         fill.light = SCNLight()
         fill.light!.type = .directional
-        fill.light!.intensity = 260
+        fill.light!.intensity = 220
         fill.eulerAngles = SCNVector3(-Float.pi / 4, Float.pi * 1.2, 0)
         root.addChildNode(fill)
     }
@@ -246,8 +251,8 @@ enum Dollhouse {
     // MARK: Cameras
 
     /// Elevated three-quarter (or top-down orthographic) camera that fits `lo...hi`.
-    static func camera(lo: SIMD3<Float>, hi: SIMD3<Float>, aspect: Double, plan: Bool,
-                       azimuth: Double = 28, elevation: Double = 56, margin: Double = 0.9) -> (SCNNode, SIMD3<Float>) {
+    static func camera(lo: SIMD3<Float>, hi: SIMD3<Float>, aspect: Double, plan: Bool, points: [SIMD3<Float>]? = nil,
+                       azimuth: Double = 28, elevation: Double = 62, margin: Double = 0.9) -> (SCNNode, SIMD3<Float>) {
         let l = SIMD3<Double>(lo), h = SIMD3<Double>(hi)
         let centre = (l + h) / 2
         let node = SCNNode()
@@ -263,8 +268,10 @@ enum Dollhouse {
             node.simdPosition = SIMD3<Float>(Float(centre.x), 30, Float(centre.z))
             node.look(at: SCNVector3(Float(centre.x), 0, Float(centre.z)), up: SCNVector3(0, 0, -1), localFront: SCNVector3(0, 0, -1))
         } else {
-            var corners: [SIMD3<Double>] = []
-            for x in [l.x, h.x] { for y in [l.y, h.y] { for z in [l.z, h.z] { corners.append(SIMD3(x, y, z)) } } }
+            var corners: [SIMD3<Double>] = points?.map { SIMD3<Double>($0) } ?? []
+            if corners.isEmpty {
+                for x in [l.x, h.x] { for y in [l.y, h.y] { for z in [l.z, h.z] { corners.append(SIMD3(x, y, z)) } } }
+            }
             let dir = CameraFit.direction(azimuthDegrees: azimuth, elevationDegrees: elevation)
             let fov = 40.0
             cam.projectionDirection = .vertical
@@ -275,9 +282,6 @@ enum Dollhouse {
             node.simdPosition = SIMD3<Float>(centre + dir * dist)
             node.look(at: SCNVector3(Float(centre.x), Float(centre.y), Float(centre.z)), up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
         }
-        cam.screenSpaceAmbientOcclusionIntensity = 0.55
-        cam.screenSpaceAmbientOcclusionRadius = 0.25
-        cam.screenSpaceAmbientOcclusionNormalThreshold = 0.3
         return (node, SIMD3<Float>(centre))
     }
 
@@ -303,8 +307,8 @@ enum Dollhouse {
               let device = MTLCreateSystemDefaultDevice() else { return false }
         let extent = max(built.bounds.max.x - built.bounds.min.x, built.bounds.max.z - built.bounds.min.z)
         addLights(built.scene.rootNode, extent: extent)
-        let (cam, _) = camera(lo: built.bounds.min, hi: built.bounds.max, aspect: 1, plan: false, azimuth: 30, elevation: 52, margin: 0.96)
-        cam.camera?.screenSpaceAmbientOcclusionIntensity = 0
+        let (cam, _) = camera(lo: built.bounds.min, hi: built.bounds.max, aspect: 1, plan: false, points: built.fitPoints,
+                              azimuth: 30, elevation: 55, margin: 0.97)
         built.scene.rootNode.addChildNode(cam)
         let renderer = SCNRenderer(device: device, options: nil)
         renderer.scene = built.scene
@@ -408,10 +412,10 @@ enum Floor {
             let c = ctx.cgContext
             switch key {
             case "carpet":
-                UIColor(red: 0.84, green: 0.81, blue: 0.77, alpha: 1).setFill()
+                UIColor(red: 0.90, green: 0.88, blue: 0.85, alpha: 1).setFill()
                 c.fill(CGRect(x: 0, y: 0, width: side, height: side))
                 for _ in 0..<9000 {
-                    let v = 0.74 + rng.next() * 0.16
+                    let v = 0.82 + rng.next() * 0.12
                     UIColor(red: v, green: v * 0.97, blue: v * 0.93, alpha: 0.5).setFill()
                     c.fill(CGRect(x: rng.next() * Double(side), y: rng.next() * Double(side), width: 2, height: 2))
                 }
@@ -440,23 +444,23 @@ enum Floor {
                     var x: CGFloat = -CGFloat(rng.next()) * side * 0.5
                     while x < side {
                         let w = side * CGFloat(0.45 + rng.next() * 0.35)
-                        let t = 0.80 + rng.next() * 0.08
-                        UIColor(red: t, green: t * 0.90, blue: t * 0.76, alpha: 1).setFill()
+                        let t = 0.90 + rng.next() * 0.07
+                        UIColor(red: t, green: t * 0.91, blue: t * 0.79, alpha: 1).setFill()
                         let rect = CGRect(x: x, y: CGFloat(r) * rowH, width: w, height: rowH)
                         c.fill(rect)
                         for _ in 0..<5 {
                             let gy = rect.minY + CGFloat(rng.next()) * rowH
-                            UIColor(red: t * 0.93, green: t * 0.83, blue: t * 0.70, alpha: 0.35).setStroke()
+                            UIColor(red: t * 0.93, green: t * 0.84, blue: t * 0.72, alpha: 0.22).setStroke()
                             c.setLineWidth(1)
                             c.move(to: CGPoint(x: rect.minX, y: gy))
                             c.addLine(to: CGPoint(x: rect.maxX, y: gy + CGFloat(rng.next() * 3 - 1.5)))
                             c.strokePath()
                         }
-                        UIColor(red: 0.62, green: 0.54, blue: 0.44, alpha: 0.55).setFill()
+                        UIColor(red: 0.66, green: 0.58, blue: 0.48, alpha: 0.4).setFill()
                         c.fill(CGRect(x: rect.minX, y: rect.minY, width: 1.5, height: rowH))
                         x += w
                     }
-                    UIColor(red: 0.62, green: 0.54, blue: 0.44, alpha: 0.55).setFill()
+                    UIColor(red: 0.66, green: 0.58, blue: 0.48, alpha: 0.4).setFill()
                     c.fill(CGRect(x: 0, y: CGFloat(r) * rowH, width: side, height: 1.5))
                 }
             }

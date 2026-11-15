@@ -83,6 +83,7 @@ final class ModelViewModel: ObservableObject {
     private(set) var scene: SCNScene?
     private(set) var rooms: [Dollhouse.Room] = []
     private(set) var bounds: (min: SIMD3<Float>, max: SIMD3<Float>) = (.zero, .zero)
+    private(set) var fitPoints: [SIMD3<Float>] = []
     private(set) var target = SIMD3<Float>.zero
     weak var view: SCNView?
     private var layers: [ModelLayer: SCNNode] = [:]
@@ -147,6 +148,7 @@ final class ModelViewModel: ObservableObject {
         scene = built.scene
         rooms = built.rooms
         bounds = built.bounds
+        fitPoints = built.fitPoints
         ready = true
     }
 
@@ -170,8 +172,9 @@ final class ModelViewModel: ObservableObject {
     func resetView(animated: Bool = true) {
         guard let v = view, let scene else { return }
         let azimuth = ProcessInfo.processInfo.environment["SECURESCAN_3D_AZIMUTH"].flatMap { Double($0) } ?? 28
-        let (cam, centre) = Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan,
-                                             azimuth: azimuth, margin: 0.86)
+        // Plan: leave the side columns of buttons clear.
+        let (cam, centre) = Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan, points: fitPoints,
+                                             azimuth: azimuth, margin: mode == .plan ? 0.68 : 0.94)
         install(cam, centre: centre, in: v, scene: scene, animated: animated)
     }
 
@@ -220,7 +223,7 @@ final class ModelViewModel: ObservableObject {
         guard let room = rooms.first(where: { FloorArea.inside(p, $0.polygon) }) ?? nearestRoom(p) else { return }
         let lo = room.min - SIMD3(0.3, 0, 0.3), hi = room.max + SIMD3(0.3, 0, 0.3)
         if mode == .plan {
-            let (cam, centre) = Dollhouse.camera(lo: lo, hi: hi, aspect: aspect, plan: true)
+            let (cam, centre) = Dollhouse.camera(lo: lo, hi: hi, aspect: aspect, plan: true, margin: 0.7)
             install(cam, centre: centre, in: v, scene: scene, animated: true)
         } else {
             // Keep the current viewing direction.
@@ -399,7 +402,7 @@ final class ModelViewModel: ObservableObject {
         var placed: [(SIMD2<Float>, Int)] = []
         for i in markers.indices where markers[i].label != nil {
             let p = SIMD2<Float>(markers[i].position.x, markers[i].position.z)
-            let used = Set(placed.filter { simd_distance($0.0, p) < 0.8 }.map { $0.1 })
+            let used = Set(placed.filter { simd_distance($0.0, p) < 1.1 }.map { $0.1 })
             var level = 0
             while used.contains(level) { level += 1 }
             markers[i].level = level
@@ -424,7 +427,7 @@ final class ModelViewModel: ObservableObject {
         let node = SCNNode()
         node.simdPosition = m.position
         node.renderingOrder = 200
-        let r = CGFloat(max(0.05, min(0.11, scale * 0.011)))
+        let r = CGFloat(max(0.06, min(0.12, scale * 0.014)))
         let geometry: SCNGeometry
         switch m.kind {
         case "boundary": geometry = SCNBox(width: r * 0.9, height: r * 0.9, length: r * 0.9, chamferRadius: r * 0.1)
@@ -450,7 +453,7 @@ final class ModelViewModel: ObservableObject {
             node.addChildNode(facing)
         }
         if let text = m.label, let image = labelImage(text, accent: m.color) {
-            let height = CGFloat(max(0.17, min(0.38, scale * 0.045)))
+            let height = CGFloat(max(0.3, min(0.55, scale * 0.07)))
             let plane = SCNPlane(width: height * image.size.width / image.size.height, height: height)
             let lm = overlayMaterial(.white)
             lm.diffuse.contents = image
