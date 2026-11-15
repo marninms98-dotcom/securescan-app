@@ -362,12 +362,13 @@ struct ToolTab: View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Image(systemName: icon).font(.system(size: 18, weight: .semibold)).frame(height: 22)
-                Text(title).font(DS.Font.captionBold).lineLimit(1).minimumScaleFactor(0.85)
+                Text(title).font(DS.Font.captionBold).lineLimit(1).minimumScaleFactor(0.8)
             }
+            .padding(.horizontal, 3)
             .foregroundStyle(selected ? DS.Color.ink : Color.white.opacity(0.7))
             .frame(maxWidth: .infinity, minHeight: 52)
             .background {
-                Capsule().fill(selected ? Color.white : Color.clear)
+                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(selected ? Color.white : Color.clear)
             }
             .overlay(alignment: .topTrailing) {
                 if let badge {

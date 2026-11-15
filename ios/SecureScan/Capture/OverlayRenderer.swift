@@ -88,12 +88,25 @@ struct OverlayPainter {
             }
         }
         let sorted = marks.sorted { order($0) < order($1) }
+        // Pins are drawn last but claim their space first, so no label lands under a pin.
+        for m in marks {
+            switch m.style {
+            case .reading, .readingDraft:
+                if let p = m.points.first, let sp = proj.project(p) {
+                    board.rects.append(CGRect(x: sp.x - 17, y: sp.y - 44 - 17, width: 34 + 30, height: 34 + 10))
+                }
+            default: break
+            }
+        }
         var labels: [(CGRect, () -> Void)] = []
         for m in sorted {
             var c = ctx
             if m.faded { c.opacity = 0.5 }
             draw(m, in: &c, labels: &labels)
         }
+        // Tags go on top of every shape (placed as they came, drawn last).
+        for d in board.deferred { d() }
+        board.deferred = []
         for m in sorted where m.selected { edgeArrowIfNeeded(m) }
     }
 
@@ -131,10 +144,14 @@ struct OverlayPainter {
             r.origin.y = r.midY <= hit.midY ? hit.minY - r.height - 4 : hit.maxY + 4
         }
         board.rects.append(r)
-        let shape = Capsule().path(in: r)
-        c.fill(shape, with: .color(fill))
-        c.stroke(shape, with: .color(.white.opacity(0.25)), lineWidth: 1)
-        c.draw(label, at: CGPoint(x: r.midX, y: r.midY), anchor: .center)
+        let cc = c
+        board.deferred.append {
+            var c2 = cc
+            let shape = Capsule().path(in: r)
+            c2.fill(shape, with: .color(fill))
+            c2.stroke(shape, with: .color(.white.opacity(0.25)), lineWidth: 1)
+            c2.draw(label, at: CGPoint(x: r.midX, y: r.midY), anchor: .center)
+        }
     }
 
     func symbol(_ name: String, in r: CGRect, color: Color = .white, c: inout GraphicsContext) {
@@ -323,8 +340,9 @@ struct OverlayPainter {
         var centre = CGPoint(x: s.x, y: s.y - lift)
         // Pins never sit on each other: a second pin at the same spot steps sideways.
         for _ in 0..<4 {
-            guard let other = board.pins.first(where: { hypot($0.x - centre.x, $0.y - centre.y) < 34 }) else { break }
-            centre.x = other.x + (centre.x >= other.x ? 36 : -36)
+            // A pin's footprint includes its tag at the lower right.
+            guard let other = board.pins.first(where: { abs($0.x - centre.x) < 52 && abs($0.y - centre.y) < 34 }) else { break }
+            centre.x = other.x + (centre.x >= other.x ? 54 : -54)
         }
         board.pins.append(centre)
         var stem = Path(); stem.move(to: s); stem.addLine(to: CGPoint(x: centre.x, y: centre.y + 15))
@@ -345,7 +363,9 @@ struct OverlayPainter {
         if let tagText {
             let label = c.resolve(Text(tagText).font(DS.Font.captionBold).foregroundColor(.white))
             let ts = label.measure(in: CGSize(width: 80, height: 30))
-            let tr = CGRect(x: centre.x + 9, y: centre.y + 5, width: ts.width + 10, height: ts.height + 1)
+            var tr = CGRect(x: centre.x + 9, y: centre.y + 5, width: ts.width + 10, height: ts.height + 1)
+            // Kept off the reticle's label: the tag moves to the pin's lower left.
+            if tr.intersects(reticleZone) { tr.origin.x = centre.x - 9 - tr.width }
             c.fill(Capsule().path(in: tr), with: .color(DS.Color.ink.opacity(0.82)))
             c.stroke(Capsule().path(in: tr), with: .color(.white.opacity(0.35)), lineWidth: 1)
             c.draw(label, at: CGPoint(x: tr.midX, y: tr.midY), anchor: .center)
@@ -430,5 +450,6 @@ struct OverlayPainter {
 /// Label rectangles placed in one frame (shared by the painter's copies).
 final class LabelBoard {
     var rects: [CGRect] = []
+    var deferred: [() -> Void] = []
     var pins: [CGPoint] = []
 }

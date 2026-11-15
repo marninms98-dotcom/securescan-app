@@ -207,11 +207,11 @@ enum StudioScript {
             hud.tool = .mark
             e.saved = [OverlayMark(id: "x1", style: .lining, points: [WorldVec(0.0, 0, 0.25), WorldVec(0.0, 0, 1.55)], top: 0.6, tag: "Wall lining · 1.30 m"),
                        OverlayMark(id: "x2", style: .skirting, points: [WorldVec(0.30, 0, 0.0), WorldVec(2.10, 0, 0.0)], tag: "Skirting · 1.80 m"),
-                       pin("r1", WorldVec(0.0, 0.35, 0.9), 24, 1)]
+                       pin("r1", WorldVec(0.0, 0.4, 1.3), 24, 1)]
             hud.studioAdd(entry("x2", "mark", "Skirting · 1.80 m", "Bedroom", photo: true), thumb: thumb(1))
             hud.studioAdd(entry("x1", "mark", "Wall lining · 1.30 m", "Bedroom", photo: true), thumb: thumb(2))
             hud.studioUndo(true)
-            e.look(at: WorldVec(0.1, 0.3, 0.9), from: WorldVec(0.3, 1.4, 2.6))
+            e.look(at: WorldVec(0.0, 0.3, 0.9), from: WorldVec(2.4, 1.4, 1.4))
         case "area-progress":
             hud.tool = .mark
             let pts = [WorldVec(1.0, 0, 1.0), WorldVec(1.7, 0, 0.95), WorldVec(1.75, 0, 1.55)].map {
@@ -237,7 +237,7 @@ enum StudioScript {
             hud.studioAdd(entry("p1", "photo", "P1", "Bedroom", photo: true), thumb: thumb(3))
             hud.studioUndo(true)
             hud.showToast("Photo saved · P1")
-            e.look(at: WorldVec(1.3, 0.8, 0.0))
+            e.look(at: WorldVec(1.0, 0.55, 0.0), from: WorldVec(2.4, 1.45, 2.4))
         case "review-drawer":
             e.saved = [pin("r1", r2, 10, 1), pin("r2", r1, 18, 2), pin("r3", r3, 26, 3),
                        OverlayMark(id: "x1", style: .skirting, points: [WorldVec(0.3, 0, 0.0), WorldVec(1.0, 0, 0.0)], tag: "Skirting · 0.70 m")]

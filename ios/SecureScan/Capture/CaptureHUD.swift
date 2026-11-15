@@ -225,7 +225,7 @@ struct CaptureHUD: View {
                 if hud.canWholeRoom { out.append(OptionChip(id: "room", title: "Whole room", icon: "square.dashed") { hud.wholeRoom() }) }
                 return out
             }
-            var out = [OptionChip(id: "undo", title: "Undo point", icon: "arrow.uturn.backward") { hud.undoMarkPoint() }]
+            var out = [OptionChip(id: "undo", title: "Undo", icon: "arrow.uturn.backward") { hud.undoMarkPoint() }]
             if hud.markStartShape == .line {
                 out.append(OptionChip(id: "area", title: "Add corners", icon: "plus") { hud.continueAsArea() })
             } else {
@@ -257,9 +257,9 @@ struct CaptureHUD: View {
                 }
             }
         }
-        .padding(5)
-        .background(CameraFill(shape: Capsule()))
-        .overlay(Capsule().strokeBorder(DS.Color.hairline, lineWidth: 1))
+        .padding(4)
+        .background(CameraFill(shape: RoundedRectangle(cornerRadius: 24, style: .continuous)))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(DS.Color.hairline, lineWidth: 1))
     }
 
     @ViewBuilder private var quietRow: some View {
