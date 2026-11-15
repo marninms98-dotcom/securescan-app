@@ -70,13 +70,20 @@ struct ReadingTray: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: DS.Space.tight) {
-                    ForEach(CaptureCopy.materials, id: \.key) { m in
+                    ForEach(materialsInOrder, id: \.key) { m in
                         Chip(m.name, selected: hud.readingMaterial == m.key) { hud.readingMaterial = m.key }
                     }
                 }
             }
+            .mask(FadeEdge())
             KeyPad { hud.key($0) }
         }
+    }
+
+    /// The material the aim suggested comes first; the rest keep their order.
+    private var materialsInOrder: [(key: String, name: String)] {
+        let first = CaptureCopy.material(hud.aim)
+        return CaptureCopy.materials.filter { $0.key == first } + CaptureCopy.materials.filter { $0.key != first }
     }
 
     private var context: String {
@@ -108,7 +115,7 @@ struct KeyPad: View {
                         Button { press(k) } label: {
                             Group {
                                 if k == "⌫" { Image(systemName: "delete.left").font(.system(size: 20, weight: .semibold)) }
-                                else { Text(k).font(DS.Font.value(24)) }
+                                else { Text(k).font(DS.Font.value(22)) }
                             }
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity, minHeight: 46)
@@ -186,6 +193,7 @@ struct MarkTray: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.tight) { content() }
         }
+        .mask(FadeEdge())
     }
 }
 

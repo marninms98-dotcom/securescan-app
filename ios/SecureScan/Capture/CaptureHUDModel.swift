@@ -72,6 +72,13 @@ final class CaptureHUDModel: ObservableObject {
     // Review
     @Published var reviewSelected: String?
 
+    /// First-run coach lines (off in the Studio).
+    var hintsEnabled = true
+    var coachHint: String? {
+        guard hintsEnabled, tray == nil, !UserDefaults.standard.bool(forKey: "coach." + tool.rawValue) else { return nil }
+        return CaptureCopy.coach(tool)
+    }
+
     private var undoTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var lastLockKey = ""
@@ -123,7 +130,8 @@ final class CaptureHUDModel: ObservableObject {
 
     var primary: Primary {
         if let t = tray { return trayPrimary(t) }
-        if let o = engine.primaryOverride(tool: tool, aim: aim) { return Primary(title: o.title, enabled: o.enabled, tint: o.tint) }
+        // One primary colour everywhere: meaning colours live on chips and world marks.
+        if let o = engine.primaryOverride(tool: tool, aim: aim) { return Primary(title: o.title, enabled: o.enabled) }
         if airflowFor != nil { return Primary(title: CaptureCopy.setAirflow, enabled: aim.blocked != CaptureCopy.findingRoom) }
         if tool == .photo { return Primary(title: CaptureCopy.takePhoto, enabled: aim.blocked != CaptureCopy.findingRoom) }
         if let why = aim.blocked { return Primary(title: why, enabled: false) }
@@ -145,8 +153,7 @@ final class CaptureHUDModel: ObservableObject {
             return Primary(title: editingId == nil ? CaptureCopy.saveReading(readingText) : (readingValue == nil ? "Type the reading" : "Save changes"),
                            enabled: readingValue != nil)
         case .mark:
-            return Primary(title: CaptureCopy.saveMark(markMeaning, length: markLength, area: markArea),
-                           enabled: markMeaning != nil, tint: markMeaning?.isRemoval == true ? DS.Color.remove : DS.Color.accent)
+            return Primary(title: CaptureCopy.saveMark(markMeaning, length: markLength, area: markArea), enabled: markMeaning != nil)
         case .source:
             return Primary(title: sourceCause.map { "Save · \($0 == "Unknown" ? "Unknown cause" : $0)" } ?? "Pick a cause", enabled: sourceCause != nil)
         case .roomName:
@@ -546,6 +553,7 @@ final class CaptureHUDModel: ObservableObject {
         Task {
             switch await engine.save(d) {
             case .success(let saved):
+                UserDefaults.standard.set(true, forKey: "coach." + tool.rawValue)
                 stack.add(saved.entry)
                 saveTick &+= 1
                 DS.Haptic.save()

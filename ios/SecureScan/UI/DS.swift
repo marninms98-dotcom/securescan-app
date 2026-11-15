@@ -364,11 +364,10 @@ struct ToolTab: View {
                 Image(systemName: icon).font(.system(size: 18, weight: .semibold)).frame(height: 22)
                 Text(title).font(DS.Font.captionBold).lineLimit(1).minimumScaleFactor(0.85)
             }
-            .foregroundStyle(selected ? DS.Color.ink : Color.white)
+            .foregroundStyle(selected ? DS.Color.ink : Color.white.opacity(0.7))
             .frame(maxWidth: .infinity, minHeight: 52)
             .background {
-                RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                    .fill(selected ? Color.white : Color.clear)
+                Capsule().fill(selected ? Color.white : Color.clear)
             }
             .overlay(alignment: .topTrailing) {
                 if let badge {
@@ -435,6 +434,16 @@ struct CameraCapsule: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 30)
         .dsCapsule()
+    }
+}
+
+/// A trailing fade for horizontally scrolling chip rows (shows there is more).
+struct FadeEdge: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 28)
+        }
     }
 }
 
