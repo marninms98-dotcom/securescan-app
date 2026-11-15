@@ -12,4 +12,4 @@ links resolving to a valid page: 20 of 20
 links WebKit wrote itself (removed): 11
 text extractable via PDFKit: yes (1982 characters)
 file size: 167138 bytes (0.16 MB)
-elapsed: 1.1 s
+elapsed: 1.2 s
