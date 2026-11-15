@@ -2,15 +2,15 @@
 //  RevisitModel.swift
 //  SecureScan
 //
-//  Return visit in AR ("Find my points"): state of the screen.
+//  Return visits ("Find my points") and "See scope on site": the
+//  CaptureEngine behind the one capture screen when a job already has a plan.
 //  The maths and every document change are Core functions (Alignment,
-//  Revisit, PlanBuilder resolvers); this class only sequences them:
-//    intro -> (relocalising with the saved world map | corner A, B[, C])
-//          -> check (plan outline on the floor) -> measuring
-//  Everything logged is merged into plan.json at once and appended to
+//  Revisit, PlanBuilder resolvers, Scope); this class sequences them:
+//    relocalising with the saved world map | corners A, B[, C] -> check -> measuring
+//  Everything is merged into plan.json at once and appended to
 //  revisit-log.json (raw, in this session's world space, with the alignment),
-//  so a crash or lost tracking loses nothing. Logging is paused whenever
-//  tracking is not normal or the alignment has not been confirmed.
+//  so a crash or lost tracking loses nothing. Nothing is ever dropped: a mark
+//  the plan cannot place is logged and shown in review as "needs a quick fix".
 //
 
 import Foundation
@@ -29,53 +29,15 @@ enum TrackingStatus: Equatable {
     var message: String {
         switch self {
         case .normal: return ""
-        case .relocalizing: return "Finding the saved room… move the phone slowly."
-        case .limited(let why): return "Tracking is limited (\(why)). Move slowly and point at walls with some detail. Logging is paused."
+        case .relocalizing: return "Finding the saved room — move slowly"
+        case .limited(let why): return "Tracking limited — \(why)"
         case .notAvailable: return "Starting the camera…"
         }
     }
 }
 
-struct RemeasureRequest: Identifiable {
-    let id: String               // reading id
-    let title: String            // "Point 3 · Wall A"
-    let previous: [String]       // "Visit 1: 24.5%"
-    let pending: PendingLog
-}
-
-enum RevisitConfirm: Identifiable {
-    case equipmentRemoved(id: String, name: String)
-    case removalDone(id: String, name: String)
-    case equipmentPlaced(id: String, name: String)
-    var id: String {
-        switch self {
-        case .equipmentRemoved(let id, _): return "e-" + id
-        case .removalDone(let id, _): return "r-" + id
-        case .equipmentPlaced(let id, _): return "p-" + id
-        }
-    }
-}
-
-/// The sheet for an item tapped in AR: edit, nudge, move or delete it.
-struct MarkerEdit: Identifiable {
-    let id: String
-    let list: String               // readings | sources | equipment | removals | affected | floors
-    let kind: String               // reading | boundary | photo | source | equipment | removal | affected | floor
-    let title: String
-    var value: Double?
-    var material: String
-    var label: String
-    var hasHeight: Bool
-    var movable: Bool
-    var canRemeasure: Bool
-    var canMarkRemoved: Bool
-    var canMarkDone: Bool
-    var isAirMover = false
-    var planned = false
-}
-
 @MainActor
-final class RevisitModel: ObservableObject, LogSheetModel {
+final class RevisitModel: ObservableObject, CaptureEngine {
 
     enum Phase: Equatable {
         case intro
@@ -84,6 +46,8 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         case check
         case measuring
     }
+
+    enum Purpose { case markup, scope }
 
     let folder: JobFolder
     @Published private(set) var plan: [String: Any] = [:]
@@ -96,123 +60,38 @@ final class RevisitModel: ObservableObject, LogSheetModel {
     @Published var fitMessage: String?
     @Published private(set) var fitAcceptable = false
     @Published private(set) var visit = "v1"
-    @Published private(set) var visitLabel = ""
+    @Published private(set) var visitNumber = 1
     @Published private(set) var tracking: TrackingStatus = .notAvailable
     @Published private(set) var markers: [Revisit.Marker] = []
     @Published private(set) var target: Revisit.Candidate?
     @Published private(set) var hint: String?
-    @Published var toast: String?
-    @Published var pending: PendingLog?
-    @Published var remeasure: RemeasureRequest?
-    @Published var confirm: RevisitConfirm?
     @Published var alert: String?
-    @Published var lastMaterial = "wall"
-    @Published var lastEquipmentType = "airMover"
-    @Published var lastKind = "reading"
-    @Published var lastRemovalItem = "plasterboard"
     @Published private(set) var autoAligned = false
-    // AR mark-up
-    @Published var mode: MarkupMode = .reading
-    /// Inspect · Quote · Monitor: which tools the strip shows (presentation only).
-    @Published private(set) var workMode: WorkMode = .inspect
-    /// Quote mode: wall removal item chosen on the strip.
-    @Published var wallRemovalItem = "plasterboard"
-    @Published private(set) var quoteTally = QuoteTally()
-    /// markup: the mark-up tools; scope: "See scope on site" (view only).
-    enum Purpose { case markup, scope }
     @Published private(set) var purpose: Purpose
-    /// Read once: "Show prices" (the AR screens never show money either way).
-    let pricesVisible = PriceLock.pricesVisible
     @Published private(set) var scopeItems: [ScopeItem] = []
     @Published private(set) var aimedScope: ScopeItem?
-    @Published var showScopeList = false
-    /// An air mover whose airflow is being aimed (Scope mode, or "Re-aim airflow").
-    @Published private(set) var aimingDir: String?
-    /// The Log sheet's "Photo" chip: link the AR frame to the item (default on).
-    var attachPhoto = true
-    /// What the reticle is on ("Wall · 1.20 m · Kitchen"); empty = nothing under it.
-    @Published private(set) var reticle = ""
-    /// The plan wall under the reticle (for "Whole wall" and end snapping), nil when not on a wall.
-    @Published private(set) var reticleWall: PlanWall?
-    private var reticleY: Double?
-    @Published private(set) var undoChipVisible = false
-    private var undoWindow = UndoWindow()
-    @Published var moistureOnFloor = false
-    @Published private(set) var sweeping = false
-    @Published private(set) var floorCornerCount = 0
-    @Published var editing: MarkerEdit?
-    @Published private(set) var moving: String?
-    @Published private(set) var undoCount = 0
-    @Published private(set) var strokeCount = 0
-    @Published var showItems = false
-    let flow = CaptureFlow()
 
-    /// Set when marking up during the first scan: every item also goes into
-    /// the scan's readings-raw.json (in the scan's world space) so the final
-    /// plan build places it like anything logged on the scan screen.
-    private(set) weak var scan: ScanModel?
-    let firstScan: Bool
-    /// RoomPlan's running ARSession, drawn on directly (same world frame).
-    let sharedSession: ARSession?
-    let start: MarkupStart?
-    let roomNumber: Int
-    private var sweepTimer: Timer?
-    private var sweepPoses: [FrameCapture] = []
-    private var pressStarted: Date?
-    private var floorCorners: [FrameCapture] = []
-    private var undoStack: [[String]] = []
-    private var strokeStack: [[String]] = []
-    private var previewShown = false
-
+    private(set) lazy var hud = CaptureHUDModel(engine: self)
     weak var controller: RevisitARViewController?
     private(set) var alignment: PlanTransform?
     private(set) var floorY = 0.0
-    private var seq = 1000
     private var relocaliseDeadline: Date?
+    private var lastSample: AimSample?
+    private var marksCache: [OverlayMark]?
+    private var worldCache: CaptureWorld?
     let hasWorldMap: Bool
     let savedFrame: PlanFrame?
+    let start: MarkupStart?
 
-    init(folder: JobFolder, firstScan scan: ScanModel? = nil, session: ARSession? = nil,
-         start: MarkupStart? = nil, roomNumber: Int = 0, purpose: Purpose = .markup) {
+    init(folder: JobFolder, purpose: Purpose = .markup, start: MarkupStart? = nil) {
         self.folder = folder
         self.purpose = purpose
-        self.scan = scan
-        self.firstScan = scan != nil
-        self.sharedSession = session
         self.start = start
-        self.roomNumber = roomNumber
         self.hasWorldMap = FileManager.default.fileExists(atPath: folder.worldMapURL.path)
         self.savedFrame = JobFiles.loadFrame(folder)
         reloadPlan()
         chooseRoom(Self.largestRoom(rooms))
-        if let scan {
-            visit = PlanDocument.currentVisit(plan["markup"] as? [String: Any] ?? [:])
-            visitLabel = "Room \(roomNumber) · mark-up"
-            lastMaterial = scan.lastMaterial
-            lastEquipmentType = scan.lastEquipmentType
-            lastRemovalItem = scan.lastRemovalItem
-            mode = MarkupMode(kind: scan.lastKind)
-            if mode == .wallRemoval && scan.lastRemovalItem != "flooring" { wallRemovalItem = scan.lastRemovalItem }
-            workMode = WorkMode.containing(mode, laterVisit: false)
-        }
-        quoteTally = QuoteTally.from(plan: plan)
-    }
-
-    var workModes: [WorkMode] { WorkMode.offered(laterVisit: isLaterVisit) }
-
-    func setWorkMode(_ w: WorkMode) {
-        workMode = w
-        if !w.tools.contains(mode), let first = w.tools.first { mode = first }
-        floorCorners = []
-        floorCornerCount = 0
-        controller?.clearPreview()
-    }
-
-    /// Called once the visit is known (return visits start in Monitor when there is a previous visit).
-    func chooseDefaultWorkMode() {
-        let w = WorkMode.defaultMode(laterVisit: isLaterVisit)
-        workMode = w
-        mode = w.tools.first ?? .reading
+        visit = PlanDocument.currentVisit(plan["markup"] as? [String: Any] ?? [:])
     }
 
     // MARK: Plan
@@ -221,12 +100,19 @@ final class RevisitModel: ObservableObject, LogSheetModel {
     var walls: [PlanWall] { Revisit.walls(plan) }
     var room: [PlanVec] { rooms.indices.contains(roomIndex) ? rooms[roomIndex] : [] }
     var cornerPoints: [PlanVec] { cornerIdx.compactMap { room.indices.contains($0) ? room[$0] : nil } }
+    var cornerNames: [String] { ["A", "B", "C"] }
 
     func reloadPlan() {
         if let data = try? Data(contentsOf: folder.planURL),
            let doc = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             plan = doc
         }
+        invalidate()
+    }
+
+    private func invalidate() {
+        marksCache = nil
+        worldCache = nil
     }
 
     static func largestRoom(_ rooms: [[PlanVec]]) -> Int {
@@ -240,8 +126,7 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         picking = 0
     }
 
-    /// A tap on the mini plan (plan coordinates): a corner of the chosen room
-    /// replaces the corner being picked; elsewhere selects that room.
+    /// A tap on the mini plan: a corner of the chosen room replaces the corner being picked; elsewhere selects that room.
     func tapPlan(_ p: PlanVec) {
         if let c = Corners.nearest(to: p, in: room, maxDistance: 0.6) {
             if cornerIdx.count <= picking { cornerIdx.append(c) } else { cornerIdx[picking] = c }
@@ -252,7 +137,10 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         if let r = Corners.room(at: p, polygons: rooms), r != roomIndex { chooseRoom(r) }
     }
 
-    var cornerNames: [String] { ["A", "B", "C"] }
+    private func roomName(_ i: Int) -> String? {
+        let list = plan["rooms"] as? [[String: Any]] ?? []
+        return list.indices.contains(i) ? list[i]["name"] as? String : nil
+    }
 
     // MARK: Visit
 
@@ -262,31 +150,23 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         plan = r.plan
         visit = r.visit
         let visits = (plan["markup"] as? [String: Any])?["visits"] as? [[String: Any]] ?? []
-        let n = visits.firstIndex { ($0["id"] as? String) == r.visit }.map { $0 + 1 } ?? 1
-        visitLabel = "Visit \(n)\(r.started ? " (started today)" : "")"
-        chooseDefaultWorkMode()
+        visitNumber = visits.firstIndex { ($0["id"] as? String) == r.visit }.map { $0 + 1 } ?? 1
+        hud.tool = CaptureTool.rail(returnVisit: isReturnVisit, scopeOnSite: isScopeOnSite).first ?? .reading
+        if purpose == .scope { hud.context = .scope }
         if r.started { return savePlan() }
         return true
     }
 
-    // MARK: AR session lifecycle (called by the screen / controller)
+    /// True from the second visit on (re-measuring makes sense).
+    var isLaterVisit: Bool {
+        let visits = ((plan["markup"] as? [String: Any])?["visits"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        return (visits.firstIndex(of: visit) ?? 0) > 0
+    }
+
+    // MARK: AR session lifecycle (called by the controller)
 
     func arStarted() {
-        if start == .sharedSession, let f = savedFrame {
-            // The scan's own session: the plan frame applies as it is.
-            alignment = f.transform
-            floorY = f.floorY ?? 0
-            autoAligned = true
-            fitAcceptable = true
-            phase = .measuring
-            refreshMarkers()
-            logEvent(["type": "alignment", "shared": true, "angle": f.angle, "offset": f.offset, "floorY": floorY])
-            return
-        }
-        if start == .corners {
-            startCorners()
-            return
-        }
+        if start == .corners { startCorners(); return }
         if hasWorldMap, savedFrame != nil {
             phase = .relocalizing
             relocaliseDeadline = Date().addingTimeInterval(10)
@@ -306,7 +186,7 @@ final class RevisitModel: ObservableObject, LogSheetModel {
             alignment = f.transform
             floorY = f.floorY ?? 0
             autoAligned = true
-            fitMessage = "Aligned automatically with the saved scan. Check the blue lines sit on the walls at floor level."
+            fitMessage = "Lined up with the saved scan"
             fitAcceptable = true
             showCheck()
         }
@@ -314,7 +194,6 @@ final class RevisitModel: ObservableObject, LogSheetModel {
 
     private func relocaliseTimedOut() {
         guard phase == .relocalizing else { return }
-        // The saved map didn't match (or not yet): carry on with corners, without fuss.
         controller?.restart(worldMap: nil)
         startCorners()
     }
@@ -330,30 +209,22 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         hits = []
         fitMessage = nil
         fitAcceptable = false
+        invalidate()
         if cornerIdx.count > 2 { cornerIdx = Array(cornerIdx.prefix(2)) }
-        controller?.clearMarkers()
+        controller?.clearOutline()
         phase = .corner(0)
     }
 
-    /// "Set A/B/C": the crosshair raycast hit is that corner.
+    /// "Set A/B/C": the reticle's raycast hit is that corner.
     func setCorner() {
         guard case .corner(let i) = phase else { return }
-        guard tracking.isNormal else { fitMessage = "Wait until tracking is normal, then try again."; return }
-        guard let hit = controller?.centreHit() else {
-            fitMessage = "Nothing under the crosshair yet. Point at the corner where the two walls meet the floor."
-            return
-        }
+        guard tracking.isNormal else { fitMessage = "Wait a moment — finding the room"; return }
+        guard let hit = lastSample?.hit else { fitMessage = "Aim at the corner where the walls meet the floor"; return }
         if hits.count > i { hits = Array(hits.prefix(i)) }
         hits.append(hit)
         fitMessage = nil
-        if hits.count < 2 {
-            phase = .corner(hits.count)
-            return
-        }
-        if hits.count < cornerPoints.count {
-            phase = .corner(hits.count)
-            return
-        }
+        DS.Haptic.save()
+        if hits.count < max(2, cornerPoints.count) { phase = .corner(hits.count); return }
         evaluateFit()
     }
 
@@ -381,8 +252,7 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         let plans = cornerPoints
         switch Alignment.fit(world: hits, plan: plans) {
         case .failure(let p):
-            fitMessage = p == .tooClose ? "Those corners are too close together. Choose corners further apart and redo."
-                                        : "The corners don't match. Redo them."
+            fitMessage = p == .tooClose ? "Those corners are too close — pick corners further apart" : "The corners don't match — try again"
             fitAcceptable = false
             phase = .corner(hits.count - 1)
         case .success(let f):
@@ -390,20 +260,12 @@ final class RevisitModel: ObservableObject, LogSheetModel {
             floorY = Alignment.floorHeight(hits) ?? f.floorY
             if f.ok {
                 fitAcceptable = true
-                fitMessage = String(format: "Aligned. Corners match the plan within %.0f cm.", max(f.maxResidual, abs(f.distanceError)) * 100)
+                fitMessage = String(format: "Lined up within %.0f cm", max(f.maxResidual, abs(f.distanceError)) * 100)
             } else {
                 fitAcceptable = false
-                var text = String(format: "Corner A to B measured %.2f m on site but %.2f m on the plan.",
-                                  simd_distance(PlanVec(hits[0].x, hits[0].z), PlanVec(hits[1].x, hits[1].z)),
-                                  simd_distance(plans[0], plans[1]))
-                if let d = Alignment.diagnose(world: hits, plan: plans) {
-                    switch d {
-                    case .swapped: text += " The corners look like they were tapped in a different order."
-                    case .mirrored: text += " It only fits as a mirror image: check you pointed at the corners shown."
-                    default: break
-                    }
-                }
-                fitMessage = text + " Redo the corners, add a third corner, or use it anyway."
+                fitMessage = String(format: "A to B is %.2f m here, %.2f m on the plan",
+                                    simd_distance(PlanVec(hits[0].x, hits[0].z), PlanVec(hits[1].x, hits[1].z)),
+                                    simd_distance(plans[0], plans[1]))
             }
             showCheck()
         }
@@ -416,11 +278,13 @@ final class RevisitModel: ObservableObject, LogSheetModel {
 
     private func showCheck() {
         phase = .check
+        invalidate()
         if let a = alignment { controller?.showOutline(walls: walls, alignment: a, floorY: floorY) }
     }
 
     func looksRight() {
         guard alignment != nil else { return }
+        controller?.clearOutline()
         phase = .measuring
         refreshMarkers()
         logEvent(["type": "alignment", "auto": autoAligned, "angle": alignment?.angle ?? 0,
@@ -428,7 +292,7 @@ final class RevisitModel: ObservableObject, LogSheetModel {
     }
 
     func realign() {
-        controller?.clearMarkers()
+        controller?.clearOutline()
         startCorners()
     }
 
@@ -436,427 +300,482 @@ final class RevisitModel: ObservableObject, LogSheetModel {
 
     func refreshMarkers() {
         markers = Revisit.markers(plan: plan, visit: visit)
-        quoteTally = QuoteTally.from(plan: plan)
         scopeItems = ScopeList.items(plan: plan, names: EditorNamesStore.load(folder))
         if let id = aimedScope?.id { aimedScope = scopeItems.first { $0.id == id } }
-        if purpose == .scope {
-            guard phase == .measuring, let a = alignment else { return }
-            controller?.showScope(scopeItems, walls: walls, alignment: a, floorY: floorY)
-            return
-        }
-        guard phase == .measuring, let a = alignment else { return }
-        controller?.showMarkers(markers, walls: walls, alignment: a, floorY: floorY)
+        invalidate()
     }
 
     var progress: (done: Int, total: Int) { Revisit.progress(markers) }
 
-    /// Called ~10 times a second with the camera pose (this session's world space).
+    /// ~10 times a second with the camera pose (this session's world space).
     func aim(camera: WorldVec, forward: WorldVec) {
         guard phase == .measuring, let a = alignment else {
             if target != nil { target = nil }
             hint = nil
             return
         }
-        if purpose == .scope {
-            let cands = scopeItems.map { it -> Revisit.Candidate in
-                let h = it.kind == .floor ? 0.02 : it.height
-                return Revisit.Candidate(id: it.id, kind: it.kind.rawValue,
-                                         world: Revisit.world(it.pos, height: h, alignment: a, floorY: floorY),
-                                         radius: it.kind == .equipment ? 0.4 : (it.kind == .wall ? 0.6 : 0.8))
-            }
-            let t = Revisit.target(cands, origin: camera, direction: forward)
-            if t?.id != aimedScope?.id {
-                aimedScope = t.flatMap { c in scopeItems.first { $0.id == c.id } }
-                controller?.highlight(t?.id)
-            }
-            if hint != nil { hint = nil }
-            return
-        }
-        let remeasuring = mode == .remeasure && moving == nil
-        let marking = mode == .markDone && moving == nil
-        let candidates = markers.filter {
-            (remeasuring && $0.kind == "reading") || (marking && ($0.kind == "equipment" || ($0.kind == "removal" && !$0.done)))
-        }.map {
-            Revisit.Candidate(id: $0.id, kind: $0.kind,
-                              world: Revisit.world($0.pos, height: $0.height, alignment: a, floorY: floorY),
-                              radius: $0.kind == "reading" ? 0.15 : 0.35)
-        }
-        let t = Revisit.target(candidates, origin: camera, direction: forward)
-        if t?.id != target?.id { target = t; controller?.highlight(t?.id) }
-        // Hint towards the nearest point not yet re-measured (return visits only).
-        guard remeasuring else { if hint != nil { hint = nil }; return }
-        let open = markers.filter { $0.kind == "reading" && !$0.measured }
-        let fy = floorY
-        let placed: [(marker: Revisit.Marker, world: WorldVec, distance: Double)] = open.map { m in
-            let w = Revisit.world(m.pos, height: m.height, alignment: a, floorY: fy)
-            return (m, w, simd_distance(w, camera))
-        }
-        if let nearest = placed.min(by: { $0.distance < $1.distance }) {
-            let near = nearest.marker
-            let w = nearest.world
-            let deg = Revisit.turnHint(camera: camera, forward: forward, target: w)
-            let name = near.label.components(separatedBy: " ").first ?? ""
-            hint = abs(deg) < 25 ? "Point \(name) ahead" : (deg > 0 ? "Point \(name) → turn right" : "← turn left · point \(name)")
-        } else {
-            hint = markers.contains { $0.kind == "reading" } ? "All points re-measured" : nil
-        }
-    }
-
-    /// True from the second visit on (re-measuring makes sense).
-    var isLaterVisit: Bool {
-        let visits = ((plan["markup"] as? [String: Any])?["visits"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
-        return (visits.firstIndex(of: visit) ?? 0) > 0
-    }
-
-    var canAct: Bool { phase == .measuring && tracking.isNormal && !flow.isBusy }
-
-    /// Exactly what a tap on the big button does.
-    var actionTitle: String {
-        if purpose == .scope { return aimedScope?.actionTitle ?? "Aim at a scoped item" }
-        if aimingDir != nil { return "Set airflow direction" }
-        if moving != nil { return "Move here" }
-        let aimed = target.flatMap { t in markers.first(where: { $0.id == t.id }) }
-        switch mode {
-        case .reading: return "Log reading"
-        case .moisture:
-            if moistureOnFloor { return floorCornerCount > 0 ? "Add corner \(floorCornerCount + 1)" : "Hold to trace wet floor" }
-            return sweeping ? "Drawing… release to finish" : "Hold to draw moisture line"
-        case .photo: return "Take photo"
-        case .source: return "Mark source here"
-        case .equipment: return "Place \(PlanDocument.equipmentName(lastEquipmentType).lowercased())"
-        case .wallRemoval: return "Start \(RemovalItems.name(wallRemovalItem).lowercased()) removal here"
-        case .floorRemoval: return "Start floor removal: first corner"
-        case .remeasure:
-            guard let m = aimed else { return "Aim at a reading" }
-            return "Re-measure \(m.label.components(separatedBy: " ").first ?? "")"
-        case .markDone:
-            guard let m = aimed else { return "Aim at equipment or a removal" }
-            return m.kind == "equipment" ? "Mark removed: \(m.label)" : "Mark done + after photo"
-        }
-    }
-
-    func mainAction() {
-        guard canAct else { return }
-        if purpose == .scope {
-            guard let it = aimedScope else { showToast("Put the crosshair on a red band, a floor section or a ghost marker"); return }
-            guard !it.done else { showToast("\(it.tag) is already done"); return }
-            confirm = it.kind == .equipment ? .equipmentPlaced(id: it.id, name: it.tag) : .removalDone(id: it.id, name: it.tag)
-            return
-        }
-        if let id = aimingDir { setDirection(id); return }
-        if let id = moving { moveHere(id); return }
-        let aimed = target.flatMap { t in markers.first(where: { $0.id == t.id }) }
-        switch mode {
-        case .moisture: tapMoisture()
-        case .photo:
-            // One tap, no sheet: the frame is saved; a caption can be added from the item later.
-            beginLog(kind: "photo")
-            if pending != nil { saveLog(kind: "photo", value: nil, material: "wall", reference: false, note: "") }
-        case .wallRemoval: startRemovalNow(item: wallRemovalItem)
-        case .floorRemoval: startRemovalNow(item: "flooring")
-        case .remeasure:
-            if let m = aimed { beginRemeasure(m) } else { showToast("Put the crosshair on a saved reading") }
-        case .markDone:
-            guard let m = aimed else { showToast("Put the crosshair on equipment or a removal band"); return }
-            confirm = m.kind == "equipment" ? .equipmentRemoved(id: m.id, name: m.label) : .removalDone(id: m.id, name: m.label)
-        default: beginLog(kind: mode.kind)
-        }
-    }
-
-    /// Quote mode: this frame is the start of a removal, no sheet first
-    /// (wall: then "End here"; flooring: this tap is the first corner).
-    func startRemovalNow(item: String) {
-        guard pending == nil, var p = capturePending() else { return }
-        lastRemovalItem = item
-        lastKind = "removal"
-        if item != "flooring" { p = PendingLog(id: p.id, seq: p.seq, roomIndex: p.roomIndex, takenAt: p.takenAt, capture: snapToWallEnd(p.capture), photoTask: p.photoTask) }
-        flow.begin(item: item, start: p)
-        if item == "flooring", let c = controller?.capturePose() { flow.addCorner(c) }
-    }
-
-    func beginLog(kind: String) {
-        lastKind = kind
-        beginLog()
-    }
-
-    /// A tap on a marker in the camera view: its sheet (edit, move, delete).
-    func tapMarker(_ id: String) {
-        guard phase == .measuring, purpose == .markup, moving == nil, aimingDir == nil, !sweeping, !flow.isBusy else { return }
-        openEditor(id)
-    }
-
-    // MARK: Re-measure
-
-    func beginRemeasure(_ m: Revisit.Marker) {
-        guard let p = capturePending() else { return }
-        let readings = (plan["markup"] as? [String: Any])?["readings"] as? [[String: Any]] ?? []
-        let r = readings.first { ($0["id"] as? String) == m.id } ?? [:]
-        let visits = (plan["markup"] as? [String: Any])?["visits"] as? [[String: Any]] ?? []
-        let previous = Revisit.history(r).map { e -> String in
-            let vid = (e["visit"] as? String) ?? "v1"
-            let n = visits.firstIndex { ($0["id"] as? String) == vid }.map { $0 + 1 } ?? 1
-            let v = PlanDocument.number(e["value"]).map { Revisit.fmt($0) + "%" } ?? "–"
-            return "Visit \(n): \(v)"
-        }
-        let name = m.label.components(separatedBy: " ").first ?? ""
-        remeasure = RemeasureRequest(id: m.id, title: "Point \(name)", previous: previous, pending: p)
-    }
-
-    func saveRemeasure(value: Double) {
-        guard let req = remeasure else { return }
-        remeasure = nil
-        let visit = self.visit
-        Task {
-            let photo = await Self.dataURL(req.pending.photoTask)
-            guard let out = Revisit.recordMeasurement(plan: plan, readingId: req.id, visit: visit, value: value,
-                                                      takenAt: req.pending.takenAt, photo: photo, note: nil) else {
-                alert = "That point is no longer in the plan."
-                return
-            }
-            plan = out
-            if savePlan() {
-                logEvent(["type": "remeasure", "id": req.id, "visit": visit, "value": value, "takenAt": req.pending.takenAt,
-                          "camera": ScanModel.arr(req.pending.capture.cameraPosition)])
-                refreshMarkers()
-                let p = progress
-                showToast("\(req.title) re-measured · \(Revisit.fmt(value))% · \(p.done) of \(p.total)")
-            }
-        }
-    }
-
-    func confirmAction(_ c: RevisitConfirm) {
-        let now = PlanDocument.iso(Date())
-        switch c {
-        case .equipmentPlaced(let id, let name):
-            guard let out = ScopeList.markPlaced(plan: plan, id: id, visit: visit, at: now) else { return }
-            plan = out
-            if savePlan() { logEvent(["type": "equipmentPlaced", "id": id, "visit": visit, "at": now]); refreshMarkers(); showToast("\(name) marked placed") }
-        case .equipmentRemoved(let id, let name):
-            guard let out = Revisit.markEquipmentRemoved(plan: plan, id: id, visit: visit, at: now) else { return }
-            plan = out
-            if savePlan() { logEvent(["type": "equipmentRemoved", "id": id, "visit": visit, "at": now]); refreshMarkers(); showToast("\(name) marked removed") }
-        case .removalDone(let id, _):
-            guard let p = capturePending(), let a = alignment else { return }
-            let cam = a.point(Self.world(p.capture.cameraPosition))
-            let visit = self.visit
-            Task {
-                let photo = await Self.dataURL(p.photoTask)
-                guard let out = Revisit.markRemovalDone(plan: plan, id: id, visit: visit, photo: photo, takenAt: p.takenAt, cam: cam) else { return }
-                plan = out
-                if savePlan() { logEvent(["type": "removalDone", "id": id, "visit": visit, "at": p.takenAt]); refreshMarkers(); showToast("Removal marked done · photo kept") }
-            }
-        }
-    }
-
-    // MARK: Logging new items (LogSheetModel)
-
-    var nextReadingNumber: Int {
-        let readings = (plan["markup"] as? [String: Any])?["readings"] as? [[String: Any]] ?? []
-        return Int(readings.filter { (($0["kind"] as? String) ?? "reading") == "reading" }.compactMap { PlanDocument.number($0["n"]) }.max() ?? 0) + 1
-    }
-
-    var nextPhotoNumber: Int {
-        let readings = (plan["markup"] as? [String: Any])?["readings"] as? [[String: Any]] ?? []
-        return Int(readings.filter { ($0["kind"] as? String) == "photo" }.compactMap { PlanDocument.number($0["n"]) }.max() ?? 0) + 1
-    }
-
-    func beginLog() {
-        guard canAct, pending == nil, let p = capturePending() else { return }
-        pending = p
-    }
-
-    func cancelLog() { pending = nil }
-
-    func saveLog(kind: String, value: Double?, material: String, reference: Bool, note: String) {
-        guard let p = pending else { return }
-        pending = nil
-        if kind == "reading" { lastMaterial = material }
-        if kind == "equipment" { lastEquipmentType = material }
-        if kind != "floorType" { lastKind = kind }
-        var r = Self.pbReading(p, kind: kind, material: material, note: note)
-        r.value = kind == "reading" ? value : nil
-        r.reference = kind == "reading" && reference
-        if kind == "floorType" { r.floorType = material }
-        let photo = attachPhoto
-        attachPhoto = true
-        addResolved(r, photoTask: photo ? p.photoTask : Task<Data?, Never> { nil }, title: LogKind.name(kind), photo: photo)
-    }
-
-    func startRemoval(item: String) {
-        guard let p = pending else { return }
-        pending = nil
-        lastRemovalItem = item
-        lastKind = "removal"
-        flow.begin(item: item, start: p)
-    }
-
-    func endHere() {
-        guard let c = controller?.captureFrame() else { return }
-        var pose = c
-        pose.image = nil
-        flow.setEnd(snapToWallEnd(pose))
-    }
-
-    /// A tap within 15 cm of the end of the wall under the reticle lands on its end.
-    func snapToWallEnd(_ c: FrameCapture) -> FrameCapture {
-        guard let w = reticleWall, let a = alignment, let h = c.hit else { return c }
-        let hit = WorldVec(Double(h.x), Double(h.y), Double(h.z))
-        let snapped = WallEndSnap.snapPoint(hit, wallA: a.world(w.a, y: hit.y), wallB: a.world(w.b, y: hit.y))
-        guard snapped != hit else { return c }
-        var out = c
-        out.hit = SIMD3<Float>(snapped)
-        let cam = WorldVec(Double(c.cameraPosition.x), Double(c.cameraPosition.y), Double(c.cameraPosition.z))
-        if simd_length(snapped - cam) > 1e-6 { out.cameraForward = SIMD3<Float>(simd_normalize(snapped - cam)) }
-        return out
-    }
-
-    /// "Whole wall": a wall strip-out from end to end of the wall under the
-    /// reticle, at the reticle's height; then the usual height sheet.
-    func wholeWall() {
-        guard canAct, pending == nil, let w = reticleWall, let a = alignment, let y = reticleY,
-              let p = capturePending() else { return }
-        let ends = WallEndSnap.wholeWall(a: a.world(w.a, y: y), b: a.world(w.b, y: y), y: y)
-        let cam = WorldVec(Double(p.capture.cameraPosition.x), Double(p.capture.cameraPosition.y), Double(p.capture.cameraPosition.z))
-        func aimed(_ c: FrameCapture, at e: WorldVec) -> FrameCapture {
-            var out = c
-            out.hit = SIMD3<Float>(e)
-            if simd_length(e - cam) > 1e-6 { out.cameraForward = SIMD3<Float>(simd_normalize(e - cam)) }
-            return out
-        }
-        let start = PendingLog(id: p.id, seq: p.seq, roomIndex: p.roomIndex, takenAt: p.takenAt,
-                               capture: aimed(p.capture, at: ends.0), photoTask: p.photoTask)
-        lastRemovalItem = wallRemovalItem
-        lastKind = "removal"
-        flow.begin(item: wallRemovalItem, start: start)
-        var end = aimed(p.capture, at: ends.1)
-        end.image = nil
-        flow.setEnd(end)
-    }
-
-    /// The height sheet's pre-picked height: from where the end was tapped.
-    var suggestedRemovalMm: Int? {
-        guard let h = flow.end?.hit else { return nil }
-        return HeightSnap.suggested(endHeightMetres: Double(h.y) - floorY)
-    }
-
-    func addCorner() {
-        guard let c = controller?.captureFrame() else { return }
-        var pose = c
-        pose.image = nil
-        flow.addCorner(pose)
-    }
-
-    func saveRemoval(item: String, heightMm: Int, note: String, floorType: String?, underlay: Bool) {
-        guard let d = flow.finish(item: item, heightMm: heightMm, note: note, floorType: floorType, underlay: underlay) else { return }
-        var r = Self.pbReading(d.start, kind: "removal", material: d.item, note: d.note)
-        if let e = d.end {
-            r.end = PBPose(cameraPosition: Self.world(e.cameraPosition), cameraForward: Self.world(e.cameraForward),
-                           hit: e.hit.map(Self.world))
-        }
-        r.corners = d.corners.map { PBPose(cameraPosition: Self.world($0.cameraPosition), cameraForward: Self.world($0.cameraForward),
-                                           hit: $0.hit.map(Self.world)) }
-        r.wholeRoom = d.wholeRoom
-        r.heightMm = Double(d.heightMm)
-        r.floorType = d.floorType
-        r.underlay = d.underlay
-        addResolved(r, photoTask: d.start.photoTask, title: "Removal")
-    }
-
-    /// Resolve against the saved plan through the alignment, embed the photo,
-    /// add to plan.json, log the raw record.
-    private func addResolved(_ r: PBReading, photoTask: Task<Data?, Never>, title: String, photo: Bool = true) {
-        guard let a = alignment, phase == .measuring else {
-            alert = "Not aligned yet - nothing was saved. Align with the corners first."
-            return
-        }
-        let visit = self.visit, floorY = self.floorY
-        Task {
-            var pb = r
-            pb.photo = await Self.dataURL(photoTask)
-            switch Revisit.itemJSON(for: pb, plan: plan, alignment: a, floorY: floorY, visit: visit) {
-            case .failure(let e):
-                alert = e.message
-            case .success(var item):
-                // Equipment put in the scope (Quote / Scope mode) is planned until the crew marks it placed.
-                if pb.kind == "equipment" && self.workMode == .quote { item["status"] = "planned" }
-                plan = Revisit.addItem(plan: plan, item: item)
-                if savePlan() {
-                    if let scan = self.scan, let raw = self.rawRecord(pb, photo: photo) { scan.commit(raw, photoTask: photoTask) }
-                    if pb.kind == "equipment" && pb.material == "airMover" {
-                        self.aimingDir = pb.id
-                        self.showToast("Aim along the airflow, then tap Set airflow direction")
-                    }
-                    self.pushUndo([pb.id], stroke: false)
-                    var ev: [String: Any] = ["type": "logged", "id": pb.id, "kind": pb.kind, "visit": visit, "takenAt": pb.takenAt,
-                                             "camera": [pb.cameraPosition.x, pb.cameraPosition.y, pb.cameraPosition.z],
-                                             "forward": [pb.cameraForward.x, pb.cameraForward.y, pb.cameraForward.z]]
-                    if let h = pb.hit { ev["hit"] = [h.x, h.y, h.z] }
-                    logEvent(ev)
-                    refreshMarkers()
-                    showToast("\(title) logged · \(visitLabel)")
+        let tool = hud.tool
+        if tool == .done || purpose == .scope {
+            let cands: [Revisit.Candidate]
+            if purpose == .scope {
+                cands = scopeItems.map { it in
+                    Revisit.Candidate(id: it.id, kind: it.kind.rawValue,
+                                      world: Revisit.world(it.pos, height: it.kind == .floor ? 0.02 : it.height, alignment: a, floorY: floorY),
+                                      radius: it.kind == .equipment ? 0.4 : (it.kind == .wall ? 0.6 : 0.8))
+                }
+            } else {
+                cands = markers.filter { $0.kind == "equipment" || ($0.kind == "removal" && !$0.done) }.map {
+                    Revisit.Candidate(id: $0.id, kind: $0.kind, world: Revisit.world($0.pos, height: $0.height, alignment: a, floorY: floorY), radius: 0.4)
                 }
             }
-        }
-    }
-
-    // MARK: Reticle
-
-    /// From the camera tick: what the crosshair is on, said before the tap.
-    func updateReticle(hit: WorldVec?, normal: WorldVec?) {
-        var text = ""
-        if let h = hit, let a = alignment {
-            let p = a.point(h)
-            let ny = normal.map { simd_length($0) > 1e-9 ? simd_normalize($0).y : 0 } ?? 0
-            let d = abs(ny) < 0.7 ? walls.map { PlanBuilder.distanceToSegment(p, $0.a, $0.b) }.min() : nil
-            let s = Reticle.surface(normalY: ny, height: h.y - floorY, distanceToWall: d)
-            let wall = s == .wall ? PlanBuilder.nearestWall(to: p, walls: walls, maxDistance: 0.25).map { walls[$0.index] } : nil
-            if wall?.id != reticleWall?.id { reticleWall = wall }
-            reticleY = h.y
-            let room = FloorArea.room(containing: p, rooms: rooms).flatMap { i -> String? in
-                let list = plan["rooms"] as? [[String: Any]] ?? []
-                return list.indices.contains(i) ? list[i]["name"] as? String : nil
-            }
-            text = Reticle.describe(s, height: h.y - floorY, room: room)
-        } else if hit == nil {
-            if reticleWall != nil { reticleWall = nil }
-            text = Reticle.blocked(trackingNormal: tracking.isNormal, hasHit: false, needsWall: mode != .equipment && mode != .floorRemoval) ?? ""
-        }
-        if reticle != text { reticle = text }
-    }
-
-    // MARK: Airflow (air movers) and the scope view
-
-    /// The phone's heading now becomes the air mover's airflow ("dir", a plan angle).
-    func setDirection(_ id: String) {
-        guard let a = alignment, let c = controller?.capturePose() else { return }
-        guard let angle = Airflow.planAngle(forward: Self.world(c.cameraForward), transform: a) else {
-            showToast("Hold the phone up and point it the way the air should blow")
+            let t = Revisit.target(cands, origin: camera, direction: forward)
+            if t?.id != target?.id { target = t; if t != nil { DS.Haptic.lock() } }
+            aimedScope = purpose == .scope ? t.flatMap { c in scopeItems.first { $0.id == c.id } } : nil
+            hint = nil
             return
         }
-        aimingDir = nil
-        controller?.clearPreview()
-        guard let d = MarkupEdit.update(plan, id: id, set: ["dir": PlanDocument.r4(angle)]) else { return }
-        plan = d
-        if savePlan() { logEvent(["type": "airflow", "id": id, "dir": angle]); refreshMarkers(); showToast("Airflow set") }
+        guard tool == .remeasure else { if target != nil { target = nil }; hint = nil; return }
+        let candidates = markers.filter { $0.kind == "reading" }.map {
+            Revisit.Candidate(id: $0.id, kind: $0.kind, world: Revisit.world($0.pos, height: $0.height, alignment: a, floorY: floorY), radius: 0.15)
+        }
+        let t = Revisit.target(candidates, origin: camera, direction: forward)
+        if t?.id != target?.id { target = t; if t != nil { DS.Haptic.lock() } }
+        // Hint towards the nearest point not yet re-measured.
+        let open = markers.filter { $0.kind == "reading" && !$0.measured }
+        let near = open.map { m -> (Revisit.Marker, WorldVec, Double) in
+            let w = Revisit.world(m.pos, height: m.height, alignment: a, floorY: floorY)
+            return (m, w, simd_distance(w, camera))
+        }.min { $0.2 < $1.2 }
+        if let near {
+            let deg = Revisit.turnHint(camera: camera, forward: forward, target: near.1)
+            let tag = "R" + (near.0.label.components(separatedBy: " ").first ?? "")
+            hint = abs(deg) < 25 ? "\(tag) is ahead" : (deg > 0 ? "Turn right for \(tag)" : "Turn left for \(tag)")
+        } else {
+            hint = markers.contains { $0.kind == "reading" } ? "Every point re-measured" : nil
+        }
     }
 
-    func skipDirection() {
-        aimingDir = nil
-        controller?.clearPreview()
+    private func marker(_ id: String?) -> Revisit.Marker? { id.flatMap { i in markers.first { $0.id == i } } }
+
+    private func tag(_ m: Revisit.Marker) -> String {
+        if m.kind == "reading" { return "R" + (m.label.components(separatedBy: " ").first ?? "").replacingOccurrences(of: "R", with: "") }
+        return m.label
     }
 
-    func reAimAirflow(_ id: String) {
-        editing = nil
-        aimingDir = id
-        showToast("Aim along the airflow, then tap Set airflow direction")
+    // MARK: CaptureEngine - what the screen says
+
+    var roomName: String {
+        guard let a = alignment, let cam = lastSample?.camera else { return "" }
+        return FloorArea.room(containing: a.point(cam), rooms: rooms).flatMap(roomName) ?? ""
     }
 
-    /// "Edit scope": from the view-only scope to the Scope tools.
-    func editScope() {
-        purpose = .markup
-        aimedScope = nil
-        setWorkMode(.quote)
+    var phaseText: String {
+        switch phase {
+        case .intro, .relocalizing, .corner, .check: return "Lining up"
+        case .measuring:
+            if purpose == .scope {
+                let p = ScopeList.progress(scopeItems)
+                return "Scope · \(p.done) of \(p.total) done"
+            }
+            let p = progress
+            return isLaterVisit ? CaptureCopy.visit(visitNumber, done: p.done, total: p.total) : "Visit \(visitNumber)"
+        }
+    }
+
+    var coaching: String? {
+        if !tracking.isNormal && phase != .intro { return tracking.message }
+        switch phase {
+        case .relocalizing: return "Move the phone slowly round the room"
+        case .corner(let i): return fitMessage ?? "Aim at corner \(cornerNames[min(i, 2)]) — where two walls meet the floor"
+        case .check: return fitMessage
+        case .measuring: return hud.tool == .remeasure ? hint : nil
+        case .intro: return nil
+        }
+    }
+
+    var quietActions: [QuietAction] { [] }
+    var showsTools: Bool { phase == .measuring }
+    var busyText: String? { nil }
+    var isReturnVisit: Bool { purpose == .markup && isLaterVisit }
+    var isScopeOnSite: Bool { purpose == .scope }
+
+    var recordingSince: Date? {
+        let r = VoiceRecorder.shared
+        return r.isRecording && r.isRecordingJob(folder) ? r.startedAt : nil
+    }
+
+    func perform(quiet id: String) { if id == "realign" { realign() } }
+
+    var onClose: (() -> Void)?
+    func requestClose() { onClose?() }
+
+    func toggleRecording() {
+        let r = VoiceRecorder.shared
+        if r.isRecording { r.stop(); hud.showToast("Voice note saved") }
+        else {
+            Task {
+                if await r.start(folder: folder) { hud.showToast("Recording") }
+                else if let p = r.problem { alert = p; r.problem = nil }
+            }
+        }
+    }
+
+    func renameRoom(_ name: String) {}
+
+    var ultraWide: Bool? { PhotoCapture.ultraWideFormat == nil ? nil : (controller?.ultraWideOn ?? false) }
+    func setUltraWide(_ on: Bool) { controller?.setUltraWide(on) }
+    func trayCancelled() { remeasureFor = nil }
+
+    // MARK: CaptureEngine - the world
+
+    var world: CaptureWorld {
+        if let w = worldCache { return w }
+        guard let a = alignment else { return CaptureWorld(floorY: nil) }
+        let ws = walls.map { w -> WorldWall in
+            let p = a.world(w.a, y: 0), q = a.world(w.b, y: 0)
+            return WorldWall(id: w.id, a: PlanVec(p.x, p.z), b: PlanVec(q.x, q.z), height: w.height)
+        }
+        let rs = rooms.enumerated().map { i, poly in
+            WorldRoom(name: roomName(i) ?? "Room \(i + 1)", polygon: poly.map { let w = a.world($0, y: 0); return PlanVec(w.x, w.z) })
+        }
+        let w = CaptureWorld(floorY: floorY, walls: ws, rooms: rs)
+        worldCache = w
+        return w
+    }
+
+    func aimSample() -> AimSample? {
+        lastSample = controller?.aimSample()
+        return lastSample
+    }
+
+    func projector(viewport: CGSize) -> Projector? { controller?.projector(viewport: viewport) }
+
+    func overlayMarks() -> [OverlayMark] {
+        guard phase == .measuring, let a = alignment else { return [] }
+        if let m = marksCache { return m }
+        var m = purpose == .scope
+            ? OverlayBuild.marks(scope: scopeItems, walls: walls, alignment: a, floorY: floorY)
+            : OverlayBuild.marks(markers, walls: walls, alignment: a, floorY: floorY, removalTags: ScopeList.refs(plan: plan))
+        if !isLaterVisit { for i in m.indices { m[i].faded = false } }
+        marksCache = m
+        return m.map { mk in
+            var x = mk
+            x.selected = x.id == target?.id
+            return x
+        }
+    }
+
+    func shot(photo: Bool) -> CaptureShot? {
+        guard phase == .measuring, tracking.isNormal else { return nil }
+        return controller?.shot(photo: photo)
+    }
+
+    // MARK: CaptureEngine - saving
+
+    func save(_ d: CaptureDraft) async -> Result<SavedCapture, PlainWords.Problem> {
+        guard let a = alignment, phase == .measuring else { return .failure(PlainWords.problem("not aligned")) }
+        switch d {
+        case .reading(let s, let value, let material, let reference):
+            if let rid = remeasureFor { return await saveRemeasure(rid, shot: s, value: value) }
+            var pb = Self.pb(s, kind: "reading", material: material)
+            pb.value = value
+            pb.reference = reference
+            return await add(pb, shot: s, alignment: a, kind: "reading",
+                             title: { [weak self] in "R\(self?.lastNumber("reading") ?? 0) · \(CaptureCopy.number(value))%" },
+                             detail: CaptureCopy.materialName(material))
+        case .photo(let s, let caption):
+            let pb = Self.pb(s, kind: "photo", material: "wall", note: caption)
+            return await add(pb, shot: s, alignment: a, kind: "photo", title: { [weak self] in "P\(self?.lastNumber("photo") ?? 0)" }, detail: caption)
+        case .source(let s, let cause, let note):
+            let label = note.trimmingCharacters(in: .whitespaces).isEmpty ? cause : "\(cause) — \(note)"
+            let pb = Self.pb(s, kind: "source", material: "wall", note: label)
+            return await add(pb, shot: s, alignment: a, kind: "source", title: { "Source" }, detail: cause)
+        case .equipment(let s, let type, let asset):
+            let pb = Self.pb(s, kind: "equipment", material: type, note: asset)
+            let r = await add(pb, shot: s, alignment: a, kind: "equipment", title: { CaptureCopy.equipmentName(type) }, detail: roomName)
+            if case .success(var saved) = r, type == "airMover" { saved.airflowFor = pb.id; return .success(saved) }
+            return r
+        case .mark(let m):
+            return await saveMark(m, alignment: a)
+        }
+    }
+
+    private func saveMark(_ m: MarkDraft, alignment a: PlanTransform) async -> Result<SavedCapture, PlainWords.Problem> {
+        guard let first = m.shots.first else { return .failure(PlainWords.problem("")) }
+        let measure = m.meaning.isArea ? m.area.map(CaptureCopy.area) : m.length.map(CaptureCopy.length)
+        let title = [m.meaning.tag, measure].compactMap { $0 }.joined(separator: " · ")
+        var items: [PBReading] = []
+        switch m.meaning {
+        case .moistureLine:
+            items = m.shots.enumerated().map { i, s in
+                var shot = s
+                if i > 0 { shot.id = CaptureIDs.new("rv-") }
+                return Self.pb(shot, kind: "boundary", material: "wall")
+            }
+        case .wetFloor:
+            var pb = Self.pb(first, kind: "affected", material: "floor", note: "Wet area")
+            pb.corners = m.shots.map(Self.pose)
+            items = [pb]
+        case .liftFlooring:
+            var pb = Self.pb(first, kind: "removal", material: "flooring")
+            pb.corners = m.wholeRoom ? [] : m.shots.map(Self.pose)
+            pb.wholeRoom = m.wholeRoom
+            pb.floorType = m.floorType
+            pb.underlay = m.underlay
+            pb.heightMm = 0
+            items = [pb]
+        case .skirting, .wallLining, .cabinetry:
+            var pb = Self.pb(first, kind: "removal", material: m.meaning.removalItem ?? "other")
+            if let e = m.shots.last, m.shots.count >= 2 { pb.end = Self.pose(e) }
+            pb.heightMm = Double(m.heightMm)
+            items = [pb]
+        }
+        let photo = await Self.dataURL(first.photo)
+        if let p = await first.photo?.value { _ = PhotoFiles.write(p, id: first.id, folder: folder) }
+        if items.indices.contains(0) { items[0].photo = photo }
+        var doc = plan
+        var problem: PlainWords.Problem?
+        for pb in items {
+            switch Revisit.itemJSON(for: pb, plan: doc, alignment: a, floorY: floorY, visit: visit) {
+            case .failure(let e): problem = PlainWords.problem(e.message)
+            case .success(var item):
+                if pb.kind == "removal" && hud.context == .scope { item["status"] = "proposed" }
+                doc = Revisit.addItem(plan: doc, item: item)
+            }
+            if problem != nil { break }
+        }
+        let ids = items.map(\.id)
+        if let problem {
+            // Never dropped: kept in the visit log and shown in review to fix.
+            logEvent(["type": "unplaced", "ids": ids, "kind": m.meaning.rawValue, "visit": visit, "reason": problem.sentence,
+                      "points": m.shots.compactMap { $0.hit.map { [$0.x, $0.y, $0.z] } }])
+            var e = CaptureStack.Entry(id: ids.first ?? CaptureIDs.new("fix-"), ids: [], kind: "mark", title: title, detail: roomName, hasPhoto: photo != nil)
+            e.needsFix = problem.sentence
+            return .success(SavedCapture(entry: e))
+        }
+        plan = doc
+        guard savePlan() else { return .failure(PlainWords.Problem(sentence: "Couldn't save to the plan", fix: "Try again")) }
+        logEvent(["type": "logged", "ids": ids, "kind": items.first?.kind ?? "", "visit": visit,
+                  "camera": [first.camera.x, first.camera.y, first.camera.z]])
         refreshMarkers()
+        return .success(SavedCapture(entry: CaptureStack.Entry(id: ids[0], ids: ids, kind: "mark", title: title, detail: roomName, hasPhoto: photo != nil)))
+    }
+
+    /// One item: resolve against the saved plan through the alignment, embed the photo, add to plan.json, log it.
+    private func add(_ r: PBReading, shot: CaptureShot, alignment a: PlanTransform, kind: String,
+                     title: @escaping () -> String, detail: String) async -> Result<SavedCapture, PlainWords.Problem> {
+        var pb = r
+        pb.photo = await Self.dataURL(shot.photo)
+        if let p = await shot.photo?.value { _ = PhotoFiles.write(p, id: pb.id, folder: folder) }
+        switch Revisit.itemJSON(for: pb, plan: plan, alignment: a, floorY: floorY, visit: visit) {
+        case .failure(let e):
+            let p = PlainWords.problem(e.message)
+            logEvent(["type": "unplaced", "ids": [pb.id], "kind": pb.kind, "visit": visit, "reason": p.sentence])
+            var en = CaptureStack.Entry(id: pb.id, ids: [], kind: kind, title: title(), detail: detail, hasPhoto: pb.photo != nil)
+            en.needsFix = p.sentence
+            return .success(SavedCapture(entry: en))
+        case .success(var item):
+            if pb.kind == "equipment" && hud.context == .scope && purpose == .markup && !isLaterVisit { item["status"] = "planned" }
+            plan = Revisit.addItem(plan: plan, item: item)
+            guard savePlan() else { return .failure(PlainWords.Problem(sentence: "Couldn't save to the plan", fix: "Try again")) }
+            var ev: [String: Any] = ["type": "logged", "id": pb.id, "kind": pb.kind, "visit": visit, "takenAt": pb.takenAt,
+                                     "camera": [pb.cameraPosition.x, pb.cameraPosition.y, pb.cameraPosition.z],
+                                     "forward": [pb.cameraForward.x, pb.cameraForward.y, pb.cameraForward.z]]
+            if let h = pb.hit { ev["hit"] = [h.x, h.y, h.z] }
+            logEvent(ev)
+            refreshMarkers()
+            return .success(SavedCapture(entry: CaptureStack.Entry(id: pb.id, ids: [pb.id], kind: kind, title: title(), detail: detail,
+                                                                   hasPhoto: pb.photo != nil)))
+        }
+    }
+
+    private func lastNumber(_ kind: String) -> Int {
+        let readings = (plan["markup"] as? [String: Any])?["readings"] as? [[String: Any]] ?? []
+        return Int(readings.filter { (($0["kind"] as? String) ?? "reading") == kind }.compactMap { PlanDocument.number($0["n"]) }.max() ?? 0)
+    }
+
+    func remove(ids: [String]) {
+        var doc = plan
+        for id in ids {
+            if id.hasPrefix("status:") {
+                let parts = id.split(separator: ":").map(String.init)
+                guard parts.count == 3 else { continue }
+                doc = revertStatus(doc, kind: parts[1], id: parts[2])
+            } else if id.hasPrefix("remeasure:") {
+                let rid = String(id.dropFirst("remeasure:".count))
+                if let d = Revisit.undoMeasurement(plan: doc, readingId: rid, visit: visit) { doc = d }
+            } else if let d = MarkupEdit.delete(doc, id: id) {
+                doc = d
+                PhotoFiles.remove(id: id, folder: folder)
+            }
+        }
+        plan = doc
+        savePlan()
+        logEvent(["type": "deleted", "ids": ids])
+        refreshMarkers()
+    }
+
+    private func revertStatus(_ doc: [String: Any], kind: String, id: String) -> [String: Any] {
+        switch kind {
+        case "done": return MarkupEdit.update(doc, id: id, set: ["status": "proposed", "doneVisit": NSNull()]) ?? doc
+        case "removed": return MarkupEdit.update(doc, id: id, set: ["removed": NSNull(), "removedAt": NSNull()]) ?? doc
+        case "placed": return MarkupEdit.update(doc, id: id, set: ["status": "planned"]) ?? doc
+        default: return doc
+        }
+    }
+
+    func edit(id: String, _ e: ItemEdit) {
+        let set: [String: Any]
+        switch e {
+        case .reading(let v, let m): set = ["value": v, "material": m]
+        case .caption(let t): set = ["note": t]
+        }
+        guard let d = MarkupEdit.update(plan, id: id, set: set) else { return }
+        plan = d
+        if savePlan() { logEvent(["type": "edited", "id": id]); refreshMarkers() }
+    }
+
+    func equipmentUnits() -> [EquipmentGuard.Unit] {
+        guard let a = alignment else { return [] }
+        var counts: [String: Int] = [:]
+        return markers.filter { $0.kind == "equipment" }.map { m in
+            let type = m.type ?? "other"
+            counts[type, default: 0] += 1
+            let w = a.world(m.pos, y: floorY)
+            return EquipmentGuard.Unit(id: m.id, type: type, pos: PlanVec(w.x, w.z), hasAirflow: m.dir != nil,
+                                       tag: m.label.contains("·") ? m.label : "\(CaptureCopy.equipmentShort[type] ?? "EQ") \(counts[type] ?? 1)")
+        }
+    }
+
+    func setAirflow(id: String, direction: WorldVec) -> Bool {
+        guard let a = alignment, let angle = Airflow.planAngle(forward: direction, transform: a),
+              let d = MarkupEdit.update(plan, id: id, set: ["dir": PlanDocument.r4(angle)]) else { return false }
+        plan = d
+        guard savePlan() else { return false }
+        logEvent(["type": "airflow", "id": id, "dir": angle])
+        refreshMarkers()
+        return true
+    }
+
+    // MARK: Re-measure, done / removed / placed
+
+    private var remeasureFor: String?
+
+    func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary? {
+        switch phase {
+        case .intro: return EnginePrimary(title: "Starting the camera…", enabled: false, action: {})
+        case .relocalizing: return EnginePrimary(title: "Finding the saved room…", enabled: false, action: {})
+        case .corner(let i):
+            let name = cornerNames[min(i, 2)]
+            return EnginePrimary(title: tracking.isNormal ? "Set corner \(name)" : "Move slowly…", enabled: tracking.isNormal && aim.hit != nil) { [weak self] in self?.setCorner() }
+        case .check:
+            return EnginePrimary(title: "Looks right", enabled: fitAcceptable) { [weak self] in self?.looksRight() }
+        case .measuring:
+            break
+        }
+        switch tool {
+        case .remeasure:
+            guard let m = marker(target?.id) else {
+                return EnginePrimary(title: "Aim at a reading", enabled: false, action: {})
+            }
+            return EnginePrimary(title: CaptureCopy.remeasure(tag(m))) { [weak self] in self?.beginRemeasure(m) }
+        case .done:
+            if purpose == .scope {
+                guard let it = aimedScope else { return EnginePrimary(title: "Aim at a scoped item", enabled: false, action: {}) }
+                if it.done { return EnginePrimary(title: "\(it.tag) is \(it.kind == .equipment ? "placed" : "done")", enabled: false, action: {}) }
+                return EnginePrimary(title: it.kind == .equipment ? "Mark placed · \(it.tag)" : "\(CaptureCopy.markDone) · \(it.tag)",
+                                     tint: DS.Color.dry) { [weak self] in self?.markScope(it) }
+            }
+            guard let m = marker(target?.id) else { return EnginePrimary(title: "Aim at a removal or equipment", enabled: false, action: {}) }
+            if m.kind == "equipment" {
+                return EnginePrimary(title: "Mark removed · \(m.label)", tint: DS.Color.dry) { [weak self] in self?.markRemoved(m) }
+            }
+            return EnginePrimary(title: "\(CaptureCopy.markDone) · \(m.label.replacingOccurrences(of: "Remove ", with: ""))", tint: DS.Color.dry) { [weak self] in
+                self?.markDone(m.id, title: m.label)
+            }
+        default:
+            return nil
+        }
+    }
+
+    func customTray() -> AnyView? {
+        switch phase {
+        case .relocalizing, .corner, .check: return AnyView(AlignmentTray(model: self))
+        default: return nil
+        }
+    }
+
+    private func beginRemeasure(_ m: Revisit.Marker) {
+        remeasureFor = m.id
+        let readings = (plan["markup"] as? [String: Any])?["readings"] as? [[String: Any]] ?? []
+        let r = readings.first { ($0["id"] as? String) == m.id } ?? [:]
+        let last = Revisit.history(r).last.flatMap { PlanDocument.number($0["value"]) }
+        hud.beginRemeasure(tag: tag(m), previous: last.map { "was \(CaptureCopy.number($0))%" })
+    }
+
+    private func saveRemeasure(_ id: String, shot: CaptureShot, value: Double) async -> Result<SavedCapture, PlainWords.Problem> {
+        remeasureFor = nil
+        let photo = await Self.dataURL(shot.photo)
+        guard let out = Revisit.recordMeasurement(plan: plan, readingId: id, visit: visit, value: value,
+                                                  takenAt: shot.takenAt, photo: photo, note: nil) else {
+            return .failure(PlainWords.Problem(sentence: "That point is no longer on the plan", fix: "Add a new reading"))
+        }
+        let before = marker(id)
+        plan = out
+        guard savePlan() else { return .failure(PlainWords.Problem(sentence: "Couldn't save to the plan", fix: "Try again")) }
+        logEvent(["type": "remeasure", "id": id, "visit": visit, "value": value, "takenAt": shot.takenAt,
+                  "camera": [shot.camera.x, shot.camera.y, shot.camera.z]])
+        refreshMarkers()
+        let t = before.map(tag) ?? "R"
+        let was = before?.value.map { "was \(CaptureCopy.number($0))%" } ?? ""
+        return .success(SavedCapture(entry: CaptureStack.Entry(id: "remeasure:\(id)", ids: ["remeasure:\(id)"], kind: "remeasure",
+                                                               title: "\(t) · \(CaptureCopy.number(value))%", detail: was, hasPhoto: photo != nil)))
+    }
+
+    private func markDone(_ id: String, title: String) {
+        guard let s = controller?.shot(photo: true), let a = alignment else { return }
+        let cam = a.point(s.camera)
+        let visit = self.visit
+        Task {
+            let photo = await Self.dataURL(s.photo)
+            guard let out = Revisit.markRemovalDone(plan: plan, id: id, visit: visit, photo: photo, takenAt: s.takenAt, cam: cam) else { return }
+            plan = out
+            if savePlan() {
+                logEvent(["type": "removalDone", "id": id, "visit": visit, "at": s.takenAt])
+                refreshMarkers()
+                hud.statusSaved(CaptureStack.Entry(id: "status:done:\(id)", ids: ["status:done:\(id)"], kind: "done",
+                                                   title: "\(title.replacingOccurrences(of: "Remove ", with: "").capitalized) done", detail: "After photo kept", hasPhoto: photo != nil),
+                                thumb: await s.photo?.value?.thumb)
+            }
+        }
+    }
+
+    private func markRemoved(_ m: Revisit.Marker) {
+        let now = PlanDocument.iso(Date())
+        guard let out = Revisit.markEquipmentRemoved(plan: plan, id: m.id, visit: visit, at: now) else { return }
+        plan = out
+        if savePlan() {
+            logEvent(["type": "equipmentRemoved", "id": m.id, "visit": visit, "at": now])
+            refreshMarkers()
+            hud.statusSaved(CaptureStack.Entry(id: "status:removed:\(m.id)", ids: ["status:removed:\(m.id)"], kind: "done",
+                                               title: "\(m.label) removed", detail: roomName, hasPhoto: false), thumb: nil)
+        }
+    }
+
+    private func markScope(_ it: ScopeItem) {
+        if it.kind == .equipment {
+            let now = PlanDocument.iso(Date())
+            guard let out = ScopeList.markPlaced(plan: plan, id: it.id, visit: visit, at: now) else { return }
+            plan = out
+            if savePlan() {
+                logEvent(["type": "equipmentPlaced", "id": it.id, "visit": visit, "at": now])
+                refreshMarkers()
+                hud.statusSaved(CaptureStack.Entry(id: "status:placed:\(it.id)", ids: ["status:placed:\(it.id)"], kind: "done",
+                                                   title: "\(it.tag) placed", detail: "", hasPhoto: false), thumb: nil)
+            }
+        } else {
+            markDone(it.id, title: it.tag)
+        }
     }
 
     /// The list fallback (no camera): mark placed / done without a photo.
@@ -873,433 +792,23 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         }
     }
 
-    // MARK: Hold and sweep (moisture line on walls, wet area on the floor)
-
-    func pressBegan() {
-        guard canAct, moving == nil, mode == .moisture, !sweeping else { return }
-        pressStarted = Date()
-        sweepPoses = []
-        sweeping = true
-        sampleSweep()
-        sweepTimer = Timer.scheduledTimer(withTimeInterval: 0.125, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sampleSweep() }
-        }
-    }
-
-    func pressEnded() {
-        guard sweeping else { mainAction(); return }
-        let held = pressStarted.map { Date().timeIntervalSince($0) } ?? 0
-        pressStarted = nil
-        sweepTimer?.invalidate()
-        sweepTimer = nil
-        sweeping = false
-        let poses = sweepPoses
-        sweepPoses = []
-        controller?.clearPreview()
-        previewShown = false
-        if held < 0.35 || poses.count < 3 { tapMoisture() } else { finishSweep(poses) }
-    }
-
-    /// About 8 times a second while the button is held: the crosshair's hit.
-    private func sampleSweep() {
-        guard sweeping, tracking.isNormal, let c = controller?.capturePose(), c.hit != nil else { return }
-        sweepPoses.append(c)
-        let pts = sweepPoses.compactMap { $0.hit.map(Self.world) }
-        if moistureOnFloor { controller?.previewFloor(pts, floorY: floorY) }
-        else { controller?.previewStroke(pts, floorY: floorY) }
-        previewShown = true
-    }
-
-    private func pose(_ c: FrameCapture) -> PBPose {
-        PBPose(cameraPosition: Self.world(c.cameraPosition), cameraForward: Self.world(c.cameraForward), hit: c.hit.map(Self.world))
-    }
-
-    private func plainItem(kind: String, _ c: FrameCapture, note: String = "") -> PBReading {
-        let id = (firstScan ? "ar-" : "rv-") + UUID().uuidString.prefix(8).lowercased()
-        seq += 1
-        return PBReading(id: id, seq: scan?.allocateSeq() ?? seq, kind: kind, value: nil, material: kind == "affected" ? "floor" : "wall",
-                         note: note, takenAt: PlanDocument.iso(Date()),
-                         cameraPosition: Self.world(c.cameraPosition), cameraForward: Self.world(c.cameraForward),
-                         hit: c.hit.map(Self.world))
-    }
-
-    /// A single tap in Moisture mode: one line point on the wall, or one corner of the wet area.
-    func tapMoisture() {
-        guard canAct, let c = controller?.capturePose() else { return }
-        guard c.hit != nil else { showToast("Nothing under the crosshair — point at the wall or floor"); return }
-        if moistureOnFloor {
-            floorCorners.append(c)
-            floorCornerCount = floorCorners.count
-            showToast(floorCornerCount < 3 ? "Corner \(floorCornerCount) · tap the next corner" : "Corner \(floorCornerCount) · Close area when done")
-            return
-        }
-        _ = addNow([plainItem(kind: "boundary", c)], stroke: false, toast: "Moisture line point added")
-    }
-
-    func undoFloorCorner() {
-        guard !floorCorners.isEmpty else { return }
-        floorCorners.removeLast()
-        floorCornerCount = floorCorners.count
-        if floorCorners.isEmpty { controller?.clearPreview(); previewShown = false }
-    }
-
-    func closeFloorArea() {
-        let corners = floorCorners
-        guard corners.count >= 3, let first = corners.first else { return }
-        var item = plainItem(kind: "affected", first, note: "Wet area")
-        item.corners = corners.map(pose)
-        if addNow([item], stroke: true, toast: "Wet area saved") {
-            floorCorners = []
-            floorCornerCount = 0
-            controller?.clearPreview()
-            previewShown = false
-        }
-    }
-
-    private func finishSweep(_ poses: [FrameCapture]) {
-        guard let a = alignment, let first = poses.first else { return }
-        if moistureOnFloor {
-            var item = plainItem(kind: "affected", first, note: "Wet area")
-            item.corners = poses.map(pose)
-            _ = addNow([item], stroke: true, toast: "Wet floor area traced")
-            return
-        }
-        let ws = walls
-        let lengths = Dictionary(ws.map { ($0.id, $0.length) }, uniquingKeysWith: { x, _ in x })
-        let floors: [Double?] = ws.map { _ in floorY }
-        let items = poses.map { plainItem(kind: "boundary", $0) }
-        let samples = items.indices.map { i -> Sweep.WallSample in
-            let pb = items[i]
-            let r = PlanBuilder.resolve(pb, walls: ws, wallFloorY: floors, globalFloorY: floorY, transform: a)
-            return Sweep.WallSample(index: i, wallId: r.wallId, wallT: r.wallT, height: r.height,
-                                    wallLength: r.wallId.flatMap { lengths[$0] } ?? 1)
-        }
-        let kept = Sweep.strokePoints(samples)
-        guard !kept.isEmpty else {
-            showToast("The line didn't land on a wall — sweep along the wall itself")
-            return
-        }
-        let wallsUsed = Set(kept.compactMap(\.wallId)).count
-        // A line that starts or ends within 15 cm of a wall's end is drawn to that end (2 cm in).
-        let byId = Dictionary(ws.map { ($0.id, $0) }, uniquingKeysWith: { x, _ in x })
-        let snappedItems = kept.map { k -> PBReading in
-            var pb = items[k.index]
-            guard let wid = k.wallId, let w = byId[wid], let t = k.wallT, let h = pb.hit, w.length > 0.05 else { return pb }
-            let st = WallEndSnap.snap(t, length: w.length)
-            guard st == 0 || st == 1 else { return pb }
-            let along = (w.b - w.a) / w.length
-            let e = st == 0 ? w.a + along * 0.02 : w.b - along * 0.02
-            let world = a.world(e, y: h.y)
-            pb.hit = world
-            if simd_length(world - pb.cameraPosition) > 1e-6 { pb.cameraForward = simd_normalize(world - pb.cameraPosition) }
-            return pb
-        }
-        _ = addNow(snappedItems, stroke: true,
-                   toast: "Moisture line · \(kept.count) points on \(wallsUsed) wall\(wallsUsed == 1 ? "" : "s")")
-    }
-
-    func undoStroke() {
-        guard let ids = strokeStack.last else { return }
-        removeItems(ids)
-        showToast("Last line removed")
-    }
-
-    func undoLast() {
-        undoWindow.used()
-        undoChipVisible = false
-        guard let ids = undoStack.last else { return }
-        removeItems(ids)
-        showToast("Undone")
-    }
-
-    /// Adds items without photos (line points, wet areas) at once: plan.json,
-    /// then the scan's raw log. All or nothing.
-    private func addNow(_ items: [PBReading], stroke: Bool, toast: String) -> Bool {
-        guard let a = alignment, phase == .measuring else {
-            alert = "Not aligned yet - nothing was saved."
-            return false
-        }
-        var doc = plan
-        for pb in items {
-            switch Revisit.itemJSON(for: pb, plan: doc, alignment: a, floorY: floorY, visit: visit) {
-            case .failure(let e):
-                alert = e.message.replacingOccurrences(of: "Tap at least 3 corners of the floor section.",
-                                                        with: "Trace round the wet area (or tap at least 3 corners).")
-                return false
-            case .success(let item):
-                doc = Revisit.addItem(plan: doc, item: item)
-            }
-        }
-        plan = doc
-        guard savePlan() else { return false }
-        if let scan { for pb in items { if let r = rawRecord(pb, photo: false) { scan.commit(r, photoTask: nil) } } }
-        pushUndo(items.map(\.id), stroke: stroke)
-        logEvent(["type": "logged", "ids": items.map(\.id), "kind": items.first?.kind ?? "", "visit": visit])
-        refreshMarkers()
-        showToast(toast)
-        return true
-    }
-
-    private func pushUndo(_ ids: [String], stroke: Bool) {
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        undoWindow.saved(at: Date())
-        undoChipVisible = true
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 6_100_000_000)
-            guard let self else { return }
-            self.undoChipVisible = self.undoWindow.visible(at: Date())
-        }
-        undoStack.append(ids)
-        if stroke { strokeStack.append(ids) }
-        undoCount = undoStack.count
-        strokeCount = strokeStack.count
-    }
-
-    /// Deletes items from plan.json and (first scan) from the raw log.
-    func removeItems(_ ids: [String]) {
-        var doc = plan
-        for id in ids { if let d = MarkupEdit.delete(doc, id: id) { doc = d } }
-        plan = doc
-        savePlan()
-        for id in ids { scan?.delete(id) }
-        let gone = Set(ids)
-        undoStack = undoStack.map { $0.filter { !gone.contains($0) } }.filter { !$0.isEmpty }
-        strokeStack = strokeStack.map { $0.filter { !gone.contains($0) } }.filter { !$0.isEmpty }
-        undoCount = undoStack.count
-        strokeCount = strokeStack.count
-        logEvent(["type": "deleted", "ids": ids])
-        refreshMarkers()
-    }
-
-    // MARK: Live previews (removal band, floor corners)
-
-    var wantsCrosshair: Bool { flow.mode != .idle || floorCornerCount > 0 || aimingDir != nil }
-
-    /// From the camera tick (10 Hz) with the crosshair's hit.
-    func livePreview(crosshair: WorldVec?) {
-        guard !sweeping else { return }
-        if let id = aimingDir, let a = alignment {
-            // The airflow arrow from the air mover along where the phone points.
-            if let e = MarkupEdit.find(plan, id: id), let p = Revisit.point(e.item["pos"]),
-               let c = controller?.capturePose(), let angle = Airflow.planAngle(forward: Self.world(c.cameraForward), transform: a) {
-                controller?.previewArrow(from: Revisit.world(p, height: 0.2, alignment: a, floorY: floorY),
-                                         direction: Airflow.worldDirection(angle, transform: a))
-                previewShown = true
-            }
-            return
-        }
-        if flow.mode == .wallEnd, let s = flow.start?.capture.hit.map(Self.world), let c = crosshair {
-            let top = Double(max(RemovalItems.defaultMm(flow.item), 50)) / 1000
-            controller?.previewBand(from: s, to: c, floorY: floorY, top: top)
-            previewShown = true
-        } else if flow.mode == .floorCorners {
-            controller?.previewFloor(flow.corners.compactMap { $0.hit.map(Self.world) } + (crosshair.map { [$0] } ?? []), floorY: floorY)
-            previewShown = true
-        } else if floorCornerCount > 0 {
-            controller?.previewFloor(floorCorners.compactMap { $0.hit.map(Self.world) } + (crosshair.map { [$0] } ?? []), floorY: floorY)
-            previewShown = true
-        } else if previewShown {
-            controller?.clearPreview()
-            previewShown = false
-        }
-    }
-
-    // MARK: Editing what is there
-
-    func openEditor(_ id: String) {
-        guard let f = MarkupEdit.find(plan, id: id) else { return }
-        let x = f.item
-        let kind: String
-        switch f.list {
-        case "readings": kind = (x["kind"] as? String) ?? "reading"
-        case "sources": kind = "source"
-        case "equipment": kind = "equipment"
-        case "removals": kind = "removal"
-        case "affected": kind = "affected"
-        default: kind = "floor"
-        }
-        let label: String
-        switch f.list {
-        case "sources", "equipment", "affected": label = (x["label"] as? String) ?? ""
-        default: label = (x["note"] as? String) ?? ""
-        }
-        let title: String
-        switch kind {
-        case "reading": title = "Reading \(PlanDocument.number(x["n"]).map { String(Int($0)) } ?? "")"
-        case "boundary": title = "Moisture line point"
-        case "photo": title = "Photo P\(PlanDocument.number(x["n"]).map { String(Int($0)) } ?? "")"
-        case "equipment": title = PlanDocument.equipmentName((x["type"] as? String) ?? "other")
-        case "removal": title = "Removal · \(RemovalItems.name((x["item"] as? String) ?? "other"))"
-        case "affected": title = "Wet area"
-        case "source": title = "Source"
-        default: title = "Floor type"
-        }
-        let removed = x["removed"].map { !($0 is NSNull) } ?? false
-        editing = MarkerEdit(id: id, list: f.list, kind: kind, title: title,
-                             value: PlanDocument.number(x["value"]), material: (x["material"] as? String) ?? "wall", label: label,
-                             hasHeight: PlanDocument.number(x["height"]) != nil && x["wallId"] != nil,
-                             movable: ["readings", "sources", "equipment"].contains(f.list),
-                             canRemeasure: kind == "reading" && isLaterVisit,
-                             canMarkRemoved: kind == "equipment" && isLaterVisit && !removed,
-                             canMarkDone: kind == "removal" && (x["status"] as? String) != "done" && isLaterVisit,
-                             isAirMover: kind == "equipment" && (x["type"] as? String) == "airMover",
-                             planned: kind == "equipment" && ScopeList.isPlanned(x))
-    }
-
-    func saveEdit(_ e: MarkerEdit, value: Double?, material: String, label: String) {
-        var set: [String: Any] = [:]
-        let labelKey = ["sources", "equipment", "affected"].contains(e.list) ? "label" : "note"
-        set[labelKey] = label
-        if e.kind == "reading" {
-            set["value"] = value.map { $0 as Any } ?? NSNull()
-            set["material"] = material
-        }
-        editing = nil
-        guard let d = MarkupEdit.update(plan, id: e.id, set: set) else { return }
-        plan = d
-        guard savePlan() else { return }
-        scan?.updateRaw(e.id) { r in
-            r.note = label
-            if e.kind == "reading" { r.value = value; r.material = material }
-        }
-        logEvent(["type": "edited", "id": e.id])
-        refreshMarkers()
-        showToast("\(e.title) updated")
-    }
-
-    /// Raises / lowers a wall item 5 cm at a time.
-    func nudge(_ id: String, by delta: Double) {
-        guard let d = MarkupEdit.nudgeHeight(plan, id: id, by: delta) else { return }
-        plan = d
-        guard savePlan() else { return }
-        scan?.updateRaw(id) { r in
-            if var h = r.hit, h.count == 3 { h[1] += delta; r.hit = h }
-        }
-        refreshMarkers()
-        let h = MarkupEdit.find(plan, id: id).flatMap { PlanDocument.number($0.item["height"]) } ?? 0
-        showToast(String(format: "Height %.2f m", h))
-    }
-
-    func deleteItem(_ id: String) {
-        editing = nil
-        removeItems([id])
-        showToast("Deleted")
-    }
-
-    func startMove(_ id: String) {
-        editing = nil
-        moving = id
-        showToast("Aim where it should be, then tap Move here")
-    }
-
-    func cancelMove() { moving = nil }
-
-    private func moveHere(_ id: String) {
-        guard let a = alignment, let f = MarkupEdit.find(plan, id: id), let c = controller?.capturePose() else { return }
-        let kind = f.list == "equipment" ? "equipment" : (f.list == "sources" ? "source" : ((f.item["kind"] as? String) ?? "reading"))
-        var pb = plainItem(kind: kind, c)
-        pb.id = id
-        let ws = walls
-        let r = kind == "equipment"
-            ? PlanBuilder.resolveOnFloor(pb, globalFloorY: floorY, transform: a)
-            : PlanBuilder.resolve(pb, walls: ws, wallFloorY: ws.map { _ in floorY }, globalFloorY: floorY, transform: a)
-        guard let d = MarkupEdit.move(plan, id: id, to: r) else { return }
-        moving = nil
-        plan = d
-        guard savePlan() else { return }
-        scan?.updateRaw(id) { raw in
-            raw.cameraPosition = Self.arr(self.scanWorld(pb.cameraPosition))
-            raw.cameraForward = Self.arr(self.scanDirection(pb.cameraForward))
-            raw.hit = pb.hit.map { Self.arr(self.scanWorld($0)) }
-            raw.hitNormal = nil
-            raw.resolved = nil
-        }
-        logEvent(["type": "moved", "id": id])
-        refreshMarkers()
-        showToast("Moved")
-    }
-
-    // MARK: First scan: the raw record in the scan's world space
-
-    private func scanWorld(_ v: WorldVec) -> WorldVec {
-        guard start != .sharedSession, let a = alignment, let f = savedFrame else { return v }
-        return MarkupFrame.toScanWorld(v, session: a, sessionFloorY: floorY, scan: f.transform, scanFloorY: f.floorY ?? floorY)
-    }
-
-    private func scanDirection(_ d: WorldVec) -> WorldVec {
-        guard start != .sharedSession, let a = alignment, let f = savedFrame else { return d }
-        return MarkupFrame.directionToScan(d, session: a, scan: f.transform)
-    }
-
-    static func arr(_ v: WorldVec) -> [Double] { [v.x, v.y, v.z] }
-
-    nonisolated static func fmtValue(_ v: Double) -> String { Revisit.fmt(v) }
-
-    nonisolated static func kindName(_ kind: String) -> String {
-        switch kind {
-        case "affected": return "Wet area"
-        case "boundary": return "Moisture line"
-        default: return LogKind.name(kind)
-        }
-    }
-
-    private func rawRecord(_ pb: PBReading, photo: Bool) -> RawReading? {
-        guard scan != nil else { return nil }
-        func pose9(_ p: PBPose) -> [Double] {
-            Self.arr(scanWorld(p.cameraPosition)) + Self.arr(scanDirection(p.cameraForward)) + (p.hit.map { Self.arr(scanWorld($0)) } ?? [])
-        }
-        var r = RawReading(id: pb.id, seq: pb.seq, kind: pb.kind, value: pb.value, material: pb.material, reference: pb.reference,
-                           note: pb.note, takenAt: pb.takenAt, roomIndex: max(0, roomNumber - 1),
-                           cameraPosition: Self.arr(scanWorld(pb.cameraPosition)),
-                           cameraForward: Self.arr(scanDirection(pb.cameraForward)),
-                           hit: pb.hit.map { Self.arr(scanWorld($0)) }, hitKind: nil,
-                           photoFile: photo ? "photos/\(pb.id).jpg" : nil, resolved: nil)
-        if let e = pb.end {
-            r.endCameraPosition = Self.arr(scanWorld(e.cameraPosition))
-            r.endCameraForward = Self.arr(scanDirection(e.cameraForward))
-            r.endHit = e.hit.map { Self.arr(scanWorld($0)) }
-        }
-        if pb.kind == "removal" { r.heightMm = pb.material == "flooring" ? 0 : pb.heightMm }
-        if !pb.corners.isEmpty { r.corners = pb.corners.map(pose9) }
-        r.wholeRoom = pb.wholeRoom ? true : nil
-        r.floorType = pb.floorType
-        r.underlay = pb.underlay ? true : nil
-        return r
-    }
-
     // MARK: Helpers
 
-    private func capturePending() -> PendingLog? {
-        guard let capture = controller?.captureFrame() else {
-            showToast("Camera not ready — try again")
-            return nil
-        }
-        let box = ImageBox(capture.image)
-        let task = Task.detached(priority: .userInitiated) { FrameEncoder.jpeg(from: box.image) }
-        var pose = capture
-        pose.image = nil
-        seq += 1
-        return PendingLog(id: (firstScan ? "ar-" : "rv-") + UUID().uuidString.prefix(8).lowercased(), seq: scan?.allocateSeq() ?? seq,
-                          roomIndex: max(0, roomNumber - 1),
-                          takenAt: PlanDocument.iso(Date()), capture: pose, photoTask: task)
+    static func pb(_ s: CaptureShot, kind: String, material: String, note: String = "") -> PBReading {
+        PBReading(id: s.id, seq: 0, kind: kind, value: nil, material: material, note: note, takenAt: s.takenAt,
+                  cameraPosition: s.camera, cameraForward: s.forward, hit: s.hit)
     }
 
-    static func world(_ v: SIMD3<Float>) -> WorldVec { WorldVec(Double(v.x), Double(v.y), Double(v.z)) }
+    static func pose(_ s: CaptureShot) -> PBPose { PBPose(cameraPosition: s.camera, cameraForward: s.forward, hit: s.hit) }
 
-    static func pbReading(_ p: PendingLog, kind: String, material: String, note: String) -> PBReading {
-        PBReading(id: p.id, seq: p.seq, kind: kind, value: nil, material: material, note: note, takenAt: p.takenAt,
-                  cameraPosition: world(p.capture.cameraPosition), cameraForward: world(p.capture.cameraForward),
-                  hit: p.capture.hit.map(world))
-    }
-
-    static func dataURL(_ task: Task<Data?, Never>) async -> String? {
-        guard let d = await task.value else { return nil }
+    static func dataURL(_ task: Task<CapturedPhoto?, Never>?) async -> String? {
+        guard let task, let d = await task.value?.preview else { return nil }
         return "data:image/jpeg;base64," + d.base64EncodedString()
     }
 
-    /// Writes plan.json (atomic). Small enough to do here; returns false on failure.
     @discardableResult
     private func savePlan() -> Bool {
+        invalidate()
         do {
             guard let clean = PlanDocument.sanitised(plan) as? [String: Any] else { return false }
             try PlanDocument.data(clean).write(to: folder.planURL, options: .atomic)
@@ -1321,11 +830,50 @@ final class RevisitModel: ObservableObject, LogSheetModel {
         }
     }
 
-    func showToast(_ text: String) {
-        toast = text
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_400_000_000)
-            if self?.toast == text { self?.toast = nil }
+    nonisolated static func fmtValue(_ v: Double) -> String { Revisit.fmt(v) }
+}
+
+/// The alignment card (relocalising, corners, check): one line, the mini plan, quiet buttons.
+struct AlignmentTray: View {
+    @ObservedObject var model: RevisitModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Space.gap) {
+            switch model.phase {
+            case .relocalizing:
+                HStack(spacing: DS.Space.gap) {
+                    ProgressView().tint(.white)
+                    Text("Recognising the room").font(DS.Font.bodyBold).foregroundStyle(.white)
+                    Spacer()
+                    SecondaryButton("Use corners") { model.useCornersInstead() }
+                }
+            case .corner(let i):
+                HStack(alignment: .center, spacing: DS.Space.gap) {
+                    MiniPlanView(model: model, interactive: false, focus: i)
+                        .frame(width: 120, height: 96)
+                        .background(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).fill(Color.white.opacity(0.08)))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Corner \(model.cornerNames[min(i, 2)])").font(DS.Font.headline).foregroundStyle(.white)
+                        Text("Where two walls meet the floor").font(DS.Font.callout).foregroundStyle(DS.Color.onCameraSecondary)
+                        if i > 0 { SecondaryButton("Back", icon: "arrow.uturn.backward") { model.undoCorner() } }
+                    }
+                    Spacer(minLength: 0)
+                }
+            case .check:
+                VStack(alignment: .leading, spacing: DS.Space.tight) {
+                    Text("Do the lines sit on the walls?").font(DS.Font.bodyBold).foregroundStyle(.white)
+                    HStack(spacing: DS.Space.tight) {
+                        SecondaryButton("Redo corners") { model.realign() }
+                        if !model.fitAcceptable {
+                            SecondaryButton("Add corner C") { model.addThirdCorner() }
+                            SecondaryButton("Use anyway") { model.acceptAnyway() }
+                        }
+                    }
+                }
+            default:
+                EmptyView()
+            }
         }
+        .padding(.top, 4)
     }
 }

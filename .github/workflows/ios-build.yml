@@ -155,6 +155,12 @@ jobs:
           OUT=../ci-screenshots
           rm -rf "$OUT" && mkdir -p "$OUT"
           shot() { sleep "$2"; xcrun simctl io "$UDID" screenshot "$OUT/$1.png"; xcrun simctl terminate "$UDID" "$BID" || true; sleep 2; }
+          # UX2 Studio: the real capture HUD + overlay over a synthetic room, one scene per launch.
+          for SCENE in aim-wall aim-skirting aim-nothing reading-tray reading-saved line-progress line-tray-skirting \
+                       lining-band-done area-progress area-tray photo-taken review-drawer equipment-place equipment-airflow \
+                       source-tray room-name-tray scan-coaching visit-remeasure scope-on-site needs-fix; do
+            SIMCTL_CHILD_SECURESCAN_STUDIO=$SCENE xcrun simctl launch "$UDID" "$BID"; shot "studio-$SCENE" 6
+          done
           # App shell (docs/UX2.md "The rest of the app"). SECURESCAN_LIDAR=1 (Debug builds) shows
           # what a LiDAR iPhone shows; SECURESCAN_SEED=jobs adds demo jobs in four states.
           L="SIMCTL_CHILD_SECURESCAN_LIDAR=1"
@@ -174,12 +180,8 @@ jobs:
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EDITOR_VIEW=walls xcrun simctl launch "$UDID" "$BID";  shot 07-editor-walls 18
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EDITOR_VIEW=notes xcrun simctl launch "$UDID" "$BID";  shot 08-editor-notes 18
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EDITOR_VIEW=report xcrun simctl launch "$UDID" "$BID"; shot 09-editor-report 20
-          # Scan screen chrome without a camera (removal bar), the six-type Log sheet, and the Return visit entry.
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=scan-removal xcrun simctl launch "$UDID" "$BID"; shot 11-scan-removal-bar 12
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=scan-log xcrun simctl launch "$UDID" "$BID";     shot 12-log-sheet 12
+          # The Return visit entry (the capture screens themselves are the studio-* shots above).
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=revisit xcrun simctl launch "$UDID" "$BID";      shot 13-revisit-entry 14
-          # The card after each room: Mark up this room / Scan next room / Finish.
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=scan-choice xcrun simctl launch "$UDID" "$BID";  shot 14-scan-choice 12
           # The assessment report PDF, made by the same code as Export, plus report-check.txt.
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EXPORT_REPORT=1 xcrun simctl launch "$UDID" "$BID"
           DATA=$(xcrun simctl get_app_container "$UDID" "$BID" data)

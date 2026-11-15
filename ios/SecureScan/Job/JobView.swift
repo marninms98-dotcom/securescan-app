@@ -572,7 +572,7 @@ struct DocumentsSheet: View {
         }
         .background(Color(.systemGroupedBackground))
         .presentationBackground(Color(.systemGroupedBackground))
-        .presentationDetents([.height(vm.offeredDocuments.count > 2 ? 420 : 350)])
+        .presentationDetents([.height(vm.offeredDocuments.count > 2 ? 385 : 318)])
         .presentationDragIndicator(.visible)
     }
 

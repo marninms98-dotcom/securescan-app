@@ -137,8 +137,13 @@ struct ItemsTab: View {
 
     private struct RoomGroup { var id: String; var name: String; var items: [CapturedItem] }
 
+    private static let kindOrder: [CapturedItem.Kind] = [.source, .reading, .boundary, .photo, .equipment, .removal, .affected, .floor, .note]
+
     private var groups: [RoomGroup] {
-        let items = visible
+        let items = visible.sorted {
+            let a = Self.kindOrder.firstIndex(of: $0.kind) ?? 0, b = Self.kindOrder.firstIndex(of: $1.kind) ?? 0
+            return a != b ? a < b : $0.order < $1.order
+        }
         var out: [RoomGroup] = []
         for r in model.snapshot.rooms {
             let mine = items.filter { $0.roomID == r.id && $0.kind != .note }

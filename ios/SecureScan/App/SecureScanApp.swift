@@ -9,7 +9,13 @@ import SwiftUI
 struct SecureScanApp: App {
     var body: some Scene {
         WindowGroup {
+            // >>> UX2 Studio harness (DEBUG only): SECURESCAN_STUDIO=<scene> shows a capture-screen scene for CI screenshots.
+            #if DEBUG
+            if let scene = StudioLaunch.scene { StudioView(scene: scene) } else { JobsListView() }
+            #else
             JobsListView()
+            #endif
+            // <<< UX2 Studio harness
         }
     }
 }

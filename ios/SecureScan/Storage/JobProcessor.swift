@@ -48,15 +48,16 @@ enum JobProcessor {
             try structure.export(to: url, exportOptions: .mesh)
             return nil
         } catch {
-            let mergeError = error.localizedDescription
+            _ = error
             do {
                 try rooms[0].export(to: url, exportOptions: .mesh)
                 return rooms.count > 1
-                    ? "The rooms could not be merged into one 3D model (\(mergeError)). The 3D tab shows room 1 only; the floor plan has all rooms."
+                    ? "3D shows room 1 only — the floor plan has every room"
                     : nil
             } catch {
                 try? FileManager.default.removeItem(at: url)   // never leave a half-written model behind
-                return "The 3D model could not be built (\(error.localizedDescription)). The floor plan is not affected."
+                _ = error
+                return "No 3D view for this job — the floor plan is complete"
             }
         }
     }
@@ -117,7 +118,10 @@ enum JobProcessor {
         // A job with only voice notes still gets a (geometry-free) plan to hold them.
         guard !pbRooms.isEmpty || !raw.isEmpty || JobFiles.hasAudio(folder) else { throw JobProcessorError.nothingCaptured }
 
-        let g = PlanBuilder.build(rooms: pbRooms, readings: raw.map { pbReading($0, folder: folder) })
+        var g = PlanBuilder.build(rooms: pbRooms, readings: raw.map { pbReading($0, folder: folder) })
+        // Names chosen in the room-name tray (an editor rename of an existing plan still wins in the merge).
+        let extras = ScanExtras.load(folder)
+        for i in g.rooms.indices { if let n = extras.roomNames["\(i + 1)"], !n.isEmpty { g.rooms[i].name = n } }
 
         var doc: [String: Any]
         if let data = try? Data(contentsOf: folder.planURL),
@@ -127,6 +131,7 @@ enum JobProcessor {
             doc = PlanDocument.newDocument(id: meta.id.uuidString, address: meta.address, jobRef: meta.jobRef,
                                            createdAt: meta.createdAt, now: Date(), geometry: g)
         }
+        doc = Self.applyAirflow(doc, extras: extras, transform: g.transform)
         try PlanDocument.data(doc).write(to: folder.planURL, options: .atomic)
 
         // Cache the resolved world points for the 3D markers.
@@ -147,13 +152,35 @@ enum JobProcessor {
         meta.totalArea = g.totalArea
         meta.readingCount = raw.filter { $0.kind == "reading" }.count
         if let modelNote { meta.note = modelNote.isEmpty ? nil : modelNote }
-        if !g.rejectedRemovals.isEmpty {
-            let why = g.rejectedRemovals.map { $0.reason }.joined(separator: " ")
-            let text = "\(g.rejectedRemovals.count) removal\(g.rejectedRemovals.count == 1 ? "" : "s") could not be placed and are not on the plan (\(why)) Mark them on the Plan tab."
-            meta.note = [meta.note, text].compactMap { $0 }.joined(separator: " ")
+        // Marks the plan could not place stay in readings-raw.json and are listed, in plain
+        // words, in needs-fix.json for the Items tab; the job note says so in one line.
+        let fixes = g.rejectedRemovals.map { r -> NeedsFix in
+            let p = PlainWords.problem(r.reason)
+            return NeedsFix(id: r.id, sentence: p.sentence, fix: p.fix)
+        }
+        NeedsFix.save(fixes, folder)
+        if let text = PlainWords.jobNote(fixCount: fixes.count) {
+            meta.note = [meta.note, text].compactMap { $0 }.joined(separator: " · ")
         }
         try JobFiles.writeMeta(meta, folder)
         return meta
+    }
+
+    /// Air movers given an airflow while scanning (scan-extras.json): their plan angle,
+    /// unless the plan already has one (set later on the plan or on a visit).
+    static func applyAirflow(_ doc: [String: Any], extras: ScanExtras, transform: PlanTransform) -> [String: Any] {
+        guard !extras.airflow.isEmpty else { return doc }
+        var d = doc
+        var markup = d["markup"] as? [String: Any] ?? [:]
+        var eq = markup["equipment"] as? [[String: Any]] ?? []
+        for i in eq.indices {
+            guard let id = eq[i]["id"] as? String, eq[i]["dir"] == nil || eq[i]["dir"] is NSNull,
+                  let w = extras.direction(id), let angle = Airflow.planAngle(forward: w, transform: transform) else { continue }
+            eq[i]["dir"] = PlanDocument.r4(angle)
+        }
+        markup["equipment"] = eq
+        d["markup"] = markup
+        return d
     }
 
     // MARK: Demo job
