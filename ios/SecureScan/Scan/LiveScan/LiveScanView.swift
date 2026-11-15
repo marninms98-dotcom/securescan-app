@@ -324,7 +324,7 @@ struct LiveScanView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(["plasterboard", "skirting", "cabinetry", "other"], id: \.self) { k in
-                        Chip(title: RemovalItems.name(k), selected: wallItem == k) { wallItem = k }
+                        LegacyChip(title: RemovalItems.name(k), selected: wallItem == k) { wallItem = k }
                     }
                 }
             }
