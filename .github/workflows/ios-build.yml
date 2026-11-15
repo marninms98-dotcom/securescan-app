@@ -156,9 +156,10 @@ jobs:
           rm -rf "$OUT" && mkdir -p "$OUT"
           shot() { sleep "$2"; xcrun simctl io "$UDID" screenshot "$OUT/$1.png"; xcrun simctl terminate "$UDID" "$BID" || true; sleep 2; }
           # UX2 Studio: the real capture HUD + overlay over a synthetic room, one scene per launch.
-          for SCENE in aim-wall aim-wall-bright aim-skirting aim-nothing reading-tray reading-saved line-progress line-tray-skirting \
-                       lining-band-done area-progress area-tray photo-taken review-drawer equipment-place equipment-airflow \
-                       source-tray room-name-tray scan-coaching visit-remeasure scope-on-site needs-fix; do
+          for SCENE in aim-wall aim-wall-bright aim-skirting aim-nothing reading-tray reading-saved line-progress \
+                       line-tray-skirting lining-band-done area-progress area-tray photo-taken photo-preview-card photo-viewer \
+                       photo-zoom-toggle review-drawer equipment-place equipment-airflow source-tray room-name-tray scan-coaching \
+                       visit-remeasure scope-on-site needs-fix; do
             SIMCTL_CHILD_SECURESCAN_STUDIO=$SCENE xcrun simctl launch "$UDID" "$BID"; shot "studio-$SCENE" 6
           done
           xcrun simctl launch "$UDID" "$BID";                                                                   shot 01-first-launch 10

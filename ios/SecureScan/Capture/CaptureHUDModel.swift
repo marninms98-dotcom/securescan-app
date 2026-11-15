@@ -15,6 +15,14 @@ import simd
 
 enum CaptureTray: Equatable { case reading, mark, source, roomName, review }
 
+/// The card after the shutter.
+struct PhotoCard: Identifiable, Equatable {
+    var id: String
+    var tag: String
+    var image: UIImage?
+    static func == (a: PhotoCard, b: PhotoCard) -> Bool { a.id == b.id && a.image === b.image }
+}
+
 @MainActor
 final class CaptureHUDModel: ObservableObject {
     let engine: CaptureEngine
@@ -72,6 +80,20 @@ final class CaptureHUDModel: ObservableObject {
     // Review
     @Published var reviewSelected: String?
 
+    // Photos
+    /// The card that springs up after the shutter (2.5 s), then shrinks into the stack.
+    @Published var photoCard: PhotoCard?
+    /// The full-screen viewer, opened on this photo id ("" = newest).
+    @Published var viewerStart: String?
+    /// Retake in place: the next photo replaces this item's photo.
+    @Published private(set) var retakeFor: String?
+    /// 0.5x selected for the Photo tool.
+    @Published var zoomUltra = false
+    /// 0.5x hand-off in progress: the pose the photo will be pinned at.
+    @Published var handoffShot: CaptureShot?
+    /// Bumped when the job's photos change (viewer, badge).
+    @Published private(set) var photosTick = 0
+
     /// First-run coach lines (off in the Studio).
     var hintsEnabled = true
     var coachHint: String? {
@@ -107,6 +129,20 @@ final class CaptureHUDModel: ObservableObject {
         }
     }
 
+    /// The reticle's readout, or nil when the primary button already names the target
+    /// (or a tray is open). Drawn by the overlay so it takes part in the label layout.
+    var reticleText: String? {
+        guard tray == nil, display.showsTools, display.busy == nil, airflowFor == nil, retakeFor == nil else { return nil }
+        switch tool {
+        case .remeasure, .done, .photo, .equipment: return nil
+        case .mark:
+            if !markPoints.isEmpty && markStartShape == .area { return nil }
+            if markPoints.isEmpty && aim.surface == .floor { return nil }
+        default: break
+        }
+        return CaptureCopy.reticle(aim)
+    }
+
     /// Studio and tests: set the aim directly.
     func setAim(_ a: Aim) { aim = a }
 
@@ -116,6 +152,7 @@ final class CaptureHUDModel: ObservableObject {
         guard t != tool else { return }
         cancelMark()
         airflowFor = nil
+        retakeFor = nil
         tray = nil
         tool = t
     }
@@ -133,7 +170,11 @@ final class CaptureHUDModel: ObservableObject {
         // One primary colour everywhere: meaning colours live on chips and world marks.
         if let o = engine.primaryOverride(tool: tool, aim: aim) { return Primary(title: o.title, enabled: o.enabled) }
         if airflowFor != nil { return Primary(title: CaptureCopy.setAirflow, enabled: aim.blocked != CaptureCopy.findingRoom) }
-        if tool == .photo { return Primary(title: CaptureCopy.takePhoto, enabled: aim.blocked != CaptureCopy.findingRoom) }
+        if tool == .photo {
+            let title = retakeFor.flatMap { id in stack.entries.first { $0.id == id }?.title }.map { "Retake \($0)" }
+                ?? (zoomUltra && engine.zoomState == .available ? "Take 0.5× photo" : CaptureCopy.takePhoto)
+            return Primary(title: title, enabled: aim.blocked != CaptureCopy.findingRoom)
+        }
         if let why = aim.blocked { return Primary(title: why, enabled: false) }
         switch tool {
         case .reading: return Primary(title: CaptureCopy.addReading, enabled: true)
@@ -268,9 +309,86 @@ final class CaptureHUDModel: ObservableObject {
     // MARK: Photo
 
     private func takePhoto() {
+        if zoomUltra, engine.zoomState == .available, retakeFor == nil {
+            guard var s = engine.beginHandoff() else { showToast("Camera not ready — try again"); return }
+            s.aim = aim
+            if let h = aim.hit { s = s.aimed(at: h) }
+            handoffShot = s
+            return
+        }
         guard let s = takeShot(photo: true) else { return }
         lastSaveWasPhoto = true
+        if let id = retakeFor, let photo = s.photo {
+            retakeFor = nil
+            Task {
+                guard await engine.replacePhoto(id: id, photo: photo) else { showToast("Couldn't replace that photo"); return }
+                saveTick &+= 1
+                photosTick &+= 1
+                DS.Haptic.save()
+                let p = await photo.value
+                if let t = p?.thumb { thumbs[id] = t }
+                showCard(id: id, image: p?.card)
+            }
+            return
+        }
         persist(.photo(s, caption: ""))
+    }
+
+    /// The 0.5x hand-off delivered its photo (or nil = cancelled).
+    func finishHandoff(_ photo: CapturedPhoto?) {
+        guard var s = handoffShot else { return }
+        handoffShot = nil
+        engine.endHandoff()
+        guard let photo else { return }
+        s.photo = Task { photo }
+        lastSaveWasPhoto = true
+        persist(.photo(s, caption: "0.5×"))
+    }
+
+    /// Retake in place, from the review drawer or the viewer: back to the camera, aimed at that pin.
+    func beginRetake(_ id: String) {
+        cancelMark()
+        tray = nil
+        viewerStart = nil
+        photoCard = nil
+        tool = .photo
+        retakeFor = id
+    }
+
+    func cancelRetake() { retakeFor = nil }
+
+    func showCard(id: String, image: UIImage?) {
+        let tag = stack.entries.first { $0.id == id }?.title ?? "Photo"
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { photoCard = PhotoCard(id: id, tag: tag, image: image ?? thumbs[id]) }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard let self, self.photoCard?.id == id else { return }
+            withAnimation(DS.Motion.fly) { self.photoCard = nil }
+        }
+    }
+
+    /// The capture stack's number: the job's photos while the Photo tool is out, else this session's captures.
+    var stackCount: Int { tool == .photo ? max(engine.jobPhotos().count, 0) : stack.count }
+
+    /// "12 photos" under the room name while the Photo tool is out.
+    var photoCountLine: String? {
+        guard tool == .photo else { return nil }
+        let n = engine.jobPhotos().count
+        return n == 1 ? "1 photo" : "\(n) photos"
+    }
+
+    func openViewer(_ id: String? = nil) {
+        guard !engine.jobPhotos().isEmpty else { return }
+        photoCard = nil
+        viewerStart = id ?? ""
+    }
+
+    /// Viewer delete (after its undo window): the item goes, and out of the stack.
+    func deletePhoto(_ id: String) {
+        stack.remove(id: id)
+        engine.remove(ids: [id])
+        thumbs[id] = nil
+        photosTick &+= 1
     }
 
     // MARK: Source
@@ -564,7 +682,12 @@ final class CaptureHUDModel: ObservableObject {
                 }
                 if let photoTask, saved.entry.hasPhoto {
                     let id = saved.entry.id
-                    if let thumb = await photoTask.value?.thumb { thumbs[id] = thumb }
+                    let p = await photoTask.value
+                    if let thumb = p?.thumb { thumbs[id] = thumb }
+                    if saved.entry.kind == "photo" {
+                        photosTick &+= 1
+                        showCard(id: id, image: p?.card)
+                    }
                 }
             case .failure(let p):
                 DS.Haptic.warning()
@@ -615,7 +738,15 @@ final class CaptureHUDModel: ObservableObject {
         showToast("Removed \(e.title)")
     }
 
-    var stackThumb: UIImage? { stack.lastPhoto.flatMap { thumbs[$0.id] } }
+    /// The stack's picture: the newest photo while the Photo tool is out, else the last
+    /// capture's photo (a type glyph is shown when the last capture isn't a photo).
+    var stackThumb: UIImage? {
+        if tool == .photo { return stack.lastPhoto.flatMap { thumbs[$0.id] } }
+        guard let last = stack.last, last.kind == "photo" else { return nil }
+        return thumbs[last.id]
+    }
+
+    var stackKind: String { tool == .photo ? "photo" : (stack.last?.kind ?? "") }
 
     func openReview() {
         guard stack.count > 0 else { return }
@@ -641,11 +772,7 @@ final class CaptureHUDModel: ObservableObject {
         open(.reading)
     }
 
-    func retake(_ id: String) {
-        delete(id)
-        tray = nil
-        tool = .photo
-    }
+    func retake(_ id: String) { beginRetake(id) }
 
     func caption(_ id: String, _ text: String) {
         engine.edit(id: id, .caption(text))
@@ -712,6 +839,7 @@ final class CaptureHUDModel: ObservableObject {
     /// The saved marks with the review's selection highlighted.
     func allMarks() -> [OverlayMark] {
         var saved = engine.overlayMarks()
+        if let r = retakeFor { for i in saved.indices where saved[i].id == r { saved[i].selected = true } }
         if tray == .review, let sel = reviewSelected, let e = stack.entries.first(where: { $0.id == sel }) {
             let ids = Set(e.ids + [e.id])
             for i in saved.indices where ids.contains(saved[i].id) { saved[i].selected = true }

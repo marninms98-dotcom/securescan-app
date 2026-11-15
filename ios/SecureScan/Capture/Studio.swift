@@ -14,6 +14,7 @@
 #if DEBUG
 import SwiftUI
 import SceneKit
+import Metal
 import UIKit
 import simd
 
@@ -24,10 +25,7 @@ enum StudioLaunch {
         return (s?.isEmpty ?? true) ? nil : s
     }
 
-    static let scenes = ["aim-wall", "aim-wall-bright", "aim-skirting", "aim-nothing", "reading-tray", "reading-saved", "line-progress",
-                         "line-tray-skirting", "lining-band-done", "area-progress", "area-tray", "photo-taken", "review-drawer",
-                         "equipment-place", "equipment-airflow", "source-tray", "room-name-tray", "scan-coaching",
-                         "visit-remeasure", "scope-on-site", "needs-fix"]
+    static var scenes: [String] { StudioScenes.all }
 }
 
 /// The synthetic room (world: floor y = 0, x right, z = plan y; metres).
@@ -83,7 +81,7 @@ final class StudioEngine: ObservableObject, CaptureEngine {
     /// The bright-room variant (white walls, strong light).
     var bright = false
     var target = WorldVec(1.0, 0.6, 0.0)
-    let fovY = 62.0
+    let fovY = StudioScenes.fovY
     var noHit = false
 
     var roomName = "Bedroom"
@@ -137,6 +135,10 @@ final class StudioEngine: ObservableObject, CaptureEngine {
     func equipmentUnits() -> [EquipmentGuard.Unit] { units }
     func setAirflow(id: String, direction: WorldVec) -> Bool { true }
     func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary? { override }
+    var zoomState: ZoomState { .available }
+    var photos: [JobPhoto] = []
+    func jobPhotos() -> [JobPhoto] { photos }
+    func replacePhoto(id: String, photo: Task<CapturedPhoto?, Never>) async -> Bool { true }
 
     /// Aim the camera so the screen centre lands on `p`.
     func look(at p: WorldVec, from c: WorldVec? = nil) {
@@ -148,185 +150,192 @@ final class StudioEngine: ObservableObject, CaptureEngine {
 // MARK: - The scenes
 
 enum StudioScript {
-    static func pin(_ id: String, _ p: WorldVec, _ v: Double, _ n: Int, reference: Bool = false) -> OverlayMark {
-        OverlayMark(id: id, style: .reading(status: OverlayBuild.status(v, reference: false), reference: reference), points: [p],
-                    value: CaptureCopy.number(v), tag: CaptureCopy.readingTag(n))
-    }
-
     static func entry(_ id: String, _ kind: String, _ title: String, _ detail: String, photo: Bool = false) -> CaptureStack.Entry {
         CaptureStack.Entry(id: id, ids: [id], kind: kind, title: title, detail: detail, hasPhoto: photo)
     }
 
-    static let r1 = WorldVec(1.15, 0.30, 0.0), r2 = WorldVec(0.55, 0.06, 0.0), r3 = WorldVec(0.0, 0.45, 0.65)
+    static func glyph(_ kind: String) -> UIImage? { nil }
 
+    /// Camera, saved marks and units from the shared scene data; then the HUD state per scene.
     @MainActor
     static func run(_ scene: String, _ e: StudioEngine) {
+        let d = StudioScenes.data(scene)
         let hud = e.hud
-        let thumb = StudioThumbs.make
+        let shot = StudioShots.image
+        let p = StudioScenes.self
+        func final() { e.look(at: d.target, from: d.camera); e.saved = d.marks.filter { $0.id != "draft-airflow" } }
+        // The job's photos (rendered from the synthetic room, newest first).
+        e.photos = (1...5).reversed().map { n in
+            JobPhoto(id: "p\(n)", title: "Photo \(n)", place: n % 2 == 0 ? "Bedroom · floor" : "Bedroom · wall \(String(format: "%.1f", 0.3 + Double(n) * 0.25)) m up",
+                     caption: n == 2 ? "Damage" : "", load: { shot(n, CGSize(width: 900, height: 1200)) })
+        }
         switch scene {
         case "aim-wall", "aim-wall-bright":
             e.recordingSince = Date().addingTimeInterval(-42)
-            e.saved = [pin("r1", r2, 10, 1)]
-            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: thumb(0))
-            e.look(at: WorldVec(1.55, 0.32, 0.0), from: WorldVec(3.3, 1.5, 1.0))
-            if scene == "aim-wall-bright" { e.bright = true }
+            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: shot(1, nil))
         case "aim-skirting":
             hud.tool = .mark
-            e.look(at: WorldVec(1.25, 0.05, 0.0), from: WorldVec(3.3, 1.5, 1.0))
         case "aim-nothing":
             e.noHit = true
-            e.look(at: WorldVec(0.0, 1.0, 2.2))
         case "reading-tray":
-            e.look(at: WorldVec(1.55, 0.32, 0.0))
+            e.look(at: WorldVec(1.55, 0.32, 0.0), from: d.camera)
             hud.tick()
             hud.studioPending(e.shot(photo: false)!)
             hud.readingMaterial = "wall"
             hud.readingText = "18"
             hud.tray = .reading
-            e.look(at: WorldVec(1.5, 0.1, 0.6), from: WorldVec(2.6, 1.5, 2.4))
         case "reading-saved":
-            e.saved = [pin("r1", r2, 10, 1), pin("r2", r1, 18, 2), pin("r3", r3, 26, 3)]
-            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: thumb(0))
-            hud.studioAdd(entry("r2", "reading", "R2 · 18%", "Wall · Bedroom", photo: true), thumb: thumb(1))
-            hud.studioAdd(entry("r3", "reading", "R3 · 26%", "Wall · Bedroom", photo: true), thumb: thumb(2))
+            for (i, v) in [10, 18, 26].enumerated() {
+                hud.studioAdd(entry("r\(i + 1)", "reading", "R\(i + 1) · \(v)%", i == 0 ? "Skirting · Bedroom" : "Wall · Bedroom", photo: true), thumb: shot(i + 1, nil))
+            }
             hud.studioUndo(true)
-            e.look(at: WorldVec(0.8, 0.35, 0.2), from: WorldVec(3.3, 1.5, 0.5))
         case "line-progress":
             hud.tool = .mark
             hud.studioMark(points: [MarkPoint(world: WorldVec(0.6, 0.05, 0.0), surface: .wall, height: 0.05, distanceToWall: 0, wallId: "w1")],
                            shape: nil, start: .line)
-            e.look(at: WorldVec(1.9, 0.05, 0.0), from: WorldVec(3.3, 1.5, 0.5))
         case "line-tray-skirting":
             hud.tool = .mark
             let a = MarkPoint(world: WorldVec(0.6, 0.05, 0.0), surface: .wall, height: 0.05, distanceToWall: 0, wallId: "w1")
             let b = MarkPoint(world: WorldVec(1.9, 0.04, 0.0), surface: .wall, height: 0.04, distanceToWall: 0, wallId: "w1")
             hud.studioMark(points: [a, b], shape: .line, start: .line)
             hud.tray = .mark
-            e.look(at: WorldVec(1.25, 0.05, 0.25), from: WorldVec(3.0, 1.5, 2.6))
         case "lining-band-done":
             hud.tool = .mark
-            e.saved = [OverlayMark(id: "x1", style: .lining, points: [WorldVec(0.0, 0, 0.25), WorldVec(0.0, 0, 1.55)], top: 0.6, tag: "Wall lining · 1.30 m"),
-                       OverlayMark(id: "x2", style: .skirting, points: [WorldVec(0.30, 0, 0.0), WorldVec(2.10, 0, 0.0)], tag: "Skirting · 1.80 m"),
-                       pin("r1", WorldVec(0.0, 0.4, 1.3), 24, 1)]
-            hud.studioAdd(entry("x2", "mark", "Skirting · 1.80 m", "Bedroom", photo: true), thumb: thumb(1))
-            hud.studioAdd(entry("x1", "mark", "Wall lining · 1.30 m", "Bedroom", photo: true), thumb: thumb(2))
+            hud.studioAdd(entry("x2", "mark", "Skirting · 1.80 m", "Bedroom", photo: true), thumb: shot(2, nil))
+            hud.studioAdd(entry("x1", "mark", "Wall lining · 1.30 m", "Bedroom", photo: true), thumb: shot(3, nil))
             hud.studioUndo(true)
-            e.look(at: WorldVec(0.0, 0.3, 0.9), from: WorldVec(2.4, 1.4, 1.4))
-        case "area-progress":
+        case "area-progress", "area-tray":
             hud.tool = .mark
-            let pts = [WorldVec(1.0, 0, 1.0), WorldVec(1.7, 0, 0.95), WorldVec(1.75, 0, 1.55)].map {
-                MarkPoint(world: $0, surface: .floor, height: 0, distanceToWall: 0.7)
+            let all = [WorldVec(1.0, 0, 1.0), WorldVec(1.7, 0, 0.95), WorldVec(1.75, 0, 1.55), WorldVec(1.05, 0, 1.6)]
+            let pts = (scene == "area-tray" ? all : Array(all.prefix(3))).map { MarkPoint(world: $0, surface: .floor, height: 0, distanceToWall: 0.7) }
+            if scene == "area-tray" {
+                hud.context = .scope
+                hud.studioMark(points: pts, shape: .area, start: .area)
+                hud.floorType = "carpet"
+                hud.underlay = true
+                hud.tray = .mark
+            } else {
+                hud.studioMark(points: pts, shape: nil, start: .area)
             }
-            hud.studioMark(points: pts, shape: nil, start: .area)
-            e.look(at: WorldVec(1.05, 0, 1.6), from: WorldVec(0.3, 1.5, 2.45))
-        case "area-tray":
-            hud.tool = .mark
-            hud.context = .scope
-            let pts = [WorldVec(1.0, 0, 1.0), WorldVec(1.7, 0, 0.95), WorldVec(1.75, 0, 1.55), WorldVec(1.05, 0, 1.6)].map {
-                MarkPoint(world: $0, surface: .floor, height: 0, distanceToWall: 0.7)
-            }
-            hud.studioMark(points: pts, shape: .area, start: .area)
-            hud.floorType = "carpet"
-            hud.underlay = true
-            hud.tray = .mark
-            e.look(at: WorldVec(1.38, 0, 1.6), from: WorldVec(1.3, 1.5, 2.6))
-        case "photo-taken":
+        case "photo-taken", "photo-preview-card":
             hud.tool = .photo
-            e.saved = [OverlayMark(id: "p1", style: .photo, points: [WorldVec(1.4, 0.9, 0.0)], tag: "P1"), pin("r1", r2, 10, 1)]
-            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: thumb(0))
-            hud.studioAdd(entry("p1", "photo", "P1", "Bedroom", photo: true), thumb: thumb(3))
+            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: shot(1, nil))
+            hud.studioAdd(entry("p5", "photo", "P5", "Bedroom", photo: true), thumb: shot(5, nil))
             hud.studioUndo(true)
-            hud.showToast("Photo saved · P1")
-            e.look(at: WorldVec(1.0, 0.55, 0.0), from: WorldVec(2.4, 1.45, 2.4))
-        case "review-drawer":
-            e.saved = [pin("r1", r2, 10, 1), pin("r2", r1, 18, 2), pin("r3", r3, 26, 3),
-                       OverlayMark(id: "x1", style: .skirting, points: [WorldVec(0.3, 0, 0.0), WorldVec(1.0, 0, 0.0)], tag: "Skirting · 0.70 m")]
-            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: thumb(0))
-            hud.studioAdd(entry("r2", "reading", "R2 · 18%", "Wall · Bedroom", photo: true), thumb: thumb(1))
-            hud.studioAdd(entry("p1", "photo", "P1", "Bedroom", photo: true), thumb: thumb(3))
-            hud.studioAdd(entry("x1", "mark", "Skirting · 0.70 m", "Bedroom", photo: true), thumb: thumb(2))
-            hud.studioAdd(entry("r3", "reading", "R3 · 26%", "Wall · Bedroom", photo: true), thumb: thumb(4))
-            e.look(at: WorldVec(0.7, 0.2, 0.4), from: WorldVec(0.6, 1.5, 1.9))
+            if scene == "photo-preview-card" {
+                final()
+                hud.photoCard = PhotoCard(id: "p5", tag: "Photo 5", image: shot(5, CGSize(width: 480, height: 640)))
+                return
+            }
+        case "photo-viewer":
+            hud.tool = .photo
+            hud.studioAdd(entry("p5", "photo", "P5", "Bedroom", photo: true), thumb: shot(5, nil))
+            final()
+            hud.viewerStart = "p3"
+            return
+        case "photo-zoom-toggle":
+            hud.tool = .photo
+            hud.zoomUltra = true
+            hud.studioAdd(entry("p5", "photo", "P5", "Bedroom", photo: true), thumb: shot(5, nil))
+        case "review-drawer", "needs-fix":
+            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: shot(1, nil))
+            hud.studioAdd(entry("r2", "reading", "R2 · 18%", "Wall · Bedroom", photo: true), thumb: shot(2, nil))
+            if scene == "review-drawer" {
+                hud.studioAdd(entry("p1", "photo", "P1", "Bedroom", photo: true), thumb: shot(3, nil))
+                hud.studioAdd(entry("x1", "mark", "Skirting · 0.70 m", "Bedroom", photo: true), thumb: shot(4, nil))
+                hud.studioAdd(entry("r3", "reading", "R3 · 26%", "Wall · Bedroom", photo: true), thumb: shot(5, nil))
+            } else {
+                var fix = entry("x9", "mark", "Skirting · 2.40 m", "Bedroom", photo: true)
+                fix.needsFix = PlainWords.problem("The start and end are on different walls.").sentence
+                hud.studioAdd(fix, thumb: shot(4, nil))
+            }
+            final()
             hud.tick()
             hud.openReview()
-            hud.reviewSelected = "r2"
+            hud.reviewSelected = scene == "review-drawer" ? "r2" : "x9"
+            return
         case "equipment-place":
             hud.tool = .equipment
-            e.saved = [OverlayMark(id: "d1", style: .equipment(type: "dehumidifier", planned: false), points: [WorldVec(2.0, 0, 0.6)], tag: "DH 1")]
             e.units = [EquipmentGuard.Unit(id: "d1", type: "dehumidifier", pos: PlanVec(2.0, 0.6), hasAirflow: false, tag: "DH 1")]
-            hud.studioAdd(entry("d1", "equipment", "Dehumidifier 1", "Bedroom", photo: true), thumb: thumb(2))
-            e.look(at: WorldVec(1.2, 0, 1.0), from: WorldVec(0.3, 1.4, 2.0))
+            hud.studioAdd(entry("d1", "equipment", "Dehumidifier 1", "Bedroom", photo: true), thumb: shot(2, nil))
         case "equipment-airflow":
             hud.tool = .equipment
             e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(1.6, 1.4), hasAirflow: false, tag: "AM 1")]
-            e.saved = [OverlayMark(id: "a1", style: .equipment(type: "airMover", planned: false), points: [WorldVec(1.6, 0, 1.4)], tag: "AM 1")]
-            hud.studioAdd(entry("a1", "equipment", "Air mover 1", "Bedroom", photo: true), thumb: thumb(2))
+            hud.studioAdd(entry("a1", "equipment", "Air mover 1", "Bedroom", photo: true), thumb: shot(2, nil))
             hud.studioAirflow("a1")
-            e.look(at: WorldVec(1.5, 0, 1.25), from: WorldVec(3.3, 1.4, 1.7))
         case "source-tray":
-            e.look(at: WorldVec(0.0, 0.55, 1.1))
+            e.look(at: WorldVec(0.0, 0.55, 1.1), from: d.camera)
             hud.tick()
             hud.studioPending(e.shot(photo: false)!)
             hud.sourceCause = "Shower"
             hud.tray = .source
-            e.look(at: WorldVec(0.5, 0.25, 1.2), from: WorldVec(2.6, 1.5, 2.4))
         case "room-name-tray":
             e.phaseText = "Marking"
             e.roomName = "Room 1"
             e.sections = ["bedroom", "bathroom"]
             e.quietActions = [QuietAction(id: "next", title: "Next room"), QuietAction(id: "finish", title: "Finish")]
-            e.look(at: WorldVec(1.0, 0.55, 0.6), from: WorldVec(2.4, 1.5, 2.4))
+            final()
             hud.tick()
             hud.askRoomName()
+            return
         case "scan-coaching":
             e.coaching = "Move closer to the wall"
             e.recordingSince = Date().addingTimeInterval(-128)
-            e.look(at: WorldVec(1.7, 1.2, 0.0), from: WorldVec(2.9, 1.5, 2.6))
         case "visit-remeasure":
             e.isReturnVisit = true
             e.quietActions = []
             e.phaseText = "Visit 2 · 1 of 3"
             e.roomName = ""
             hud.tool = .remeasure
-            var p1 = pin("r1", r2, 9, 1)
-            p1.faded = false
-            var p2 = pin("r2", r1, 18, 2); p2.faded = true; p2.selected = true
-            var p3 = pin("r3", r3, 26, 3); p3.faded = true
-            e.saved = [p1, p2, p3]
-            hud.studioAdd(entry("m1", "remeasure", "R1 · 9%", "was 10%", photo: true), thumb: thumb(0))
+            hud.studioAdd(entry("m1", "remeasure", "R1 · 9%", "was 10%", photo: true), thumb: shot(1, nil))
             e.override = EnginePrimary(title: CaptureCopy.remeasure("R2"), action: {})
             e.coaching = "R3 is to your left"
-            e.look(at: r1 + WorldVec(0, 0.0, 0.05), from: WorldVec(2.7, 1.4, 0.5))
         case "scope-on-site":
             e.isScopeOnSite = true
             e.quietActions = []
             e.phaseText = "Scope · 1 of 4 done"
             e.roomName = ""
             hud.tool = .done
-            e.saved = [
-                OverlayMark(id: "a1", style: .equipment(type: "airMover", planned: true), points: [WorldVec(1.2, 0, 1.3)],
-                            airflow: simd_normalize(WorldVec(-1, 0, -0.8)), tag: "AM-1", selected: true),
-                OverlayMark(id: "x1", style: .lining, points: [WorldVec(0.0, 0, 0.3), WorldVec(0.0, 0, 1.5)], top: 0.6, tag: "X1 · Wall lining"),
-                OverlayMark(id: "x2", style: .skirting, points: [WorldVec(0.4, 0, 0.0), WorldVec(2.3, 0, 0.0)], tag: "X2 · Skirting", faded: true),
-                OverlayMark(id: "f1", style: .liftFlooring, points: [WorldVec(0.3, 0, 0.6), WorldVec(1.6, 0, 0.6), WorldVec(1.6, 0, 1.9), WorldVec(0.3, 0, 1.9)],
-                            tag: "F1 · Carpet 1.7 m²"),
-            ]
             e.override = EnginePrimary(title: "Mark placed · AM-1", action: {})
-            e.look(at: WorldVec(1.2, 0, 1.3), from: WorldVec(3.3, 1.4, 2.6))
-        case "needs-fix":
-            e.saved = [pin("r1", r2, 10, 1), pin("r2", r1, 18, 2)]
-            hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: thumb(0))
-            hud.studioAdd(entry("r2", "reading", "R2 · 18%", "Wall · Bedroom", photo: true), thumb: thumb(1))
-            var fix = entry("x9", "mark", "Skirting · 2.40 m", "Bedroom", photo: true)
-            fix.needsFix = PlainWords.problem("The start and end are on different walls.").sentence
-            hud.studioAdd(fix, thumb: thumb(2))
-            e.look(at: WorldVec(0.7, 0.2, 0.4), from: WorldVec(0.6, 1.5, 1.9))
-            hud.tick()
-            hud.openReview()
-            hud.reviewSelected = "x9"
         default:
             break
         }
+        _ = p
+        final()
+    }
+}
+
+/// Stand-in "photos": the synthetic room rendered off screen from a few viewpoints (no real photos).
+enum StudioShots {
+    private static var cache: [String: UIImage] = [:]
+
+    static let views: [(WorldVec, WorldVec)] = [
+        (WorldVec(2.2, 1.3, 1.6), WorldVec(0.6, 0.2, 0.0)), (WorldVec(1.4, 1.2, 1.4), WorldVec(1.2, 0.3, 0.0)),
+        (WorldVec(2.6, 1.4, 2.2), WorldVec(0.2, 0.4, 0.8)), (WorldVec(1.8, 1.5, 2.4), WorldVec(1.3, 0.0, 0.8)),
+        (WorldVec(3.0, 1.4, 1.2), WorldVec(1.3, 0.9, 0.0)),
+    ]
+
+
+    static func image(_ n: Int, _ size: CGSize?) -> UIImage? {
+        let sz = size ?? CGSize(width: 240, height: 320)
+        let key = "\(n)-\(Int(sz.width))"
+        if let i = cache[key] { return i }
+        let v = views[(n - 1 + views.count) % views.count]
+        let r = SCNRenderer(device: MTLCreateSystemDefaultDevice(), options: nil)
+        let scene = StudioSceneBuilder.scene()
+        let cam = SCNNode()
+        let c = SCNCamera()
+        c.fieldOfView = 62
+        c.zNear = 0.05
+        cam.camera = c
+        cam.simdPosition = SIMD3<Float>(v.0)
+        cam.simdLook(at: SIMD3<Float>(v.1), up: SIMD3<Float>(0, 1, 0), localFront: SIMD3<Float>(0, 0, -1))
+        scene.rootNode.addChildNode(cam)
+        r.scene = scene
+        r.pointOfView = cam
+        let img = r.snapshot(atTime: 0, with: sz, antialiasingMode: .multisampling4X)
+        cache[key] = img
+        return img
     }
 }
 
@@ -374,7 +383,7 @@ struct StudioView: View {
         .statusBarHidden()
         .background(Color.black)
         .onAppear {
-            engine.hud.hintsEnabled = scene == "aim-skirting"
+            engine.hud.hintsEnabled = false
             StudioScript.run(scene, engine)
             engine.objectWillChange.send()
             engine.hud.tick()

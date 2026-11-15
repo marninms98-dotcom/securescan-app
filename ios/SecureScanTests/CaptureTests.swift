@@ -327,3 +327,66 @@ final class CaptureTests: XCTestCase {
         XCTAssertEqual(marks[2].value, "18")
     }
 }
+
+final class OverlayLayoutTests: XCTestCase {
+
+    /// Every Studio scene, laid out with the renderer's own layout code: no label, pin, glyph
+    /// or the reticle (and its label) overlaps another; no label sits on an airflow arrow;
+    /// every label is inside the screen below the top bar.
+    func testNoStudioSceneHasOverlaps() {
+        for name in StudioScenes.all {
+            let d = StudioScenes.data(name)
+            let proj = StudioScenes.projector(d)
+            let plan = OverlayLayout.plan(d.marks, projector: proj, reticleLabel: d.reticle, measure: .estimate)
+            XCTAssertEqual(plan.overlaps(), [], name)
+            let screen = CGRect(x: 0, y: 0, width: StudioScenes.viewport.x, height: StudioScenes.viewport.y)
+            for (id, r) in plan.labels {
+                XCTAssertTrue(screen.insetBy(dx: OverlayLayout.margin - 0.5, dy: 0).contains(r), "\(name): \(id) off screen \(r)")
+                if id != "reticle" { XCTAssertGreaterThanOrEqual(r.minY, OverlayLayout.topLimit - 0.5, "\(name): \(id) under the top bar") }
+            }
+        }
+    }
+
+    func testScenesShowTheirLabels() {
+        // The scope scene keeps both floor/wall tags visible (moved, not dropped).
+        let d = StudioScenes.data("scope-on-site")
+        let plan = OverlayLayout.plan(d.marks, projector: StudioScenes.projector(d), reticleLabel: nil, measure: .estimate)
+        XCTAssertNotNil(plan.labels["f1"])
+        XCTAssertNotNil(plan.labels["a1"])
+        XCTAssertNotNil(plan.glyphs["a1"])
+        XCTAssertNotNil(plan.arrows["a1"])
+        // Reading pins: every pin placed, none on another.
+        let r = StudioScenes.data("reading-saved")
+        let rp = OverlayLayout.plan(r.marks, projector: StudioScenes.projector(r), reticleLabel: r.reticle, measure: .estimate)
+        XCTAssertEqual(rp.pins.count, 3)
+    }
+
+    func testCoincidentPinsStepApartAndLabelsAvoidThem() {
+        let proj = PinholeProjector(position: WorldVec(0, 1.4, 3), lookAt: WorldVec(0, 0.5, 0), fovYDegrees: 62, viewport: ScreenVec(402, 874))
+        let marks = [StudioScenes.pin("a", WorldVec(0.5, 0.5, 0), 12, 1), StudioScenes.pin("b", WorldVec(0.52, 0.5, 0), 22, 2),
+                     OverlayMark(id: "s", style: .skirting, points: [WorldVec(0.2, 0.05, 0), WorldVec(0.8, 0.05, 0)], tag: "Skirting · 0.60 m")]
+        let plan = OverlayLayout.plan(marks, projector: proj, reticleLabel: "Wall · 0.50 m up", measure: .estimate)
+        XCTAssertEqual(plan.overlaps(), [])
+        XCTAssertGreaterThan(abs(plan.pins["a"]!.centre.x - plan.pins["b"]!.centre.x), 30)
+    }
+
+    func testOffscreenAnchorsGetNoLabel() {
+        let proj = PinholeProjector(position: WorldVec(0, 1.4, 3), lookAt: WorldVec(0, 0.5, 0), fovYDegrees: 62, viewport: ScreenVec(402, 874))
+        let far = OverlayMark(id: "w", style: .wetFloor, points: [WorldVec(8, 0, 0), WorldVec(9, 0, 0), WorldVec(9, 0, 1)], tag: "Wet floor")
+        XCTAssertNil(OverlayLayout.plan([far], projector: proj, reticleLabel: nil, measure: .estimate).labels["w"])
+    }
+
+    func testAirflowArrowIsOneMetreFlatOnTheFloor() {
+        let a = OverlayLayout.arrow(from: WorldVec(1, 0, 1), dir: WorldVec(0, 0, 2))
+        XCTAssertEqual(a.count, 7)
+        XCTAssertTrue(a.allSatisfy { abs($0.y - 0.01) < 1e-9 })
+        XCTAssertEqual(a[3].z - 1, 1.0, accuracy: 1e-9)                 // tip 1.0 m from the unit
+        XCTAssertEqual(abs(a[2].x - a[4].x), 0.4, accuracy: 1e-9)       // head 0.40 m wide
+        XCTAssertEqual(abs(a[0].x - a[6].x), 0.18, accuracy: 1e-9)      // shaft 0.18 m
+    }
+
+    func testRailLabelsFitAt13pt() {
+        // ~7.3 pt a character at 13 pt semibold; a tab leaves ~63 pt on a 402 pt phone.
+        for t in CaptureTool.allCases { XCTAssertLessThanOrEqual(Double(t.railTitle.count) * 7.3, 63, t.railTitle) }
+    }
+}

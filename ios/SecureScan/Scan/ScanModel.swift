@@ -334,6 +334,57 @@ final class ScanModel: ObservableObject, CaptureEngine {
         return true
     }
 
+    // MARK: Photos
+
+    func jobPhotos() -> [JobPhoto] {
+        let fy = world.floorY
+        let photos = raw.filter { $0.kind == "photo" && $0.photoFile != nil }.sorted { $0.seq < $1.seq }
+        let folder = self.folder
+        return photos.enumerated().map { i, r in
+            JobPhoto(id: r.id, title: "Photo \(i + 1)", place: place(r, floorY: fy), caption: r.note, load: {
+                UIImage(contentsOfFile: folder.photosDir.appendingPathComponent("\(r.id)-full.jpg").path)
+                    ?? r.photoFile.flatMap { UIImage(contentsOfFile: folder.url.appendingPathComponent($0).path) }
+            })
+        }.reversed()
+    }
+
+    /// "Bedroom · wall 0.8 m up"
+    private func place(_ r: RawReading, floorY: Double?) -> String {
+        let room = extras.roomNames["\(r.roomIndex + 1)"] ?? "Room \(r.roomIndex + 1)"
+        if let n = r.hitNormal, n.count == 3, n[1] > 0.7 { return "\(room) · floor" }
+        if let h = r.hit, h.count == 3, let fy = floorY { return "\(room) · wall \(String(format: "%.1f", max(0, h[1] - fy))) m up" }
+        return room
+    }
+
+    func replacePhoto(id: String, photo: Task<CapturedPhoto?, Never>) async -> Bool {
+        guard raw.contains(where: { $0.id == id }), let p = await photo.value else { return false }
+        guard preview || PhotoFiles.write(p, id: id, folder: folder) else { return false }
+        updateRaw(id) { $0.photoFile = "photos/\(id).jpg" }
+        return true
+    }
+
+    /// 0.5x: the ultra-wide camera can't run while RoomPlan is capturing a room.
+    var zoomState: ZoomState {
+        guard UltraWideCamera.exists else { return .unavailable }
+        switch phase {
+        case .scanning, .processingRoom: return .blocked("0.5× after Room done")
+        case .finishing: return .unavailable
+        default: return .available
+        }
+    }
+
+    func beginHandoff() -> CaptureShot? {
+        guard zoomState == .available, let s = ScanWorld.shot(controller?.arSession, prefix: "ar-", photo: false) else { return nil }
+        controller?.arSession?.pause()
+        return s
+    }
+
+    /// Resume without resetting tracking: ARKit relocalises on the same world.
+    func endHandoff() {
+        guard let s = controller?.arSession, let c = s.configuration else { return }
+        s.run(c, options: [])
+    }
+
     func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary? {
         if case .processingRoom = phase, tool != .photo {
             return EnginePrimary(title: "Saving the room…", enabled: false, action: {})

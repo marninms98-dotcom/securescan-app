@@ -23,6 +23,27 @@ struct CapturedPhoto: @unchecked Sendable {
     var full: Data?
     /// ~200 px, for the capture stack and the review cards.
     var thumb: UIImage?
+    /// ~600 px, for the preview card that springs up after the shutter.
+    var card: UIImage? = nil
+}
+
+/// One photo of the job, for the full-screen viewer.
+struct JobPhoto: Identifiable {
+    var id: String
+    /// "Photo 7"
+    var title: String
+    /// "Bedroom · wall 0.8 m up"
+    var place: String
+    var caption: String
+    /// The full-resolution file when there is one, else the plan preview.
+    var load: () -> UIImage?
+}
+
+/// The 0.5x photo: not on this phone / not right now (and why) / ready.
+enum ZoomState: Equatable {
+    case unavailable
+    case blocked(String)
+    case available
 }
 
 /// Everything captured in the instant of a tap.
@@ -139,16 +160,25 @@ protocol CaptureEngine: AnyObject {
     func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary?
     /// The engine's own tray (alignment), shown instead of the tools.
     func customTray() -> AnyView?
-    /// The 0.5x photo toggle: nil = not offered on this device / session.
-    var ultraWide: Bool? { get }
-    func setUltraWide(_ on: Bool)
+    // Photos
+    /// Every photo of the job, newest first.
+    func jobPhotos() -> [JobPhoto]
+    /// Retake: a new photo for the same item (same id, same pin).
+    func replacePhoto(id: String, photo: Task<CapturedPhoto?, Never>) async -> Bool
+    /// The 0.5x photo.
+    var zoomState: ZoomState { get }
+    /// 0.5x: record the pose for the pin, then hand the camera over (AR paused).
+    func beginHandoff() -> CaptureShot?
+    /// 0.5x done or cancelled: the AR session resumes on the same world.
+    func endHandoff()
     /// A tray was closed without saving (re-measure cancelled).
     func trayCancelled()
 }
 
 extension CaptureEngine {
-    var ultraWide: Bool? { nil }
-    func setUltraWide(_ on: Bool) {}
+    var zoomState: ZoomState { .unavailable }
+    func beginHandoff() -> CaptureShot? { nil }
+    func endHandoff() {}
     func trayCancelled() {}
     func customTray() -> AnyView? { nil }
     var canRenameRoom: Bool { false }

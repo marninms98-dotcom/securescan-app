@@ -422,8 +422,47 @@ final class RevisitModel: ObservableObject, CaptureEngine {
 
     func renameRoom(_ name: String) {}
 
-    var ultraWide: Bool? { PhotoCapture.ultraWideFormat == nil ? nil : (controller?.ultraWideOn ?? false) }
-    func setUltraWide(_ on: Bool) { controller?.setUltraWide(on) }
+    var zoomState: ZoomState {
+        guard UltraWideCamera.exists else { return .unavailable }
+        return phase == .measuring ? .available : .blocked("0.5× once lined up")
+    }
+
+    func beginHandoff() -> CaptureShot? {
+        guard zoomState == .available, let s = controller?.shot(photo: false) else { return nil }
+        controller?.pauseForHandoff()
+        return s
+    }
+
+    func endHandoff() { controller?.resumeAfterHandoff() }
+
+    func jobPhotos() -> [JobPhoto] {
+        let readings = (plan["markup"] as? [String: Any])?["readings"] as? [[String: Any]] ?? []
+        let folder = self.folder
+        let photos = readings.filter { ($0["kind"] as? String) == "photo" }
+        return photos.compactMap { r -> JobPhoto? in
+            guard let id = r["id"] as? String else { return nil }
+            let url = r["photo"] as? String
+            let n = PlanDocument.number(r["n"]).map { Int($0) } ?? 0
+            var place = Revisit.point(r["pos"]).flatMap { FloorArea.room(containing: $0, rooms: rooms) }.flatMap(planRoomName) ?? ""
+            if let h = PlanDocument.number(r["height"]) { place += (place.isEmpty ? "" : " · ") + "wall \(String(format: "%.1f", h)) m up" }
+            return JobPhoto(id: id, title: "Photo \(n)", place: place, caption: (r["note"] as? String) ?? "", load: {
+                if let img = UIImage(contentsOfFile: folder.photosDir.appendingPathComponent("\(id)-full.jpg").path) { return img }
+                guard let u = url, let comma = u.firstIndex(of: ","), let d = Data(base64Encoded: String(u[u.index(after: comma)...])) else { return nil }
+                return UIImage(data: d)
+            })
+        }.reversed()
+    }
+
+    func replacePhoto(id: String, photo: Task<CapturedPhoto?, Never>) async -> Bool {
+        guard let p = await photo.value, let preview = p.preview else { return false }
+        _ = PhotoFiles.write(p, id: id, folder: folder)
+        guard let d = MarkupEdit.update(plan, id: id, set: ["photo": "data:image/jpeg;base64," + preview.base64EncodedString()]) else { return false }
+        plan = d
+        guard savePlan() else { return false }
+        logEvent(["type": "retake", "id": id])
+        refreshMarkers()
+        return true
+    }
     func trayCancelled() { remeasureFor = nil }
 
     // MARK: CaptureEngine - the world

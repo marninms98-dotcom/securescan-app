@@ -489,6 +489,11 @@ async function checkRendering(page, doc, name) {
     await page.tap('.tool[data-tool="select"]');
   });
 
+  await test('standalone: the visit chip sits in the margin above the sheet, never over the drawing', async () => {
+    await load(page, SMALL);
+    const r = await page.evaluate(() => { const c = document.getElementById('visit-chip').getBoundingClientRect(), bg = document.querySelector('#content .sheet-bg').getBoundingClientRect(); return [c.bottom, bg.top]; });
+    assert.ok(r[0] <= r[1], `chip bottom ${r[0]} above the sheet top ${r[1]}`);
+  });
   /* ---------- exports (standalone: downloads + print) ---------- */
   await load(page, SINGLE);
   for (const [label, file] of [['Floor plan PNG', 'floor-plan.png'], ['Marked-up plan PNG', 'marked-up-plan.png'], ['Wall elevations PNG', 'wall-elevations.png']]) {
@@ -2093,6 +2098,30 @@ async function checkRendering(page, doc, name) {
       assert.strictEqual(m.html, await host.evaluate(k => SecureScan.reportHTML(k), kind));
     }
     await load(host, SINGLE);
+  });
+  await test('hosted: setHostChrome({embedded, theme:"light"}) and load(plan, {chrome}): no Done or share, light one-row bars, the visit in the top row, chromeHeights', async () => {
+    await load(host, SMALL);
+    const before = await host.evaluate(() => SecureScan.chromeHeights());
+    assert.ok(before.top >= 44 && before.bottom >= 56, JSON.stringify(before));
+    assert.deepStrictEqual(await host.evaluate(() => SecureScan.setHostChrome({ embedded: true, theme: 'light' })), { embedded: true, theme: 'light' });
+    const s = await host.evaluate(() => ({ cls: [...document.body.classList], done: !!document.getElementById('btn-done').offsetParent, share: !!document.getElementById('btn-export').offsetParent,
+      chipIn: document.getElementById('visit-chip').parentNode.id, chip: document.getElementById('visit-chip').textContent, h: SecureScan.chromeHeights(),
+      topBg: getComputedStyle(document.getElementById('topbar')).backgroundColor, on: getComputedStyle(document.querySelector('.tool.on')).color,
+      small: [...document.querySelectorAll('#toolbar button, #topbar button')].filter(e => e.offsetParent && e.getBoundingClientRect().width < 44).map(e => e.id || e.textContent) }));
+    assert.ok(s.cls.includes('embedded') && s.cls.includes('theme-light'));
+    assert.ok(!s.done && !s.share, 'the app provides back and documents');
+    assert.deepStrictEqual([s.chipIn, s.chip], ['topbar', 'Visit 3 · 8/8']);
+    assert.deepStrictEqual(s.h, { top: 44, bottom: 56 });
+    assert.strictEqual(s.on, 'rgb(31, 111, 235)', 'the selected tool in the accent');
+    assert.ok(/^rgba?\(249, 249, 251/.test(s.topBg), s.topBg);
+    assert.deepStrictEqual(s.small, []);
+    // the sheet starts below the bar, nothing over its title; back to the defaults restores the standalone look
+    await host.evaluate(() => SecureScan.setHostChrome({ embedded: false, theme: 'dark' }));
+    assert.ok(await host.evaluate(() => document.getElementById('btn-done').offsetParent !== null && document.getElementById('visit-chip').parentNode.id === 'stage' && !document.body.classList.contains('theme-light')));
+    // the same through load options
+    await host.evaluate(d => SecureScan.load(d, { chrome: { embedded: true, theme: 'light' } }), SINGLE);
+    assert.deepStrictEqual(await host.evaluate(() => [document.body.className.split(' ').sort().join(' '), SecureScan.chromeHeights()]), ['embedded theme-light', { top: 44, bottom: 56 }]);
+    await host.evaluate(() => SecureScan.setHostChrome({ embedded: false, theme: 'dark' }));
   });
   await test('hosted: Done flushes a pending save, then posts exactly {type:"close"}', async () => {
     await tapHit(host, 'room', 'r1'); await host.locator('#sheet .chip', { hasText: 'Robe' }).click();

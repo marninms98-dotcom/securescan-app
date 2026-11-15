@@ -28,7 +28,25 @@ enum PhotoCapture {
         let preview = FrameEncoder.jpeg(from: image, maxLongEdge: 1280, quality: 0.7)
         let fullData = FrameEncoder.jpeg(from: full ?? image, maxLongEdge: 100_000, quality: 0.85)
         let thumb = FrameEncoder.jpeg(from: image, maxLongEdge: 240, quality: 0.8).flatMap { UIImage(data: $0) }
-        return CapturedPhoto(preview: preview, full: fullData, thumb: thumb)
+        let card = FrameEncoder.jpeg(from: image, maxLongEdge: 640, quality: 0.8).flatMap { UIImage(data: $0) }
+        return CapturedPhoto(preview: preview, full: fullData, thumb: thumb, card: card)
+    }
+
+    /// A finished JPEG (the 0.5x camera): kept as the full-resolution file; preview, card and
+    /// thumbnail scaled from it, upright.
+    static func encode(jpeg data: Data) -> CapturedPhoto? {
+        guard let img = UIImage(data: data) else { return nil }
+        func scaled(_ longEdge: CGFloat, _ q: CGFloat) -> Data? {
+            let s = img.size
+            let k = min(1, longEdge / max(s.width, s.height))
+            let size = CGSize(width: (s.width * k).rounded(), height: (s.height * k).rounded())
+            let fmt = UIGraphicsImageRendererFormat.default()
+            fmt.scale = 1
+            return UIGraphicsImageRenderer(size: size, format: fmt).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }
+                .jpegData(compressionQuality: q)
+        }
+        return CapturedPhoto(preview: scaled(1280, 0.7), full: data, thumb: scaled(240, 0.8).flatMap { UIImage(data: $0) },
+                             card: scaled(640, 0.8).flatMap { UIImage(data: $0) })
     }
 
     /// The photo task for a tap: starts the high-resolution capture now.
