@@ -43,8 +43,12 @@ enum OverlayLayout {
 
         /// Everything that must not overlap anything else.
         var solids: [(String, CGRect)] {
-            pins.map { ("pin:" + $0.key, $0.value.bounds) } + glyphs.map { ("glyph:" + $0.key, $0.value) }
-                + labels.map { ("label:" + $0.key, $0.value) } + [("reticle-ring", reticle)]
+            var out: [(String, CGRect)] = []
+            for (k, p) in pins { out.append(("pin:" + k, p.bounds)) }
+            for (k, g) in glyphs { out.append(("glyph:" + k, g)) }
+            for (k, l) in labels { out.append(("label:" + k, l)) }
+            out.append(("reticle-ring", reticle))
+            return out
         }
 
         /// Pairs that overlap (empty = a clean layout). Arrows are only checked against labels.
