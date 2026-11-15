@@ -63,7 +63,7 @@ struct RawItemEditSheet: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack {
                                 ForEach(LogSheet<ScanModel>.materials, id: \.self) { m in
-                                    Chip(title: LogSheet<ScanModel>.materialTitle(m), selected: material == m) { material = m }
+                                    LegacyChip(title: LogSheet<ScanModel>.materialTitle(m), selected: material == m) { material = m }
                                 }
                             }
                         }

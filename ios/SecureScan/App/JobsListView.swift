@@ -159,10 +159,9 @@ struct JobsListView: View {
     private var dock: some View {
         Group {
             if lidarSupported {
-                PrimaryButton(title: "New job", systemImage: "plus") { showNewJob = true }
+                PrimaryButton("New job", icon: "plus") { showNewJob = true }
             } else {
-                PrimaryButton(title: creatingDemo ? "Making demo job…" : "Try a demo job", systemImage: "sparkles",
-                              enabled: !creatingDemo) { createDemo() }
+                PrimaryButton(creatingDemo ? "Making demo job…" : "Try a demo job", icon: "sparkles") { createDemo() }
             }
         }
         .padding(.horizontal, 16)

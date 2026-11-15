@@ -303,7 +303,7 @@ extension JobViewModel {
         case scope(done: Int, total: Int)
         case continueOnSite
         case nextVisit(Int)
-        case none
+        case documentsOnly
     }
 
     var dockAction: DockAction {
@@ -315,7 +315,7 @@ extension JobViewModel {
             return Calendar.current.isDateInToday(started) && n == 1 ? .continueOnSite : .nextVisit(n + 1)
         }
         if scope { return .scope(done: scopeDone, total: scopeTotal) }
-        return .none
+        return .documentsOnly
     }
 }
 
@@ -430,8 +430,10 @@ struct JobView: View {
     private var dock: some View {
         HStack(spacing: 12) {
             primary
-            IconButton(systemImage: "doc.text", label: "Documents") { showDocuments = true }
-                .disabled(!vm.hasPlan || vm.makingDocument)
+            if vm.dockAction != .documentsOnly {
+                IconButton("doc.text", label: "Documents") { showDocuments = true }
+                    .disabled(!vm.hasPlan || vm.makingDocument)
+            }
             MicButton(recorder: recorder, folder: vm.folder, transcribing: vm.voiceStatus != nil) { vm.toggleRecordNote() }
         }
         .padding(.horizontal, 16)
@@ -448,13 +450,13 @@ struct JobView: View {
     private var primary: some View {
         switch vm.dockAction {
         case .scope(let done, let total):
-            PrimaryButton(title: "See scope on site · \(done) of \(total)", systemImage: "arkit") { vm.openScope() }
+            PrimaryButton("See scope on site · \(done) of \(total)", icon: "arkit") { vm.openScope() }
         case .continueOnSite:
-            PrimaryButton(title: "Continue on site", systemImage: "viewfinder") { vm.openReturnVisit() }
+            PrimaryButton("Continue on site", icon: "viewfinder") { vm.openReturnVisit() }
         case .nextVisit(let n):
-            PrimaryButton(title: "Start visit \(n)", systemImage: "viewfinder") { vm.openReturnVisit() }
-        case .none:
-            PrimaryButton(title: "Continue on site", systemImage: "viewfinder", enabled: false) {}
+            PrimaryButton("Start visit \(n)", icon: "viewfinder") { vm.openReturnVisit() }
+        case .documentsOnly:
+            PrimaryButton("Documents", icon: "doc.text") { showDocuments = true }
         }
     }
 
@@ -518,14 +520,18 @@ struct MicButton: View {
                 .contentShape(Capsule())
             } else if transcribing {
                 ProgressView()
-                    .frame(width: 44, height: 44)
-                    .background(.regularMaterial, in: Circle())
-                    .overlay(Circle().strokeBorder(.primary.opacity(0.08), lineWidth: 1))
+                    .frame(width: DS.Size.icon, height: DS.Size.icon)
+                    .background(Circle().fill(Color(.tertiarySystemFill)))
             } else {
-                IconButtonLabel(systemImage: "mic")
+                Image(systemName: "mic")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color(.label))
+                    .frame(width: DS.Size.icon, height: DS.Size.icon)
+                    .background(Circle().fill(Color(.tertiarySystemFill)))
+                    .contentShape(Circle())
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DSPressStyle())
         .disabled(recorder.isRecording && !recorder.isRecordingJob(folder))
         .accessibilityLabel(recorder.isRecordingJob(folder) ? "Stop recording voice note" : "Record voice note")
     }

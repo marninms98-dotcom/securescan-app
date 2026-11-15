@@ -81,7 +81,7 @@ struct NewJobFlow: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: onCancel) }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                PrimaryButton(title: "Start", systemImage: "viewfinder") {
+                PrimaryButton("Start", icon: "viewfinder") {
                     live = UserDefaults.standard.bool(forKey: "markWhileScanning")
                     start()
                 }

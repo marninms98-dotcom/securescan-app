@@ -631,12 +631,11 @@ struct ModelTab: View {
                 }
                 Spacer()
                 VStack(spacing: 12) {
-                    IconButton(systemImage: model.showMarkers ? "mappin.and.ellipse" : "mappin.slash",
-                               label: model.showMarkers ? "Hide markers" : "Show markers",
-                               tint: model.showMarkers ? DS.Color.accent : .primary) { model.showMarkers.toggle() }
-                    IconButton(systemImage: "camera", label: "Save image") { model.snapshotAndShare() }
+                    IconButton("mappin.and.ellipse", label: model.showMarkers ? "Hide markers" : "Show markers",
+                               tint: model.showMarkers ? DS.Color.accent : nil) { model.showMarkers.toggle() }
+                    IconButton("camera", label: "Save image") { model.snapshotAndShare() }
                     if vm.hasModel {
-                        IconButton(systemImage: "arkit", label: "Open in AR Quick Look") { Presenter.quickLook(vm.folder.modelURL) }
+                        IconButton("arkit", label: "Open in AR Quick Look") { Presenter.quickLook(vm.folder.modelURL) }
                     }
                 }
             }

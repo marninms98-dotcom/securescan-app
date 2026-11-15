@@ -84,7 +84,7 @@ struct MarkupControls: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(items.indices, id: \.self) { i in
-                    Chip(title: items[i].1, selected: selected == items[i].0) { pick(items[i].0) }
+                    LegacyChip(title: items[i].1, selected: selected == items[i].0) { pick(items[i].0) }
                 }
             }
         }
@@ -238,7 +238,7 @@ struct MarkerEditSheet: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack {
                                 ForEach(LogSheet<RevisitModel>.materials, id: \.self) { m in
-                                    Chip(title: LogSheet<RevisitModel>.materialTitle(m), selected: material == m) { material = m }
+                                    LegacyChip(title: LogSheet<RevisitModel>.materialTitle(m), selected: material == m) { material = m }
                                 }
                             }
                         }

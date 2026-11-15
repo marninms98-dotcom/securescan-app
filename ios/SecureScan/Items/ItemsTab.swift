@@ -105,8 +105,8 @@ struct ItemsTab: View {
             HStack(spacing: 8) {
                 ForEach(CapturedItem.Filter.allCases) { f in
                     let n = f == .all ? model.snapshot.items.count : model.snapshot.items.filter { $0.matches(f) }.count
-                    ChipButton(title: n > 0 && f != .all ? "\(f.rawValue) \(n)" : f.rawValue, selected: filter == f) {
-                        withAnimation(.spring(duration: 0.22)) { filter = f }
+                    Chip(n > 0 && f != .all ? "\(f.rawValue) \(n)" : f.rawValue, selected: filter == f) {
+                        withAnimation(DS.Motion.tray) { filter = f }
                     }
                 }
             }
@@ -177,10 +177,10 @@ struct ItemsTab: View {
             HStack {
                 Spacer()
                 if model.snapshot.fixesFromInterruptedScan {
-                    SecondaryButton(title: vm.busy ? "Placing…" : "Place them on the plan", systemImage: "wand.and.stars") { vm.regenerate() }
+                    SecondaryButton(vm.busy ? "Placing…" : "Place them on the plan", icon: "wand.and.stars") { vm.regenerate() }
                         .disabled(vm.busy)
                 } else {
-                    SecondaryButton(title: "Draw on the plan", systemImage: "pencil.and.outline") { vm.requestedTab = 0 }
+                    SecondaryButton("Draw on the plan", icon: "pencil.and.outline") { vm.requestedTab = 0 }
                 }
                 Spacer()
             }
@@ -361,7 +361,7 @@ struct ItemEditSheet: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(Self.materials, id: \.self) { m in
-                                    ChipButton(title: m == "cabinetry" ? "Cabinet" : m.capitalized, selected: material == m) { material = m }
+                                    Chip(m == "cabinetry" ? "Cabinet" : m.capitalized, selected: material == m) { material = m }
                                 }
                             }
                             .padding(.vertical, 4)

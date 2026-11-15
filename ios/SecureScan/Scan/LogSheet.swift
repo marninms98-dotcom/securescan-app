@@ -179,7 +179,7 @@ struct LogSheet<Model: LogSheetModel>: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
                     ForEach(Self.materials, id: \.self) { m in
-                        Chip(title: Self.materialTitle(m), selected: material == m) { material = m }
+                        LegacyChip(title: Self.materialTitle(m), selected: material == m) { material = m }
                     }
                 }
             }
@@ -240,7 +240,7 @@ struct LogSheet<Model: LogSheetModel>: View {
         VStack(spacing: 14) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
                 ForEach(PlanDocument.equipmentTypes.map { $0.key }, id: \.self) { key in
-                    Chip(title: PlanDocument.equipmentName(key), selected: equipmentType == key) { equipmentType = key }
+                    LegacyChip(title: PlanDocument.equipmentName(key), selected: equipmentType == key) { equipmentType = key }
                 }
             }
             TextField("Label or asset no. (optional)", text: $equipmentLabel)
@@ -261,7 +261,7 @@ struct LogSheet<Model: LogSheetModel>: View {
         VStack(spacing: 14) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
                 ForEach(RemovalItems.all.map { $0.key }, id: \.self) { key in
-                    Chip(title: RemovalItems.name(key), selected: removalItem == key) { removalItem = key }
+                    LegacyChip(title: RemovalItems.name(key), selected: removalItem == key) { removalItem = key }
                 }
             }
             if removalItem == "flooring" {
@@ -273,7 +273,7 @@ struct LogSheet<Model: LogSheetModel>: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
                             ForEach(RemovalItems.floorTypes, id: \.self) { t in
-                                Chip(title: t.capitalized, selected: false) {
+                                LegacyChip(title: t.capitalized, selected: false) {
                                     model.saveLog(kind: "floorType", value: nil, material: t, reference: false, note: "")
                                 }
                             }
@@ -340,7 +340,7 @@ struct RemovalDetailsSheet: View {
             Text("Remove").font(.title2.bold())
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8)], alignment: .leading, spacing: 8) {
                 ForEach(RemovalItems.all.map { $0.key }.filter { $0 != "flooring" }, id: \.self) { key in
-                    Chip(title: RemovalItems.name(key), selected: item == key) {
+                    LegacyChip(title: RemovalItems.name(key), selected: item == key) {
                         item = key
                         mm = RemovalItems.defaultMm(key)
                     }
@@ -349,10 +349,10 @@ struct RemovalDetailsSheet: View {
             Text("Height").font(.headline)
             HStack {
                 ForEach(RemovalItems.heights.map { $0.mm }, id: \.self) { h in
-                    Chip(title: RemovalItems.heights.first { $0.mm == h }?.label ?? "\(h)", selected: mm == h) { mm = h }
+                    LegacyChip(title: RemovalItems.heights.first { $0.mm == h }?.label ?? "\(h)", selected: mm == h) { mm = h }
                 }
                 if !RemovalItems.heights.contains(where: { $0.mm == mm }) {
-                    Chip(title: "\(mm)", selected: true) {}
+                    LegacyChip(title: "\(mm)", selected: true) {}
                 }
             }
             TextField("Note (optional)", text: $note).textFieldStyle(.roundedBorder)
@@ -386,7 +386,7 @@ struct FloorDetailsSheet: View {
             Text("Remove flooring").font(.title2.bold())
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 8)], alignment: .leading, spacing: 8) {
                 ForEach(RemovalItems.floorTypes, id: \.self) { t in
-                    Chip(title: t.capitalized, selected: type == t) { type = t }
+                    LegacyChip(title: t.capitalized, selected: type == t) { type = t }
                 }
             }
             Toggle("Underlay too", isOn: $underlay).font(.headline)
@@ -402,7 +402,7 @@ struct FloorDetailsSheet: View {
     }
 }
 
-struct Chip: View {
+struct LegacyChip: View {
     let title: String
     let selected: Bool
     let action: () -> Void
@@ -427,7 +427,7 @@ struct FlowChips: View {
         let rows = stride(from: 0, to: items.count, by: 3).map { Array(items[$0..<min($0 + 3, items.count)]) }
         VStack(alignment: .leading, spacing: 8) {
             ForEach(rows, id: \.self) { row in
-                HStack { ForEach(row, id: \.self) { i in Chip(title: i, selected: false) { onTap(i) } } }
+                HStack { ForEach(row, id: \.self) { i in LegacyChip(title: i, selected: false) { onTap(i) } } }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
