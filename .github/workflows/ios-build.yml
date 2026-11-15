@@ -155,23 +155,41 @@ jobs:
           OUT=../ci-screenshots
           rm -rf "$OUT" && mkdir -p "$OUT"
           shot() { sleep "$2"; xcrun simctl io "$UDID" screenshot "$OUT/$1.png"; xcrun simctl terminate "$UDID" "$BID" || true; sleep 2; }
-          xcrun simctl launch "$UDID" "$BID";                                                                   shot 01-first-launch 10
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=0 xcrun simctl launch "$UDID" "$BID";      shot 02-demo-plan 18
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=1 xcrun simctl launch "$UDID" "$BID";      shot 03-demo-3d 16
+          # UX2 Studio: the real capture HUD + overlay over a synthetic room, one scene per launch.
+          for SCENE in aim-wall aim-wall-bright aim-skirting aim-nothing reading-tray reading-saved line-progress \
+                       line-tray-skirting lining-band-done area-progress area-tray photo-taken photo-preview-card photo-viewer \
+                       photo-zoom-toggle review-drawer equipment-place equipment-airflow source-tray room-name-tray scan-coaching \
+                       visit-remeasure scope-on-site needs-fix; do
+            SIMCTL_CHILD_SECURESCAN_STUDIO=$SCENE xcrun simctl launch "$UDID" "$BID"; shot "studio-$SCENE" 6
+          done
+          # App shell (docs/UX2.md "The rest of the app"). SECURESCAN_LIDAR=1 (Debug builds) shows
+          # what a LiDAR iPhone shows; SECURESCAN_SEED=jobs adds demo jobs in four states.
+          L="SIMCTL_CHILD_SECURESCAN_LIDAR=1"
+          env $L xcrun simctl launch "$UDID" "$BID";                                                            shot app-jobs-empty 10
+          env $L SIMCTL_CHILD_SECURESCAN_SEED=jobs xcrun simctl launch "$UDID" "$BID";                          shot app-jobs-list 45
+          env $L SIMCTL_CHILD_SECURESCAN_PREVIEW=newjob xcrun simctl launch "$UDID" "$BID";                     shot app-new-job 10
+          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=plan xcrun simctl launch "$UDID" "$BID";   shot app-job-plan 18
+          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=3d xcrun simctl launch "$UDID" "$BID";     shot app-job-3d 16
+          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=items xcrun simctl launch "$UDID" "$BID";  shot app-job-items 14
+          SIMCTL_CHILD_SECURESCAN_SEED=jobs SIMCTL_CHILD_SECURESCAN_OPEN_REF=CLM-20417 SIMCTL_CHILD_SECURESCAN_TAB=items xcrun simctl launch "$UDID" "$BID"; shot app-job-items-needs-fix 16
+          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=files xcrun simctl launch "$UDID" "$BID";  shot app-job-files 12
+          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=documents xcrun simctl launch "$UDID" "$BID"; shot app-job-documents-menu 18
+          env $L SIMCTL_CHILD_SECURESCAN_PREVIEW=settings xcrun simctl launch "$UDID" "$BID";                   shot app-settings 10
+          # A two-visit job: Documents adds the Monitoring report.
+          SIMCTL_CHILD_SECURESCAN_SEED=jobs SIMCTL_CHILD_SECURESCAN_OPEN_REF=QBE-7731902 SIMCTL_CHILD_SECURESCAN_PREVIEW=documents xcrun simctl launch "$UDID" "$BID"; shot app-job-documents-menu-visits 20
+          # Dynamic Type at XXL for the list screens.
+          xcrun simctl ui "$UDID" content_size extra-extra-large || true
+          env $L xcrun simctl launch "$UDID" "$BID";                                                            shot app-jobs-list-xl 12
+          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=items xcrun simctl launch "$UDID" "$BID";  shot app-job-items-xl 14
+          xcrun simctl ui "$UDID" content_size large || true
           # Same 3D view from the side, square-on to the wall with the moisture line.
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=1 SIMCTL_CHILD_SECURESCAN_3D_AZIMUTH=100 xcrun simctl launch "$UDID" "$BID"; shot 06-demo-3d-side 16
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=2 xcrun simctl launch "$UDID" "$BID";      shot 04-demo-files 10
-          xcrun simctl launch "$UDID" "$BID";                                                                   shot 05-jobs-list 10
           # The hosted editor's other views (switched through its public SecureScan.setView hook).
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EDITOR_VIEW=walls xcrun simctl launch "$UDID" "$BID";  shot 07-editor-walls 18
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EDITOR_VIEW=notes xcrun simctl launch "$UDID" "$BID";  shot 08-editor-notes 18
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EDITOR_VIEW=report xcrun simctl launch "$UDID" "$BID"; shot 09-editor-report 20
-          # Scan screen chrome without a camera (removal bar), the six-type Log sheet, and the Return visit entry.
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=scan-removal xcrun simctl launch "$UDID" "$BID"; shot 11-scan-removal-bar 12
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=scan-log xcrun simctl launch "$UDID" "$BID";     shot 12-log-sheet 12
+          # The Return visit entry (the capture screens themselves are the studio-* shots above).
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=revisit xcrun simctl launch "$UDID" "$BID";      shot 13-revisit-entry 14
-          # The card after each room: Mark up this room / Scan next room / Finish.
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=scan-choice xcrun simctl launch "$UDID" "$BID";  shot 14-scan-choice 12
           # The assessment report PDF, made by the same code as Export, plus report-check.txt.
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_EXPORT_REPORT=1 xcrun simctl launch "$UDID" "$BID"
           DATA=$(xcrun simctl get_app_container "$UDID" "$BID" data)
@@ -203,14 +221,6 @@ jobs:
           cat "$OUT/report-check-scope.txt"
           xcrun simctl terminate "$UDID" "$BID" || true
           sleep 2
-          # Settings (Show prices, Mark while scanning), the job screen with "See scope on site",
-          # and New scan with "Scan and mark together (new)". The AR screens themselves (live scan,
-          # mark-up, see scope) need a camera and LiDAR, so they cannot run on the simulator.
-          SIMCTL_CHILD_SECURESCAN_PREVIEW=settings xcrun simctl launch "$UDID" "$BID";                           shot 17-settings 10
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=1 xcrun simctl launch "$UDID" "$BID";       shot 18-job-see-scope 16
-          SIMCTL_CHILD_SECURESCAN_PREVIEW=newscan xcrun simctl launch "$UDID" "$BID";                            shot 19-new-scan 10
-          # The job screen's document actions, with Quote tapped (Files tab first, so the editor loads on demand).
-          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=2 SIMCTL_CHILD_SECURESCAN_DOCUMENT=quote xcrun simctl launch "$UDID" "$BID"; shot 15-job-documents 20
           # Stress: a separate demo job with ~26 photos (a long report) through the same path.
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_DEMO_VARIANT=stress SIMCTL_CHILD_SECURESCAN_EXPORT_REPORT=1 xcrun simctl launch "$UDID" "$BID"
           for i in $(seq 1 80); do [ -f "$DATA/Documents/report-check-stress/report-check.txt" ] && break; sleep 3; done

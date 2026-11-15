@@ -2,8 +2,8 @@
 //  JobsListView.swift
 //  SecureScan
 //
-//  Home screen: saved jobs, search, swipe-delete (with confirm), New scan,
-//  Create demo job.
+//  Home: "Jobs" with one card per job (plan thumbnail, address, size,
+//  status, last visit), search, the docked "New job" button and Settings.
 //
 
 import SwiftUI
@@ -11,6 +11,7 @@ import RoomPlan
 
 struct JobsListView: View {
     @ObservedObject private var store = JobStore.shared
+    @StateObject private var summaries = JobSummaries()
     @State private var path: [UUID] = []
     @State private var search = ""
     @State private var showNewJob = false
@@ -19,10 +20,17 @@ struct JobsListView: View {
     @State private var deleteCandidate: JobMeta?
     @State private var errorText: String?
     @State private var didAutoOpen = false
+    @State private var creatingDemo = false
     /// Simulator screenshots of the scan screen (no camera).
     @State private var previewScanJob: JobMeta?
 
-    private let lidarSupported = RoomCaptureSession.isSupported
+    static var lidarSupported: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SECURESCAN_LIDAR"] == "1" { return true }
+        #endif
+        return RoomCaptureSession.isSupported
+    }
+    private let lidarSupported = JobsListView.lidarSupported
 
     private var filtered: [JobMeta] {
         let q = search.trimmingCharacters(in: .whitespaces)
@@ -36,65 +44,41 @@ struct JobsListView: View {
                 if store.jobs.isEmpty {
                     emptyState
                 } else {
-                    List {
-                        if !lidarSupported { unsupportedBanner }
-                        ForEach(filtered) { job in
-                            NavigationLink(value: job.id) { JobRow(job: job) }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button(role: .destructive) { deleteCandidate = job } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .searchable(text: $search, prompt: "Search address")
+                    list
                 }
             }
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Jobs")
+            .navigationBarTitleDisplayMode(.large)
             .navigationDestination(for: UUID.self) { id in JobView(jobID: id) }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button { createDemo() } label: { Label("Create demo job", systemImage: "wand.and.stars") }
-                        Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                    Button { showSettings = true } label: {
+                        Image(systemName: "gearshape")
                     }
+                    .accessibilityLabel("Settings")
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                if lidarSupported {
-                    Button { showNewJob = true } label: {
-                        Label("New scan", systemImage: "viewfinder")
-                            .font(.title2.bold())
-                            .frame(maxWidth: .infinity, minHeight: 64)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .padding()
-                    .background(.bar)
-                }
-            }
-            .onAppear {
-                store.reload()
-                openDemoIfRequested()
-                // Simulator screenshots only.
-                let pv = ProcessInfo.processInfo.environment["SECURESCAN_PREVIEW"]
-                if pv == "settings" { showSettings = true }
-                if pv == "newscan" { showNewJob = true }
-            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { dock }
+            .onAppear(perform: appeared)
+            .onChange(of: store.jobs) { _, jobs in summaries.refresh(jobs) }
             .alert("Delete this job?", isPresented: Binding(get: { deleteCandidate != nil }, set: { if !$0 { deleteCandidate = nil } }),
                    presenting: deleteCandidate) { job in
                 Button("Delete", role: .destructive) { store.delete(job.id); deleteCandidate = nil }
                 Button("Cancel", role: .cancel) { deleteCandidate = nil }
-            } message: { job in
-                Text("\(job.displayAddress) — the plan, 3D model, readings and photos will be removed from this iPhone.")
+            } message: { _ in
+                Text("Its plan, photos and readings are removed from this iPhone.")
             }
-            .alert("Problem", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
+            .alert("Something went wrong", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
                 Button("OK") { errorText = nil }
             } message: { Text(errorText ?? "") }
         }
-        .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(onAddDemo: {
+                showSettings = false
+                createDemo()
+            })
+        }
         .fullScreenCover(item: $previewScanJob) { job in
             ScanView(job: job, preview: true, onFinished: { _ in previewScanJob = nil }, onDiscarded: { previewScanJob = nil })
         }
@@ -109,49 +93,160 @@ struct JobsListView: View {
         }
     }
 
+    // MARK: List
+
+    private var list: some View {
+        List {
+            Section { searchField }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            ForEach(filtered) { job in
+                Section {
+                    NavigationLink(value: job.id) {
+                        JobCard(job: job, summary: summaries.byID[job.id])
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) { deleteCandidate = job } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) { deleteCandidate = job } label: {
+                            Label("Delete job", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            if filtered.isEmpty {
+                Section {
+                    Text("No job matches “\(search)”.")
+                        .font(DS.Font.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            if !lidarSupported {
+                Section {
+                } footer: {
+                    Text("This iPhone has no LiDAR, so it opens jobs but can't scan.")
+                        .font(DS.Font.caption)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .listSectionSpacing(12)
+        .contentMargins(.top, 4, for: .scrollContent)
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    /// In the list (iOS 26 would put a system search bar at the bottom, under New job).
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search address or claim", text: $search)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !search.isEmpty {
+                Button { search = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .font(DS.Font.body)
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No jobs yet", systemImage: "house")
-        } description: {
-            Text(lidarSupported
-                 ? "Tap New scan, walk each room with the phone, and log moisture readings as you go."
-                 : "This device can't run a LiDAR room scan (it needs an iPhone or iPad Pro with LiDAR). You can still try the app with a demo job.")
-        } actions: {
-            Button("Create demo job") { createDemo() }
-                .buttonStyle(.bordered)
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "house")
+                .font(.system(size: 40, weight: .regular))
+                .foregroundStyle(.tertiary)
+            Text("No jobs yet")
+                .font(DS.Font.headline)
+            Text(lidarSupported ? "Start one when you're on site." : "This iPhone has no LiDAR, so it can't scan.")
+                .font(DS.Font.callout)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
+    }
+
+    private var dock: some View {
+        Group {
+            if lidarSupported {
+                PrimaryButton("New job", icon: "plus") { showNewJob = true }
+            } else {
+                PrimaryButton(creatingDemo ? "Making demo job…" : "Try a demo job", icon: "sparkles") { createDemo() }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background {
+            LinearGradient(colors: [Color(.systemGroupedBackground).opacity(0), Color(.systemGroupedBackground)],
+                           startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.35))
+                .ignoresSafeArea(edges: .bottom)
         }
     }
 
-    private var unsupportedBanner: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Scanning needs a LiDAR iPhone", systemImage: "exclamationmark.triangle")
-                .font(.headline)
-            Text("This device can open saved jobs but can't scan. Use a demo job to try the plan, 3D and files screens.")
-                .font(.callout).foregroundStyle(.secondary)
-            Button("Create demo job") { createDemo() }
+    // MARK: Launch hooks
+
+    private func appeared() {
+        store.reload()
+        summaries.refresh(store.jobs)
+        #if DEBUG
+        if DemoSeed.requested {
+            Task {
+                do { try await Task.detached(priority: .userInitiated) { try DemoSeed.seedIfNeeded() }.value }
+                catch { errorText = "Couldn't make the demo jobs: \(error.localizedDescription)" }
+                store.reload()
+                summaries.refresh(store.jobs)
+                if let ref = DemoSeed.openRef, let job = store.jobs.first(where: { $0.jobRef == ref }) { path.append(job.id) }
+            }
+            return
         }
-        .padding(.vertical, 6)
+        #endif
+        openDemoIfRequested()
+        // Simulator screenshots only.
+        let pv = ProcessInfo.processInfo.environment["SECURESCAN_PREVIEW"]
+        if pv == "settings" { showSettings = true }
+        if pv == "newscan" || pv == "newjob" { showNewJob = true }
     }
 
     /// Automated screenshots only: launching with SECURESCAN_DEMO=1 opens the
-    /// first job, creating the demo job when there is none.
+    /// demo job, creating it when there is none.
     private func openDemoIfRequested() {
         guard !didAutoOpen, ProcessInfo.processInfo.environment["SECURESCAN_DEMO"] == "1" else { return }
         didAutoOpen = true
-        if (ProcessInfo.processInfo.environment["SECURESCAN_PREVIEW"] ?? "").hasPrefix("scan"),
-           let demo = store.jobs.first(where: { $0.demo == true && $0.jobRef != "STRESS" }) {
+        let demo = store.jobs.first(where: { $0.jobRef == "DEMO" })
+            ?? store.jobs.first(where: { $0.demo == true && $0.jobRef != "STRESS" })
+        if (ProcessInfo.processInfo.environment["SECURESCAN_PREVIEW"] ?? "").hasPrefix("scan"), let demo {
             previewScanJob = demo
         } else if ProcessInfo.processInfo.environment["SECURESCAN_DEMO_VARIANT"] == "stress" {
             createDemo(stress: true)
-        } else if let first = store.jobs.first(where: { $0.jobRef != "STRESS" }) {
-            path.append(first.id)
+        } else if let demo {
+            path.append(demo.id)
         } else {
             createDemo()
         }
     }
 
     private func createDemo(stress: Bool = false) {
+        guard !creatingDemo else { return }
+        creatingDemo = true
         Task {
+            defer { creatingDemo = false }
             do {
                 let meta = try await Task.detached(priority: .userInitiated) { try JobProcessor.createDemoJob(stress: stress) }.value
                 store.reload()
@@ -163,38 +258,101 @@ struct JobsListView: View {
     }
 }
 
-struct JobRow: View {
+/// One job in the list.
+struct JobCard: View {
     let job: JobMeta
-    var body: some View {
-        HStack(spacing: 12) {
-            Group {
-                if let img = UIImage(contentsOfFile: JobFiles.folder(for: job.id).thumbURL.path) {
-                    Image(uiImage: img).resizable().scaledToFit()
-                } else {
-                    Image(systemName: "square.dashed").font(.title).foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 64, height: 64)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+    let summary: JobSummary?
 
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            thumbnail
             VStack(alignment: .leading, spacing: 4) {
-                Text(job.displayAddress).font(.headline).lineLimit(2)
-                Text(job.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Text(summary).font(.caption).foregroundStyle(.secondary)
+                Text(job.displayAddress)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Text(facts)
+                    .font(DS.Font.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .monospacedDigit()
+                ViewThatFits(in: .horizontal) {
+                    statusLine(withRef: true)
+                    statusLine(withRef: false)
+                }
+                .padding(.top, 2)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 
-    private var summary: String {
+    private var thumbnail: some View {
+        ZStack {
+            Color.white
+            if let img = UIImage(contentsOfFile: JobFiles.folder(for: job.id).thumbURL.path) {
+                Image(uiImage: img).resizable().scaledToFit().padding(5)
+            } else {
+                Image(systemName: "square.dashed").font(.system(size: 22)).foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: 64, height: 64)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
+    }
+
+    private var facts: String {
+        if job.roomCount == 0 && !JobFiles.folder(for: job.id).hasPlan { return "Not scanned yet" }
         var parts: [String] = []
         parts.append(job.roomCount == 1 ? "1 room" : "\(job.roomCount) rooms")
-        if job.totalArea > 0 { parts.append(String(format: "%.1f m²", job.totalArea)) }
-        if job.readingCount > 0 { parts.append("\(job.readingCount) readings") }
-        if !job.jobRef.isEmpty { parts.append(job.jobRef) }
-        if job.demo == true { parts.append("demo") }
+        if job.totalArea > 0 { parts.append(String(format: "%.0f m²", job.totalArea)) }
+        parts.append(job.readingCount == 1 ? "1 reading" : "\(job.readingCount) readings")
         return parts.joined(separator: " · ")
+    }
+
+    private func statusLine(withRef: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let summary { StatusBadge(status: summary.status) }
+            if let n = summary?.toFix, n > 0 {
+                StatusBadge(title: "\(n) to fix", color: DS.Color.damp)
+            }
+            Text(dateLine(withRef: withRef))
+                .font(DS.Font.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    private func dateLine(withRef: Bool) -> String {
+        var s = JobCard.day(summary?.lastVisit ?? job.createdAt)
+        if withRef && !job.jobRef.isEmpty && job.jobRef != "DEMO" { s += " · " + job.jobRef }
+        return s
+    }
+
+    static func day(_ d: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return "Today" }
+        if cal.isDateInYesterday(d) { return "Yesterday" }
+        return d.formatted(.dateTime.day().month(.abbreviated))
+    }
+}
+
+/// The job's state, as a small tinted capsule.
+struct StatusBadge: View {
+    let title: String
+    let color: Color
+
+    init(status: JobStatus) { title = status.title; color = status.color }
+    init(title: String, color: Color) { self.title = title; self.color = color }
+
+    var body: some View {
+        Text(title)
+            .font(DS.Font.captionBold)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(color.opacity(0.12), in: Capsule())
     }
 }

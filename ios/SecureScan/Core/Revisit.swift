@@ -107,6 +107,29 @@ enum Revisit {
         return doc
     }
 
+    /// Undo of a re-measure: this visit's entry removed; the top level mirrors
+    /// the latest remaining entry again. Nil if there was nothing to undo.
+    static func undoMeasurement(plan: [String: Any], readingId: String, visit: String) -> [String: Any]? {
+        var doc = plan
+        var markup = plan["markup"] as? [String: Any] ?? [:]
+        var readings = markup["readings"] as? [[String: Any]] ?? []
+        guard let i = readings.firstIndex(where: { ($0["id"] as? String) == readingId }) else { return nil }
+        var r = readings[i]
+        var h = history(r)
+        guard let j = h.firstIndex(where: { ($0["visit"] as? String) == visit }), h.count > 1 else { return nil }
+        h.remove(at: j)
+        r["history"] = h
+        if let last = h.last {
+            r["value"] = last["value"]
+            if let t = last["takenAt"] { r["takenAt"] = t }
+            if let p = last["photo"] { r["photo"] = p }
+        }
+        readings[i] = r
+        markup["readings"] = readings
+        doc["markup"] = markup
+        return doc
+    }
+
     static func sortedByVisit(_ h: [[String: Any]], visits: [[String: Any]]) -> [[String: Any]] {
         let order = Dictionary(visits.enumerated().compactMap { i, v in (v["id"] as? String).map { ($0, i) } },
                                uniquingKeysWith: { a, _ in a })
@@ -263,6 +286,8 @@ enum Revisit {
         var wallT: Double? = nil
         /// air movers: the airflow's plan angle
         var dir: Double? = nil
+        /// equipment: its type key (airMover, dehumidifier, ...)
+        var type: String? = nil
     }
 
     static func status(_ v: Double?, reference: Bool, damp: Double, wet: Double) -> String {
@@ -326,6 +351,7 @@ enum Revisit {
             let label = (e["label"] as? String) ?? ""
             var mk = Marker(id: id, kind: "equipment", label: label.isEmpty ? name : "\(name) · \(label)", pos: pos, height: 0.15)
             mk.dir = PlanDocument.number(e["dir"])
+            mk.type = (e["type"] as? String) ?? "other"
             out.append(mk)
         }
         for a in markup["affected"] as? [[String: Any]] ?? [] {

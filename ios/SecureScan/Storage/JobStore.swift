@@ -29,6 +29,9 @@ struct JobMeta: Codable, Identifiable, Hashable {
     var readingCount: Int
     var note: String?          // e.g. "3D model could not be built: ..."
     var demo: Bool?            // true for "Create demo job"
+    /// Ids of marks the plan could not place (they stay in readings-raw.json; needs-fix.json has
+    /// the plain sentence and the fix). Absent / empty = none. Read this, not the note's wording.
+    var unplaced: [String]? = nil
 
     var displayAddress: String { address.isEmpty ? "Untitled job" : address }
 }

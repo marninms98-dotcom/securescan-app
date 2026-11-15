@@ -47,6 +47,7 @@ button:disabled { opacity: .4; cursor: default; }
   width: max-content; text-align: center; pointer-events: none; transition: opacity .35s; }
 #hint.fade { opacity: 0; }
 #stage.has-chip #hint { top: 60px; }
+body.embedded #stage #hint { top: auto; bottom: 66px; }     /* embedded: above the action buttons, clear of the drawing's title */
 #visit-chip { position: absolute; left: 8px; top: 8px; min-height: 44px; max-width: calc(100% - 16px); padding: 0 14px 0 12px; border: 0; border-radius: 22px;
   background: rgba(21, 23, 28, .86); color: #fff; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #visit-chip .dot { width: 8px; height: 8px; border-radius: 4px; background: #5ec27f; flex: none; }
@@ -123,6 +124,43 @@ input[type=date] { font-family: inherit; font-size: 17px; width: 100%; min-heigh
   #btn-export .lbl { display: none; }
 }
 @media (min-width: 480px) { #btn-export svg { display: none; } }
+
+/* inside the app (setHostChrome embedded): the native bars hold back, title and documents; ours are one row each */
+body.embedded #topbar { height: 44px; padding: 0 8px; gap: 4px; }
+body.embedded #toolbar { height: 56px; padding: 0 4px; align-items: stretch; }
+body.embedded .tool { min-height: 0; height: 56px; }
+body.embedded #btn-done, body.embedded #btn-export, body.embedded #btn-open { display: none; }
+/* the light iOS look: grouped background, white controls, ink icons, one accent, hairlines */
+body.theme-light { --bar: #F2F2F7; --bar2: #fff; --stage: #F2F2F7; --accent: #1F6FEB; --hair: rgba(60, 60, 67, .29); }
+body.theme-light #topbar { background: rgba(249, 249, 251, .94); color: #000; border-bottom: .5px solid var(--hair); }
+body.theme-light #toolbar { background: rgba(249, 249, 251, .94); border-top: .5px solid var(--hair); }
+body.theme-light .tb-btn { background: transparent; color: #1c1c1e; font-size: 13px; font-weight: 600; border-radius: 10px; }
+body.theme-light .tb-btn:disabled { color: #c7c7cc; opacity: 1; }
+body.theme-light .tb-btn.primary { color: var(--accent); background: transparent; }
+body.theme-light .tb-btn svg { width: 21px; height: 21px; }
+body.theme-light .tb-label { color: #000; font-size: 15px; font-weight: 600; }
+body.theme-light .seg { height: 32px; align-self: center; padding: 2px; border-radius: 9px; background: rgba(118, 118, 128, .12); }
+body.theme-light .seg button { position: relative; height: 28px; min-width: 0; padding: 0 12px; border-radius: 7px; color: #1c1c1e; font-size: 13px; font-weight: 500; }
+body.theme-light .seg button::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; bottom: -8px; }     /* a 44 px touch target */
+body.theme-light .seg button.on { background: #fff; color: #000; font-weight: 600; box-shadow: 0 3px 8px rgba(0, 0, 0, .12), 0 3px 1px rgba(0, 0, 0, .04), 0 0 0 .5px rgba(0, 0, 0, .04); }
+body.theme-light .tool { color: #8e8e93; background: transparent; border-radius: 0; font-size: 11px; font-weight: 500; letter-spacing: .01em; gap: 3px; }
+body.theme-light .tool svg { width: 24px; height: 24px; }
+body.theme-light .tool.on { background: transparent; color: var(--accent); }
+body.theme-light .tool:disabled { opacity: .35; }
+body.theme-light .tool.wide { font-size: 15px; color: var(--accent); }
+body.theme-light #hint { background: rgba(255, 255, 255, .96); color: #1c1c1e; font-size: 13px; box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.08); }
+body.theme-light #actionbar button { font-size: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 4px 14px rgba(0,0,0,.1); }
+body.theme-light #actionbar button.on { background: var(--accent); }
+body.theme-light #reportview { background: #E5E5EA; }
+/* the visit, compact, in the top row */
+#visit-chip.inbar { position: static; height: 30px; min-height: 0; max-width: 132px; padding: 0 10px; border-radius: 15px; font-size: 13px; font-weight: 600; flex: 0 1 auto;
+  background: rgba(118, 118, 128, .12); color: #1c1c1e; gap: 6px; }
+#visit-chip.inbar { position: relative; left: auto; top: auto; overflow: visible; }
+#visit-chip.inbar::before { content: ""; position: absolute; left: 0; right: 0; top: -7px; bottom: -7px; }     /* a 44 px touch target */
+#visit-chip.inbar span:last-child { overflow: hidden; text-overflow: ellipsis; }
+#visit-chip.inbar .dot { width: 7px; height: 7px; }
+#visit-chip.inbar.past { background: #FFF3D6; color: #5c3d00; }
+body:not(.theme-light) #visit-chip.inbar { background: var(--bar2); color: #fff; }
 
 /* notes timeline */
 #notesview { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; background: var(--stage); }
@@ -3789,11 +3827,12 @@ function currentSheet() { return st.view === 'plan' ? st.plan : st.elev; }
 /* ---- camera: screen = sheet * s + t ---- */
 function fitView(focus) {
   const sh = currentSheet(); if (!sh) return;
-  const r = stage.getBoundingClientRect(), pad = 12, bottomPad = 60;
+  // the visit chip over the stage gets the margin above the sheet, so it never covers the drawing's title
+  const r = stage.getBoundingClientRect(), side = 12, pad = chipOverStage() ? 60 : 12, bottomPad = 60;
   const box = focus || { x: 0, y: 0, w: sh.W, h: sh.fitH || sh.H };
-  const s = Math.min((r.width - 2 * pad) / box.w, (r.height - pad - bottomPad) / box.h);
+  const s = Math.min((r.width - 2 * side) / box.w, (r.height - pad - bottomPad) / box.h);
   const free = Math.max(0, (r.height - pad - bottomPad - box.h * s) / 2);
-  st.cam[st.view] = { s, tx: (r.width - box.w * s) / 2 - box.x * s, ty: pad + (focus || box.h >= sh.H ? free : 0) - box.y * s, fit: Math.min(sh.W ? (r.width - 2 * pad) / sh.W : s, (r.height - pad - bottomPad) / sh.H, s) };
+  st.cam[st.view] = { s, tx: (r.width - box.w * s) / 2 - box.x * s, ty: pad + (focus || box.h >= sh.H ? free : 0) - box.y * s, fit: Math.min(sh.W ? (r.width - 2 * side) / sh.W : s, (r.height - pad - bottomPad) / sh.H, s) };
 }
 function applyCam() {
   const c = st.cam[st.view], r = stage.getBoundingClientRect();
@@ -3944,7 +3983,7 @@ function updateChrome() {
   const rv = v === 'report';
   $('toolbar').hidden = rv; $('view-seg').hidden = rv; $('btn-back').hidden = !rv; $('report-label').hidden = !rv; $('btn-details').hidden = !rv;
   $('btn-undo').hidden = rv; $('btn-layers').hidden = rv;
-  $('btn-done').hidden = rv || !HOST; $('btn-open').hidden = rv || !!HOST;
+  $('btn-done').hidden = rv || !HOST || hostChrome.embedded; $('btn-open').hidden = rv || !!HOST || hostChrome.embedded; $('btn-export').hidden = hostChrome.embedded;
   for (const b of document.querySelectorAll('#view-seg button')) { b.classList.toggle('on', b.dataset.view === v); b.setAttribute('aria-selected', b.dataset.view === v ? 'true' : 'false'); }
   $('btn-undo').disabled = !st.undo.length;
   const bar = $('actionbar');
@@ -4140,6 +4179,7 @@ function endPointer(e) {
   if (gesture.type === 'pinch') { if (pointers.size === 0) gesture = null; else gesture = { type: 'pinch-end' }; return; }
   if (pointers.size) return;
   const g = gesture; gesture = null;
+  lastStageUp = { x: e.clientX, y: e.clientY, t: performance.now() };
   if (e.type === 'pointercancel') {
     if ((g.type === 'move' && g.started) || g.type === 'lineAdd' || (g.type === 'lineMove' && g.started)) { restore(st.undo.pop()); st.linePreview = null; render(); }
     return;
@@ -4567,6 +4607,12 @@ function closeSheet(apply) {
   renderOverlay();
 }
 // the click synthesised from the tap that opened a sheet must not close it again
+/* A tap on the plan can open a sheet under the finger; the click the browser makes from that same touch must not
+   land on the sheet's controls. */
+let lastStageUp = { x: -1e4, y: -1e4, t: -1e4 };
+document.addEventListener('click', e => {
+  if (performance.now() - lastStageUp.t < 600 && sheetOpenedAt >= lastStageUp.t - 5 && Math.hypot(e.clientX - lastStageUp.x, e.clientY - lastStageUp.y) < 12 && e.target.closest('#sheet')) { e.stopPropagation(); e.preventDefault(); }
+}, true);
 $('backdrop').addEventListener('click', () => { if (performance.now() - sheetOpenedAt > 450) closeSheet(!sheetCancelOnBackdrop); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeSheet(true);
@@ -4842,15 +4888,39 @@ function openLayersSheet() {
    13b. Visits, re-measure flow, equipment
    ========================================================================= */
 const fmtDate = s => { const t = dayMs(s); return t != null ? fmtDay(t) : 'no date'; };
+/* How the editor sits in its host. embedded: inside the app, whose own bars carry back, title and documents (no Done,
+   no Export; one compact row top and bottom; the visit in the top row); theme 'light' (the app's iOS look) or
+   'dark' (the standalone default). */
+const hostChrome = { embedded: false, theme: 'dark' };
+function setHostChrome(o) {
+  if (o && typeof o === 'object') {
+    if (typeof o.embedded === 'boolean') hostChrome.embedded = o.embedded;
+    if (o.theme === 'light' || o.theme === 'dark') hostChrome.theme = o.theme;
+  }
+  document.body.classList.toggle('embedded', hostChrome.embedded);
+  document.body.classList.toggle('theme-light', hostChrome.theme === 'light');
+  if (st.doc) { st.cam = { plan: null, elev: null }; if (st.view === 'report') updateChrome(); else render(); }
+  return { ...hostChrome };
+}
+/* The visit chip sits over the stage (standalone) unless the editor is embedded (then it is in the top row). */
+const chipOverStage = () => !hostChrome.embedded && !!st.doc && (st.view === 'plan' || st.view === 'elev');
 function updateVisitChip() {
-  const chip = $('visit-chip');
+  const chip = $('visit-chip'), inbar = hostChrome.embedded;
   const show = !!st.doc && (st.view === 'plan' || st.view === 'elev');
-  chip.hidden = !show; stage.classList.toggle('has-chip', show);
+  chip.hidden = !show; stage.classList.toggle('has-chip', show && !inbar);
+  if (inbar && chip.parentNode !== $('topbar')) $('topbar').insertBefore(chip, $('btn-details'));
+  else if (!inbar && chip.parentNode !== stage) stage.append(chip);
   if (!show) return;
   const v = visitById(st.doc, viewedVisit()), past = viewingPast(), multi = multiVisit(st.doc);
-  chip.className = past ? 'past' : '';
+  chip.className = (past ? 'past' : '') + (inbar ? ' inbar' : '');
   chip.textContent = '';
   chip.append(el('span', { class: 'dot' }));
+  if (inbar) {      // compact: "Visit 2 · 0/7"; an earlier visit: "Visit 1 · read only"
+    const p = multi && !past && visitIdx(st.doc, v.id) > 0 ? remeasureProgress(st.doc) : null;
+    chip.append(el('span', { text: `Visit ${v.n}` + (past ? ' · read only' : p ? ` · ${p.done}/${p.total}` : '') }));
+    chip.setAttribute('aria-label', past ? `Viewing visit ${v.n}, read only. Back to the current visit` : p ? `Visit ${v.n}, ${p.done} of ${p.total} re-measured` : `Visit ${v.n}`);
+    return;
+  }
   if (past) {
     const r = visitById(st.doc, recVisit(st.doc));
     chip.append(el('span', { text: `Viewing visit ${v.n} · ${visitDayLabel(v)} · read only` }), el('b', { text: `Back to visit ${r.n}` }));
@@ -7241,8 +7311,12 @@ window.addEventListener('pagehide', flushSave);
 window.addEventListener('afterprint', () => { $('print-root').textContent = ''; });
 
 window.SecureScan = {
-  /* opts (optional): { pricesVisible: false } for a crew phone */
-  load(plan, opts) { if (opts && typeof opts.pricesVisible === 'boolean') pricesVisible = opts.pricesVisible; return loadDoc(plan); },
+  /* opts (optional): { pricesVisible: false } for a crew phone; { chrome: {...} } as setHostChrome */
+  load(plan, opts) { if (opts && typeof opts.pricesVisible === 'boolean') pricesVisible = opts.pricesVisible; if (opts && opts.chrome) setHostChrome(opts.chrome); return loadDoc(plan); },
+  /* { embedded: true, theme: 'light' }: the editor inside the app. Returns the setting. */
+  setHostChrome(o) { return setHostChrome(o); },
+  /* Heights of the editor's own top and bottom bars, in CSS px (0 when hidden). */
+  chromeHeights() { const h = id => { const e = $(id); return e.hidden || !e.offsetParent ? 0 : Math.round(e.getBoundingClientRect().height * 10) / 10; }; return { top: h('topbar'), bottom: h('toolbar') }; },
   /* The documents this editor can produce (reportHTML / reportLinks kinds; 'inspection' is accepted for 'initial'). */
   reportKinds: ['initial', 'monitoring', 'final', 'quote', 'scope'],
   /* Crew phones: hide every price (rates stay in the plan untouched). Returns the setting. */

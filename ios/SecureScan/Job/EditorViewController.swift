@@ -146,8 +146,8 @@ final class EditorViewController: UIViewController, WKScriptMessageHandler, WKNa
             Task { @MainActor [weak self] in
                 // After every load: tell the editor whether to show prices (when it can).
                 self?.webView?.callAsyncJavaScript(
-                    "window.SecureScan.load(JSON.parse(planText)); " + Self.pricesJS,
-                    arguments: ["planText": planText, "prices": PriceLock.pricesVisible], in: nil, in: .page,
+                    "window.SecureScan.load(JSON.parse(planText), { chrome: chrome }); " + Self.chromeJS + Self.pricesJS,
+                    arguments: ["planText": planText, "prices": PriceLock.pricesVisible, "chrome": Self.hostChrome], in: nil, in: .page,
                     completionHandler: { [weak self] result in
                         switch result {
                         case .failure(let error):
@@ -167,6 +167,12 @@ final class EditorViewController: UIViewController, WKScriptMessageHandler, WKNa
             }
         }
     }
+
+    /// The job screen supplies back, Documents and the dock, so the editor runs
+    /// embedded (no Done / share in its own bars) in the light theme.
+    /// SecureScan.setHostChrome is feature-detected: older editors ignore it.
+    static let hostChrome: [String: Any] = ["embedded": true, "theme": "light"]
+    private static let chromeJS = "var sc = window.SecureScan; if (sc && typeof sc.setHostChrome === 'function') { try { sc.setHostChrome(chrome); } catch (e) {} } "
 
     /// Calls SecureScan.setPricesVisible(prices) when the editor has it; returns whether it does.
     private static let pricesJS = "var s = window.SecureScan; var hook = !!(s && typeof s.setPricesVisible === 'function'); if (hook) { s.setPricesVisible(prices); } return hook;"
@@ -532,6 +538,21 @@ final class EditorViewController: UIViewController, WKScriptMessageHandler, WKNa
         return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
             webView.callAsyncJavaScript("return !!(window.SecureScan && window.SecureScan.startRemeasure && window.SecureScan.startRemeasure());",
                                         arguments: [:], in: nil, in: .page) { result in
+                if case .success(let v) = result { c.resume(returning: (v as? Bool) ?? false) } else { c.resume(returning: false) }
+            }
+        }
+    }
+
+    /// Job pack from the job screen's Documents menu: runs the editor's own
+    /// pack builder, which posts `exportPack` (handled above). Uses the public
+    /// SecureScan.exportPack() when the editor has it, else its page-level
+    /// exportPack(). False when neither exists.
+    func startJobPack() async -> Bool {
+        guard isReady, let webView else { return false }
+        if exportWouldShowPrices { refusePricedExport(); return true }
+        let js = "var s = window.SecureScan; if (s && typeof s.exportPack === 'function') { s.exportPack(); return true; } if (typeof exportPack === 'function') { exportPack(); return true; } return false;"
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            webView.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
                 if case .success(let v) = result { c.resume(returning: (v as? Bool) ?? false) } else { c.resume(returning: false) }
             }
         }
