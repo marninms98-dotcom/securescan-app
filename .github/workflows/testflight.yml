@@ -62,7 +62,18 @@ jobs:
         run: |
           set -o pipefail
           KEYFILE="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
-          printf '%s\n' "$KEY_P8" > "$KEYFILE"
+          # Rebuild a clean PEM whatever the paste did to it (Windows line endings,
+          # spaces, lost line breaks): keep only the base64 body, rewrap at 64.
+          printf '%s' "$KEY_P8" | python3 -c '
+          import sys, re, textwrap
+          t = sys.stdin.read()
+          body = re.sub(r"-----(BEGIN|END)[^-]*-----", "", t)
+          body = re.sub(r"[^A-Za-z0-9+/=]", "", body)
+          print("-----BEGIN PRIVATE KEY-----")
+          print("\n".join(textwrap.wrap(body, 64)))
+          print("-----END PRIVATE KEY-----")
+          print("key body length:", len(body), file=sys.stderr)
+          ' > "$KEYFILE"
           AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEYFILE" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER")
           xcodebuild archive -project SecureScan.xcodeproj -scheme SecureScan -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/SecureScan.xcarchive" \
