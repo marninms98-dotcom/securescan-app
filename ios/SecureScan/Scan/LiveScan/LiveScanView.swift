@@ -231,78 +231,99 @@ struct LiveScanView: View {
         .padding(14).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
 
+    // Split into small pieces: as one expression the type checker gave up on it.
     private var controls: some View {
         VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                Picker("Mode", selection: $work) {
-                    Text("Inspect").tag(WorkMode.inspect)
-                    Text(PriceLock.pricesVisible ? "Quote" : "Scope").tag(WorkMode.quote)
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: work) { _, w in if !w.tools.contains(tool) { tool = w.tools.first ?? .reading } }
-                .onChange(of: tool) { _, t in live.snapEnds = (t == .wallRemoval || t == .moisture) }
-                if live.undoVisible && model.totalCount > 0 {
-                    Button { model.undoLast(); live.undoUsed() } label: {
-                        Label("Undo", systemImage: "arrow.uturn.backward").font(.subheadline.bold())
-                            .frame(minWidth: 88, minHeight: 44)
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-            HStack(spacing: 12) {
-                ForEach(work.tools) { t in
-                    Button { tool = t } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: t.icon).font(.body.weight(.semibold))
-                            Text(t.title).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .foregroundStyle(tool == t ? Color.white : Color.primary)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(tool == t ? Color.accentColor : Color.clear))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(t.title)
-                }
-            }
-            if tool == .wallRemoval && live.onWall {
-                Button(action: wholeWall) {
-                    Label("Whole wall", systemImage: "arrow.left.and.right").font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                }
-                .buttonStyle(.bordered)
-                .disabled(!model.canLog || model.phase != .scanning)
-            }
-            if tool == .wallRemoval {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(["plasterboard", "skirting", "cabinetry", "other"], id: \.self) { k in
-                            Chip(title: RemovalItems.name(k), selected: wallItem == k) { wallItem = k }
-                        }
-                    }
-                }
-            }
-            Button(action: act) {
-                Text(buttonTitle).font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6)
-                    .frame(maxWidth: .infinity, minHeight: 68)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(blockedReason != nil || !model.canLog || model.phase != .scanning)
-            HStack(spacing: 12) {
-                RecordToggle(recorder: recorder, compact: false) { model.toggleRecording() }
-                Button { model.showItems = true } label: {
-                    Label("\(model.totalCount)", systemImage: "list.bullet").font(.headline).frame(minWidth: 64, minHeight: 64)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("\(model.totalCount) items. Show list")
-                Button { model.nextRoom() } label: {
-                    Text("Room done").font(.headline).frame(maxWidth: .infinity, minHeight: 64)
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.phase != .scanning)
-            }
+            modeRow
+            toolRow
+            wallRemovalExtras
+            mainButton
+            bottomRow
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var modeRow: some View {
+        HStack(spacing: 12) {
+            Picker("Mode", selection: $work) {
+                Text("Inspect").tag(WorkMode.inspect)
+                Text(PriceLock.pricesVisible ? "Quote" : "Scope").tag(WorkMode.quote)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: work) { _, w in if !w.tools.contains(tool) { tool = w.tools.first ?? .reading } }
+            .onChange(of: tool) { _, t in live.snapEnds = (t == .wallRemoval || t == .moisture) }
+            if live.undoVisible && model.totalCount > 0 {
+                Button { model.undoLast(); live.undoUsed() } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward").font(.subheadline.bold())
+                        .frame(minWidth: 88, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var toolRow: some View {
+        HStack(spacing: 12) {
+            ForEach(work.tools) { t in
+                Button { tool = t } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: t.icon).font(.body.weight(.semibold))
+                        Text(t.title).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .foregroundStyle(tool == t ? Color.white : Color.primary)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(tool == t ? Color.accentColor : Color.clear))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(t.title)
+            }
+        }
+    }
+
+    @ViewBuilder private var wallRemovalExtras: some View {
+        if tool == .wallRemoval && live.onWall {
+            Button(action: wholeWall) {
+                Label("Whole wall", systemImage: "arrow.left.and.right").font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!model.canLog || model.phase != .scanning)
+        }
+        if tool == .wallRemoval {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(["plasterboard", "skirting", "cabinetry", "other"], id: \.self) { k in
+                        Chip(title: RemovalItems.name(k), selected: wallItem == k) { wallItem = k }
+                    }
+                }
+            }
+        }
+    }
+
+    private var mainButton: some View {
+        Button(action: act) {
+            Text(buttonTitle).font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6)
+                .frame(maxWidth: .infinity, minHeight: 68)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(blockedReason != nil || !model.canLog || model.phase != .scanning)
+    }
+
+    private var bottomRow: some View {
+        HStack(spacing: 12) {
+            RecordToggle(recorder: recorder, compact: false) { model.toggleRecording() }
+            Button { model.showItems = true } label: {
+                Label("\(model.totalCount)", systemImage: "list.bullet").font(.headline).frame(minWidth: 64, minHeight: 64)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("\(model.totalCount) items. Show list")
+            Button { model.nextRoom() } label: {
+                Text("Room done").font(.headline).frame(maxWidth: .infinity, minHeight: 64)
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.phase != .scanning)
+        }
     }
 
     /// "Whole wall": a strip-out from end to end of the live wall under the
