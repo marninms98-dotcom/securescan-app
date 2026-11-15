@@ -137,7 +137,7 @@ final class RevisitModel: ObservableObject, CaptureEngine {
         if let r = Corners.room(at: p, polygons: rooms), r != roomIndex { chooseRoom(r) }
     }
 
-    private func roomName(_ i: Int) -> String? {
+    private func planRoomName(_ i: Int) -> String? {
         let list = plan["rooms"] as? [[String: Any]] ?? []
         return list.indices.contains(i) ? list[i]["name"] as? String : nil
     }
@@ -366,7 +366,7 @@ final class RevisitModel: ObservableObject, CaptureEngine {
 
     var roomName: String {
         guard let a = alignment, let cam = lastSample?.camera else { return "" }
-        return FloorArea.room(containing: a.point(cam), rooms: rooms).flatMap(roomName) ?? ""
+        return FloorArea.room(containing: a.point(cam), rooms: rooms).flatMap(planRoomName) ?? ""
     }
 
     var phaseText: String {
@@ -436,7 +436,7 @@ final class RevisitModel: ObservableObject, CaptureEngine {
             return WorldWall(id: w.id, a: PlanVec(p.x, p.z), b: PlanVec(q.x, q.z), height: w.height)
         }
         let rs = rooms.enumerated().map { i, poly in
-            WorldRoom(name: roomName(i) ?? "Room \(i + 1)", polygon: poly.map { let w = a.world($0, y: 0); return PlanVec(w.x, w.z) })
+            WorldRoom(name: planRoomName(i) ?? "Room \(i + 1)", polygon: poly.map { let w = a.world($0, y: 0); return PlanVec(w.x, w.z) })
         }
         let w = CaptureWorld(floorY: floorY, walls: ws, rooms: rs)
         worldCache = w

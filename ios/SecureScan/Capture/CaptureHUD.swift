@@ -72,12 +72,11 @@ struct CaptureHUD: View {
                 y: geo.size.height / 2 + (geo.safeAreaInsets.bottom - geo.safeAreaInsets.top) / 2)
     }
 
+    /// What the reticle is on. While a line or area is drawn the shape carries its own
+    /// length / area capsule; aiming at saved points (re-measure, done) the button says it.
     private var reticleLabel: String? {
-        if hud.tool == .mark, let first = hud.markPoints.first, let h = hud.aim.hit {
-            if hud.markStartShape == .line { return CaptureCopy.length(simd_distance(PlanVec(first.world.x, first.world.z), PlanVec(h.x, h.z))) }
-            let pts = hud.markPoints.map(\.plan) + [PlanVec(h.x, h.z)]
-            return pts.count >= 3 ? CaptureCopy.area(FloorArea.area(pts)) : CaptureCopy.length(simd_distance(pts[0], pts[1]))
-        }
+        if hud.tool == .remeasure || hud.tool == .done { return nil }
+        if hud.tool == .mark, !hud.markPoints.isEmpty, hud.markStartShape == .area { return nil }
         return CaptureCopy.reticle(hud.aim)
     }
 
@@ -259,7 +258,7 @@ struct CaptureHUD: View {
             }
         }
         .padding(4)
-        .background(RoundedRectangle(cornerRadius: DS.Radius.control + 4, style: .continuous).fill(.ultraThinMaterial))
+        .background(CameraFill(shape: RoundedRectangle(cornerRadius: DS.Radius.control + 4, style: .continuous)))
         .overlay(RoundedRectangle(cornerRadius: DS.Radius.control + 4, style: .continuous).strokeBorder(DS.Color.hairline, lineWidth: 1))
     }
 
@@ -269,16 +268,11 @@ struct CaptureHUD: View {
             HStack {
                 ForEach(Array(q.enumerated()), id: \.element.id) { i, a in
                     if i > 0 { Spacer() }
-                    Button(a.title) { hud.engine.perform(quiet: a.id) }
-                        .font(DS.Font.bodyBold)
-                        .foregroundStyle(.white.opacity(a.enabled ? 1 : 0.4))
-                        .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
-                        .frame(minWidth: 88, minHeight: DS.Size.minTarget, alignment: i == 0 ? .leading : .trailing)
-                        .contentShape(Rectangle())
+                    SecondaryButton(a.title) { hud.engine.perform(quiet: a.id) }
                         .disabled(!a.enabled)
+                        .opacity(a.enabled ? 1 : 0.5)
                 }
             }
-            .padding(.horizontal, 4)
         }
     }
 

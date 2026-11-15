@@ -75,7 +75,6 @@ struct ReadingTray: View {
                     }
                 }
             }
-            .scrollClipDisabled()
             KeyPad { hud.key($0) }
         }
     }
@@ -187,7 +186,6 @@ struct MarkTray: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DS.Space.tight) { content() }
         }
-        .scrollClipDisabled()
     }
 }
 
@@ -263,7 +261,7 @@ struct ReviewTray: View {
     var body: some View {
         let entries = hud.stack.reviewOrder
         VStack(alignment: .leading, spacing: DS.Space.gap) {
-            TrayHeader(title: "\(entries.count) captured", detail: fixLine) { hud.closeTray() }
+            TrayHeader(title: "\(entries.count) captured", detail: entries.first(where: { $0.id == hud.reviewSelected })?.needsFix ?? fixLine) { hud.closeTray() }
             ScrollViewReader { reader in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: DS.Space.tight) {
@@ -275,8 +273,7 @@ struct ReviewTray: View {
                         }
                     }
                 }
-                .scrollClipDisabled()
-                .onAppear { if let s = hud.reviewSelected { reader.scrollTo(s) } }
+                    .onAppear { if let s = hud.reviewSelected { reader.scrollTo(s) } }
             }
             if let sel = entries.first(where: { $0.id == hud.reviewSelected }) { actions(sel) }
         }
@@ -289,9 +286,9 @@ struct ReviewTray: View {
 
     @ViewBuilder private func actions(_ e: CaptureStack.Entry) -> some View {
         HStack(spacing: DS.Space.tight) {
-            if let fix = e.needsFix {
-                Text(fix).font(DS.Font.callout).foregroundStyle(.white).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            if e.needsFix != nil {
                 SecondaryButton("Redraw", icon: "pencil") { hud.delete(e.id); hud.closeTray(); hud.select(.mark) }
+                Spacer(minLength: 0)
             } else {
                 if e.kind == "reading" { SecondaryButton("Edit value", icon: "number") { hud.editReading(e.id) } }
                 if e.kind == "photo" { SecondaryButton("Retake", icon: "camera") { hud.retake(e.id) } }
