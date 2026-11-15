@@ -123,6 +123,8 @@ final class SyncCenter: ObservableObject {
         if fake != nil { return FakeCloud.status(for: id) }
         #endif
         guard config != nil else { return .off }
+        // Demo jobs never leave the phone.
+        if JobStore.shared.jobs.first(where: { $0.id == id })?.demo == true { return .off }
         guard signedIn else { return .signedOut }
         let s = statuses[id] ?? .pending
         if !online {

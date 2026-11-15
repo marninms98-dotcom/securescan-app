@@ -33,7 +33,11 @@ struct SyncConfig: Equatable {
         var text = clean(rawURL)
         guard !text.isEmpty, !key.isEmpty, !key.contains(" ") else { return nil }
         let lower = text.lowercased()
-        if !lower.hasPrefix("https://") && !lower.hasPrefix("http://") { text = "https://" + text }
+        if lower.contains("://") {
+            guard lower.hasPrefix("https://") || lower.hasPrefix("http://") else { return nil }
+        } else {
+            text = "https://" + text
+        }
         while text.hasSuffix("/") { text.removeLast() }
         guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
               let host = url.host, !host.isEmpty else { return nil }

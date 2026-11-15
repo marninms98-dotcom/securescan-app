@@ -52,7 +52,7 @@ struct SyncStatusSection: View {
     @State private var signingIn = false
 
     var body: some View {
-        if center.isConfigured {
+        if center.isConfigured && center.status(jobID) != .off {
             Section {
                 statusRow
                 if let link = center.link(for: jobID) {
