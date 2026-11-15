@@ -2,27 +2,18 @@
 //  ModelTab.swift
 //  SecureScan
 //
-//  3D tab: SceneKit view of model.usdz (or, without one, walls extruded from
-//  plan.json) with orbit/zoom, plus the markup in 3D:
-//    * readings: status-coloured spheres with a billboarded "3 · 24%" label
-//    * moisture-line marks: small blue cubes, and per wall a blue polyline
-//      through them (wallT order) with a light translucent fill down to the floor
-//    * water sources: a larger blue marker with its label
-//    * photo notes: grey "P1" markers
-//  Show/hide toggle, "Save image", "Open in AR Quick Look".
+//  3D tab: the job as a dollhouse (Dollhouse.swift) on a warm light canvas,
+//  with the markup in 3D: reading pins with value labels, moisture lines,
+//  removal bands wrapped round the walls (red; done = green), lifted flooring
+//  on the floor, equipment, photo notes and the water source.
 //
-//  Framing: the camera looks at the model from an elevated three-quarter view
-//  at the distance that fits the whole model (CameraFit) with a margin. The
-//  bounds are computed from every geometry node in world space (a node's own
-//  boundingBox does not include its children's geometry in the way needed).
-//  Lighting: ambient + two directional lights (no camera-attached light, which
-//  left faces turned away from it black), double-sided materials.
-//
-//  Positions: items are placed from their plan position + height. For a
-//  scanned model, plan-frame.json (written with every plan build) maps plan
-//  coordinates back to the scan's world space, so hand-added items appear too;
-//  without it (older jobs) the resolved world points in readings-raw.json are
-//  used for AR items.
+//  Controls (Polycam-style, floating over the canvas):
+//    top-left   Orbit / Plan switch (perspective orbit, or top-down plan),
+//               Layers menu (readings, moisture lines, removals, equipment,
+//               photos & source, furniture)
+//    top-right  reset view, measure (tap two points), save image, AR view
+//  One finger orbits (plan: pans), two fingers pan, pinch zooms, with
+//  inertia; double-tap a room to focus on it.
 //
 
 import SwiftUI
@@ -31,7 +22,7 @@ import QuickLook
 import simd
 
 struct MarkerInfo {
-    var kind: String          // "reading" | "boundary" | "photo" | "source"
+    var kind: String          // "reading" | "boundary" | "photo" | "source" | "equipment"
     var label: String?
     var color: UIColor
     var position: SIMD3<Float>
@@ -44,13 +35,15 @@ struct MoistureLine3D {
     var floorY: [Float]          // floor level under each point
 }
 
+/// What the background build hands to the main actor.
 struct SceneContent {
-    var scene: SCNScene?
+    var built: Dollhouse.Built?
     var markers: [MarkerInfo] = []
     var lines: [MoistureLine3D] = []
-    /// Removal bands: 4 corners each (bottom a, bottom b, top b, top a); `done` drawn green.
-    var bands: [(corners: [SIMD3<Float>], done: Bool)] = []
-    var fallback = false
+    /// Wall removals: plan ends, top height, done.
+    var wallBands: [(a: PlanVec, b: PlanVec, top: Double, done: Bool)] = []
+    /// Lifted flooring: outline, done.
+    var floorAreas: [(poly: [PlanVec], done: Bool)] = []
     var error: String?
 }
 
@@ -59,59 +52,238 @@ final class SceneBox: @unchecked Sendable {
     init(_ value: SceneContent) { self.value = value }
 }
 
+enum ModelLayer: String, CaseIterable, Identifiable {
+    case readings = "Readings", lines = "Moisture lines", removals = "Removals",
+         equipment = "Equipment", photos = "Photos and source", furniture = "Furniture"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .readings: return "percent"
+        case .lines: return "point.topleft.down.to.point.bottomright.curvepath"
+        case .removals: return "scissors"
+        case .equipment: return "fan"
+        case .photos: return "camera"
+        case .furniture: return "bed.double"
+        }
+    }
+}
+
 @MainActor
 final class ModelViewModel: ObservableObject {
-    @Published var scene: SCNScene?
-    @Published var cameraNode: SCNNode?
-    @Published var target = SCNVector3Zero
-    @Published var showMarkers = true { didSet { markersNode.isHidden = !showMarkers } }
+    enum Mode { case orbit, plan }
+
+    @Published var ready = false
     @Published var loading = false
     @Published var error: String?
-    @Published var usingPlanFallback = false
-    weak var view: SCNView?
-    private let markersNode = SCNNode()
-    private var loadedVersion: Int?
+    @Published var mode: Mode = ProcessInfo.processInfo.environment["SECURESCAN_3D_MODE"] == "plan" ? .plan : .orbit
+    @Published var hidden: Set<ModelLayer> = []
+    @Published var measuring = false
+    @Published var measureText: String?
 
-    static let background = UIColor(red: 0.93, green: 0.94, blue: 0.96, alpha: 1)
+    private(set) var scene: SCNScene?
+    private(set) var rooms: [Dollhouse.Room] = []
+    private(set) var bounds: (min: SIMD3<Float>, max: SIMD3<Float>) = (.zero, .zero)
+    private(set) var target = SIMD3<Float>.zero
+    weak var view: SCNView?
+    private var layers: [ModelLayer: SCNNode] = [:]
+    private let measureNode = SCNNode()
+    private var measurePoints: [SIMD3<Float>] = []
+    private var loadedVersion: Int?
+    private var folder: JobFolder?
 
     func load(folder: JobFolder, version: Int) {
         guard loadedVersion != version else { return }
         loadedVersion = version
+        self.folder = folder
         loading = true
         error = nil
         Task {
-            // SCNScene is not Sendable; the box hands it from the background task to
-            // the main actor (nothing else touches it in between).
-            let box = await Task.detached(priority: .userInitiated) {
-                SceneBox(ModelViewModel.buildScene(folder: folder))
-            }.value
+            // SCNScene is not Sendable; the box hands it from the background task
+            // to the main actor (nothing else touches it in between).
+            let box = await Task.detached(priority: .userInitiated) { SceneBox(ModelViewModel.buildContent(folder: folder)) }.value
             let content = box.value
             loading = false
             error = content.error
-            usingPlanFallback = content.fallback
-            guard let scene = content.scene else { return }
-
-            // Bounds of the model itself (before markers are added).
-            let bounds = Self.worldBounds(scene.rootNode)
-            let extent = max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z, 1.5)
-            Self.addGround(to: scene, bounds: bounds)
-            Self.addLights(to: scene)
-
-            markersNode.childNodes.forEach { $0.removeFromParentNode() }
-            markersNode.removeFromParentNode()
-            let scale = Float(extent)
-            for line in content.lines { markersNode.addChildNode(Self.lineNode(line, scale: scale)) }
-            for b in content.bands { markersNode.addChildNode(Self.bandNode(b.corners, done: b.done)) }
-            for m in content.markers { markersNode.addChildNode(Self.markerNode(m, scale: scale)) }
-            markersNode.isHidden = !showMarkers
-            scene.rootNode.addChildNode(markersNode)
-
-            let (cam, centre) = Self.frameCamera(scene, bounds: bounds)
-            cameraNode = cam
-            target = centre
-            self.scene = scene
+            guard let built = content.built else { ready = false; return }
+            assemble(built, content)
         }
     }
+
+    private func assemble(_ built: Dollhouse.Built, _ content: SceneContent) {
+        let root = built.scene.rootNode
+        let extent = max(built.bounds.max.x - built.bounds.min.x, built.bounds.max.z - built.bounds.min.z, 1.5)
+        Dollhouse.addLights(root, extent: extent)
+
+        layers = [:]
+        for l in ModelLayer.allCases where l != .furniture {
+            let n = SCNNode()
+            n.name = "layer:" + l.rawValue
+            root.addChildNode(n)
+            layers[l] = n
+        }
+        layers[.furniture] = built.furniture
+        let scale = Float(extent)
+        for line in content.lines { layers[.lines]!.addChildNode(Self.lineNode(line, scale: scale)) }
+        for b in content.wallBands { layers[.removals]!.addChildNode(Self.wallBandNode(b.a, b.b, top: b.top, done: b.done)) }
+        for f in content.floorAreas { if let n = Self.floorAreaNode(f.poly, done: f.done) { layers[.removals]!.addChildNode(n) } }
+        for m in content.markers {
+            let layer: ModelLayer
+            switch m.kind {
+            case "equipment": layer = .equipment
+            case "photo", "source": layer = .photos
+            case "boundary": layer = .lines
+            default: layer = .readings
+            }
+            layers[layer]!.addChildNode(Self.markerNode(m, scale: scale))
+        }
+        for l in ModelLayer.allCases where l != .furniture {
+            layers[l]!.enumerateHierarchy { n, _ in n.categoryBitMask = Dollhouse.markupCategory }
+        }
+        measureNode.childNodes.forEach { $0.removeFromParentNode() }
+        measureNode.removeFromParentNode()
+        root.addChildNode(measureNode)
+        applyLayers()
+
+        scene = built.scene
+        rooms = built.rooms
+        bounds = built.bounds
+        ready = true
+    }
+
+    // MARK: View state
+
+    func toggle(_ l: ModelLayer) {
+        if hidden.contains(l) { hidden.remove(l) } else { hidden.insert(l) }
+        applyLayers()
+    }
+
+    private func applyLayers() {
+        for (l, n) in layers { n.isHidden = hidden.contains(l) }
+    }
+
+    var aspect: Double {
+        guard let v = view, v.bounds.height > 0 else { return 0.62 }
+        return Double(v.bounds.width / v.bounds.height)
+    }
+
+    /// The default camera for the current mode, installed on the view.
+    func resetView(animated: Bool = true) {
+        guard let v = view, let scene else { return }
+        let azimuth = ProcessInfo.processInfo.environment["SECURESCAN_3D_AZIMUTH"].flatMap { Double($0) } ?? 28
+        let (cam, centre) = Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan,
+                                             azimuth: azimuth, margin: 0.86)
+        install(cam, centre: centre, in: v, scene: scene, animated: animated)
+    }
+
+    private func install(_ cam: SCNNode, centre: SIMD3<Float>, in v: SCNView, scene: SCNScene, animated: Bool) {
+        target = centre
+        if animated, let pov = v.pointOfView, pov.camera?.usesOrthographicProjection == cam.camera?.usesOrthographicProjection {
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = 0.45
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            pov.simdPosition = cam.simdPosition
+            pov.simdOrientation = cam.simdOrientation
+            if let c = cam.camera, c.usesOrthographicProjection { pov.camera?.orthographicScale = c.orthographicScale }
+            SCNTransaction.commit()
+        } else {
+            v.pointOfView?.removeFromParentNode()
+            scene.rootNode.addChildNode(cam)
+            v.pointOfView = cam
+        }
+        configureController(v)
+    }
+
+    func configureController(_ v: SCNView) {
+        let c = v.defaultCameraController
+        c.interactionMode = mode == .plan ? .pan : .orbitTurntable
+        c.inertiaEnabled = true
+        c.inertiaFriction = 0.12
+        c.worldUp = SCNVector3(0, 1, 0)
+        c.target = SCNVector3(target.x, target.y, target.z)
+        c.minimumVerticalAngle = 8
+        c.maximumVerticalAngle = 89
+    }
+
+    func setMode(_ m: Mode) {
+        guard m != mode else { return }
+        mode = m
+        resetView(animated: false)
+    }
+
+    /// Double-tap: frame the room under the finger.
+    func focusRoom(at point: CGPoint) {
+        guard let v = view, let scene, let pov = v.pointOfView else { return }
+        let hits = v.hitTest(point, options: [.categoryBitMask: Dollhouse.solidCategory,
+                                              .searchMode: SCNHitTestSearchMode.closest.rawValue])
+        guard let hit = hits.first else { return }
+        let p = PlanVec(Double(hit.simdWorldCoordinates.x), Double(hit.simdWorldCoordinates.z))
+        guard let room = rooms.first(where: { FloorArea.inside(p, $0.polygon) }) ?? nearestRoom(p) else { return }
+        let lo = room.min - SIMD3(0.3, 0, 0.3), hi = room.max + SIMD3(0.3, 0, 0.3)
+        if mode == .plan {
+            let (cam, centre) = Dollhouse.camera(lo: lo, hi: hi, aspect: aspect, plan: true)
+            install(cam, centre: centre, in: v, scene: scene, animated: true)
+        } else {
+            // Keep the current viewing direction.
+            let d = simd_normalize(pov.simdWorldPosition - target)
+            let el = Double(asin(max(-1, min(1, d.y)))) * 180 / .pi
+            let az = Double(atan2(d.x, d.z)) * 180 / .pi
+            let (cam, centre) = Dollhouse.camera(lo: lo, hi: hi, aspect: aspect, plan: false, azimuth: az, elevation: max(20, el), margin: 0.85)
+            install(cam, centre: centre, in: v, scene: scene, animated: true)
+        }
+    }
+
+    private func nearestRoom(_ p: PlanVec) -> Dollhouse.Room? {
+        func d(_ r: Dollhouse.Room) -> Double {
+            let c = PlanBuilder.centroid(r.polygon)
+            return ((c - p) * (c - p)).sum()
+        }
+        return rooms.min { d($0) < d($1) }
+    }
+
+    // MARK: Measure
+
+    func toggleMeasure() {
+        measuring.toggle()
+        clearMeasure()
+    }
+
+    func clearMeasure() {
+        measurePoints = []
+        measureText = nil
+        measureNode.childNodes.forEach { $0.removeFromParentNode() }
+    }
+
+    func measureTap(at point: CGPoint) {
+        guard measuring, let v = view else { return }
+        let hits = v.hitTest(point, options: [.categoryBitMask: Dollhouse.solidCategory,
+                                              .searchMode: SCNHitTestSearchMode.closest.rawValue])
+        guard let hit = hits.first else { return }
+        if measurePoints.count >= 2 { clearMeasure() }
+        let p = hit.simdWorldCoordinates
+        measurePoints.append(p)
+        let dot = SCNNode(geometry: SCNSphere(radius: 0.045))
+        dot.geometry?.materials = [Self.overlayMaterial(UIColor(white: 0.08, alpha: 1))]
+        dot.simdPosition = p
+        dot.renderingOrder = 300
+        measureNode.addChildNode(dot)
+        if measurePoints.count == 2 {
+            let a = measurePoints[0], b = measurePoints[1]
+            let len = simd_distance(a, b)
+            if len > 1e-4 {
+                let tube = SCNCylinder(radius: 0.018, height: CGFloat(len))
+                tube.materials = [Self.overlayMaterial(UIColor(white: 0.08, alpha: 1))]
+                let t = SCNNode(geometry: tube)
+                t.simdPosition = (a + b) / 2
+                t.simdOrientation = simd_quatf(from: SIMD3<Float>(0, 1, 0), to: (b - a) / len)
+                t.renderingOrder = 299
+                measureNode.addChildNode(t)
+            }
+            measureText = String(format: "%.2f m", len)
+        }
+        DS.Haptic.lock()
+    }
+
+    // MARK: Share, AR
 
     func snapshotAndShare() {
         guard let v = view, let data = v.snapshot().pngData() else { return }
@@ -124,152 +296,105 @@ final class ModelViewModel: ObservableObject {
         }
     }
 
-    // MARK: Scene building (background)
-
-    nonisolated static func status(_ d: [String: Any], damp: Double, wet: Double) -> UIColor {
-        let reference = (d["reference"] as? Bool) ?? false
-        guard !reference, let v = PlanDocument.number(d["value"]) else { return .systemGray }
-        if v < damp { return UIColor(red: 0.18, green: 0.62, blue: 0.33, alpha: 1) }
-        if v < wet { return UIColor(red: 0.93, green: 0.60, blue: 0.10, alpha: 1) }
-        return UIColor(red: 0.84, green: 0.20, blue: 0.18, alpha: 1)
+    /// AR Quick Look: the scanned model when there is one, else the dollhouse as USDZ.
+    func openAR() {
+        guard let folder else { return }
+        if folder.hasModel { Presenter.quickLook(folder.modelURL); return }
+        let plan = (try? Data(contentsOf: folder.planURL)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+        guard let built = Dollhouse.build(plan: plan) else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("SecureScan-dollhouse.usdz")
+        try? FileManager.default.removeItem(at: url)
+        if built.scene.write(to: url, options: nil, delegate: nil, progressHandler: nil) {
+            Presenter.quickLook(url)
+        } else {
+            error = "The 3D view couldn't be opened in AR."
+        }
     }
 
-    nonisolated static var lineBlue: UIColor { UIColor(red: 0.12, green: 0.43, blue: 0.85, alpha: 1) }
+    // MARK: Content (background)
 
-    nonisolated static func buildScene(folder: JobFolder) -> SceneContent {
+    nonisolated static func status(_ d: [String: Any], damp: Double, wet: Double) -> UIColor {
+        guard let v = PlanDocument.number(d["value"]) else { return .systemGray }
+        if v < damp { return UIColor(DS.Color.dry) }
+        if v < wet { return UIColor(DS.Color.damp) }
+        return UIColor(DS.Color.wet)
+    }
+
+    nonisolated static var lineBlue: UIColor { UIColor(DS.Color.source) }
+
+    nonisolated static func buildContent(folder: JobFolder) -> SceneContent {
         let plan = (try? Data(contentsOf: folder.planURL)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        guard !plan.isEmpty else { return SceneContent(error: "This job has no plan yet. Scan it to see it in 3D.") }
+        guard let built = Dollhouse.build(plan: plan) else { return SceneContent(error: "This plan has no rooms to show in 3D.") }
+        var content = SceneContent(built: built)
         let markup = plan["markup"] as? [String: Any] ?? [:]
-        let items = markup["readings"] as? [[String: Any]] ?? []
-        let sources = markup["sources"] as? [[String: Any]] ?? []
         let thresholds = markup["thresholds"] as? [String: Any] ?? [:]
         let damp = PlanDocument.number(thresholds["damp"]) ?? 15
         let wet = PlanDocument.number(thresholds["wet"]) ?? 20
-
-        var content = SceneContent()
-        let scene: SCNScene
-        // Plan item -> 3D point, and the floor level below it.
-        let place: ([String: Any]) -> (SIMD3<Float>, Float)?
-        // Plan point + height above floor -> 3D point (nil: unknown frame).
-        var toWorld: ((PlanVec, Double) -> SIMD3<Float>)? = nil
-
-        if folder.hasModel {
-            do { scene = try SCNScene(url: folder.modelURL, options: nil) }
-            catch { return SceneContent(error: "The 3D model could not be opened: \(error.localizedDescription)") }
-            prepareModelMaterials(scene.rootNode)
-            if let frame = JobFiles.loadFrame(folder) {
-                let t = frame.transform
-                let floorY = frame.floorY ?? Double(worldBounds(scene.rootNode).min.y)
-                place = { d in
-                    guard let p = ModelViewModel.planPoint(d) else { return nil }
-                    let h = PlanDocument.number(d["height"]) ?? 0
-                    let w = t.world(p, y: floorY + h)
-                    return (SIMD3<Float>(Float(w.x), Float(w.y), Float(w.z)), Float(floorY))
-                }
-                toWorld = { p, h in
-                    let w = t.world(p, y: floorY + h)
-                    return SIMD3<Float>(Float(w.x), Float(w.y), Float(w.z))
-                }
-            } else {
-                var resolved: [String: SIMD3<Float>] = [:]
-                for r in JobFiles.loadRawReadings(folder) {
-                    if let p = r.resolved ?? r.hit, p.count == 3 { resolved[r.id] = SIMD3<Float>(Float(p[0]), Float(p[1]), Float(p[2])) }
-                }
-                let modelFloor = worldBounds(scene.rootNode).min.y
-                place = { d in
-                    guard let id = d["id"] as? String, let p = resolved[id] else { return nil }
-                    let h = Float(PlanDocument.number(d["height"]) ?? Double(p.y - modelFloor))
-                    return (p, p.y - h)
-                }
-            }
-        } else {
-            // Fallback: walls extruded from plan.json, plan coordinates (x, height, y).
-            guard !plan.isEmpty else { return SceneContent(error: "This job has no 3D model and no plan yet.") }
-            scene = planScene(plan)
-            content.fallback = true
-            place = { d in
-                guard let p = ModelViewModel.planPoint(d) else { return nil }
-                let h = PlanDocument.number(d["height"]) ?? 0
-                return (SIMD3<Float>(Float(p.x), Float(h), Float(p.y)), 0)
-            }
-            toWorld = { p, h in SIMD3<Float>(Float(p.x), Float(h), Float(p.y)) }
+        let cut = Float(Dollhouse.cutHeight)
+        func place(_ d: [String: Any]) -> SIMD3<Float>? {
+            guard let p = ScopeList.pt(d["pos"]) else { return nil }
+            let h = Float(PlanDocument.number(d["height"]) ?? 0)
+            return SIMD3<Float>(Float(p.x), min(h, cut), Float(p.y))
         }
 
-        var byId: [String: (SIMD3<Float>, Float)] = [:]
+        var byId: [String: SIMD3<Float>] = [:]
         var marks: [MoistureLines.Mark] = []
-        for d in items {
-            guard let placed = place(d) else { continue }
-            let pos = placed.0
+        for d in markup["readings"] as? [[String: Any]] ?? [] {
+            guard let pos = place(d) else { continue }
             let kind = (d["kind"] as? String) ?? "reading"
             let n = PlanDocument.number(d["n"]).map { Int($0) }
             switch kind {
             case "boundary":
                 content.markers.append(MarkerInfo(kind: kind, label: nil, color: lineBlue, position: pos))
                 if let id = d["id"] as? String {
-                    byId[id] = placed
+                    byId[id] = pos
                     marks.append(MoistureLines.Mark(id: id, wallId: d["wallId"] as? String, wallT: PlanDocument.number(d["wallT"])))
                 }
             case "photo":
                 content.markers.append(MarkerInfo(kind: kind, label: n.map { "P\($0)" } ?? "P", color: .systemGray, position: pos))
             default:
-                let reference = (d["reference"] as? Bool) ?? false
-                var label = n.map { "\($0)\(reference ? "R" : "")" } ?? "–"
-                if let v = PlanDocument.number(d["value"]) { label += " · \(ScanModel.format(v))%" }
+                var label = n.map { "R\($0)" } ?? "R"
+                if let v = PlanDocument.number(d["value"]) { label += " · \(ItemsModel.fmt(v))%" }
                 content.markers.append(MarkerInfo(kind: kind, label: label, color: status(d, damp: damp, wet: wet), position: pos))
             }
         }
-        for d in sources {
-            guard let placed = place(d) else { continue }
-            let pos = placed.0
+        for d in markup["sources"] as? [[String: Any]] ?? [] {
+            guard let pos = place(d) else { continue }
             let text = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
-            content.markers.append(MarkerInfo(kind: "source", label: text.isEmpty ? "Source" : "Source · \(text)",
-                                              color: lineBlue, position: pos))
+            content.markers.append(MarkerInfo(kind: "source", label: text.isEmpty ? "Source" : text, color: lineBlue, position: pos))
         }
         for d in markup["equipment"] as? [[String: Any]] ?? [] {
-            // Only equipment still on site.
-            if let removed = d["removed"], !(removed is NSNull) { continue }
-            guard let placed = place(d) else { continue }
+            if let removed = d["removed"], !(removed is NSNull), (removed as? String)?.isEmpty != true { continue }
+            guard let p = ScopeList.pt(d["pos"]) else { continue }
             let label = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
-            let name = PlanDocument.equipmentName((d["type"] as? String) ?? "other")
-            // Short labels (the asset number when there is one) so they don't cover readings.
-            content.markers.append(MarkerInfo(kind: "equipment", label: label.isEmpty ? name : label,
-                                              color: UIColor(red: 0.20, green: 0.45, blue: 0.50, alpha: 1),
-                                              position: placed.0 + SIMD3<Float>(0, 0.08, 0)))
+            content.markers.append(MarkerInfo(kind: "equipment", label: label.isEmpty ? PlanDocument.equipmentName((d["type"] as? String) ?? "other") : label,
+                                              color: UIColor(DS.Color.equip), position: SIMD3(Float(p.x), 0.12, Float(p.y))))
         }
-        // Removals: a band on the wall t0..t1 up to the cut height; flooring
-        // sections as a low band round their outline.
-        if let toWorld {
-            let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            for x in markup["removals"] as? [[String: Any]] ?? [] {
-                let done = (x["status"] as? String) == "done"
-                if let wid = x["wallId"] as? String, let w = walls[wid] {
-                    let t0 = PlanDocument.number(x["t0"]) ?? 0, t1 = PlanDocument.number(x["t1"]) ?? 1
-                    let item = (x["item"] as? String) ?? "other"
-                    let top = item == "flooring" ? 0.05 : min(max((PlanDocument.number(x["heightMm"]) ?? 600) / 1000, 0.05), w.height)
-                    let p0 = w.a + (w.b - w.a) * t0, p1 = w.a + (w.b - w.a) * t1
-                    content.bands.append(([toWorld(p0, 0), toWorld(p1, 0), toWorld(p1, top), toWorld(p0, top)], done))
-                } else if let area = x["area"] as? [Any] {
-                    let pts = area.compactMap { Revisit.point($0) }
-                    guard pts.count >= 3 else { continue }
-                    for i in pts.indices {
-                        let a = pts[i], b = pts[(i + 1) % pts.count]
-                        content.bands.append(([toWorld(a, 0.005), toWorld(b, 0.005), toWorld(b, 0.06), toWorld(a, 0.06)], done))
-                    }
-                }
+        let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for x in markup["removals"] as? [[String: Any]] ?? [] {
+            let done = (x["status"] as? String) == "done"
+            if let wid = x["wallId"] as? String, let w = walls[wid] {
+                let t0 = PlanDocument.number(x["t0"]) ?? 0, t1 = PlanDocument.number(x["t1"]) ?? 1
+                let item = (x["item"] as? String) ?? "other"
+                let mm = PlanDocument.number(x["heightMm"]) ?? (item == "skirting" ? 100 : 600)
+                let top = min(max(mm / 1000, 0.08), Dollhouse.cutHeight)
+                content.wallBands.append((w.a + (w.b - w.a) * t0, w.a + (w.b - w.a) * t1, top, done))
+            } else if let area = (x["area"] as? [Any])?.compactMap(ScopeList.pt), area.count >= 3 {
+                content.floorAreas.append((area, done))
             }
         }
         stackLabels(&content.markers)
         for ids in MoistureLines.lines(marks) {
             let pts = ids.compactMap { byId[$0] }
             guard pts.count >= 2 else { continue }
-            content.lines.append(MoistureLine3D(points: pts.map { $0.0 }, floorY: pts.map { $0.1 }))
+            content.lines.append(MoistureLine3D(points: pts, floorY: pts.map { _ in 0 }))
         }
-        content.scene = scene
         return content
     }
 
     /// Gives each label the lowest level not used by an earlier label within
-    /// 0.8 m (horizontally), so labels of neighbouring markers (e.g. both
-    /// sides of a wall) don't sit on top of each other.
+    /// 0.8 m (horizontally), so neighbouring labels don't sit on top of each other.
     nonisolated static func stackLabels(_ markers: inout [MarkerInfo]) {
         var placed: [(SIMD2<Float>, Int)] = []
         for i in markers.indices where markers[i].label != nil {
@@ -282,167 +407,9 @@ final class ModelViewModel: ObservableObject {
         }
     }
 
-    nonisolated static func planPoint(_ d: [String: Any]) -> PlanVec? {
-        guard let pos = d["pos"] as? [Any], pos.count == 2,
-              let x = PlanDocument.number(pos[0]), let y = PlanDocument.number(pos[1]) else { return nil }
-        return PlanVec(x, y)
-    }
-
-    /// Double-sided, evenly lit materials for the scanned model.
-    nonisolated static func prepareModelMaterials(_ root: SCNNode) {
-        root.enumerateHierarchy { node, _ in
-            for m in node.geometry?.materials ?? [] {
-                m.isDoubleSided = true
-                m.lightingModel = .lambert
-            }
-        }
-    }
-
-    nonisolated static var roomTints: [UIColor] { [
-        UIColor(red: 0.78, green: 0.85, blue: 0.96, alpha: 1),
-        UIColor(red: 0.80, green: 0.92, blue: 0.83, alpha: 1),
-        UIColor(red: 0.96, green: 0.89, blue: 0.77, alpha: 1),
-        UIColor(red: 0.89, green: 0.83, blue: 0.96, alpha: 1),
-    ] }
-
-    nonisolated static func planScene(_ plan: [String: Any]) -> SCNScene {
-        let scene = SCNScene()
-        let wallMaterial = SCNMaterial()
-        wallMaterial.diffuse.contents = UIColor(red: 0.80, green: 0.81, blue: 0.86, alpha: 1)
-        wallMaterial.lightingModel = .lambert
-        wallMaterial.isDoubleSided = true
-        for w in plan["walls"] as? [[String: Any]] ?? [] {
-            guard let a = w["a"] as? [Any], let b = w["b"] as? [Any], a.count == 2, b.count == 2,
-                  let ax = PlanDocument.number(a[0]), let ay = PlanDocument.number(a[1]),
-                  let bx = PlanDocument.number(b[0]), let by = PlanDocument.number(b[1]) else { continue }
-            let h = PlanDocument.number(w["height"]) ?? 2.4
-            let dx = bx - ax, dy = by - ay
-            let len = (dx * dx + dy * dy).squareRoot()
-            guard len > 0.01 else { continue }
-            // Slightly longer than the wall so corners close.
-            let box = SCNBox(width: CGFloat(len + 0.1), height: CGFloat(h), length: 0.1, chamferRadius: 0)
-            box.materials = [wallMaterial]
-            let node = SCNNode(geometry: box)
-            node.position = SCNVector3(Float((ax + bx) / 2), Float(h / 2), Float((ay + by) / 2))
-            // Rotation about +Y by θ maps local +X to (cosθ, 0, -sinθ); we want (dx, 0, dy)/len.
-            node.eulerAngles = SCNVector3(0, Float(atan2(-dy, dx)), 0)
-            scene.rootNode.addChildNode(node)
-        }
-        // Room floors, pale tint per room.
-        for (i, r) in (plan["rooms"] as? [[String: Any]] ?? []).enumerated() {
-            let poly = (r["polygon"] as? [[Any]] ?? []).compactMap { p -> CGPoint? in
-                guard p.count == 2, let x = PlanDocument.number(p[0]), let y = PlanDocument.number(p[1]) else { return nil }
-                return CGPoint(x: x, y: y)
-            }
-            guard poly.count >= 3 else { continue }
-            let path = UIBezierPath()
-            path.move(to: poly[0])
-            for p in poly.dropFirst() { path.addLine(to: p) }
-            path.close()
-            let shape = SCNShape(path: path, extrusionDepth: 0.02)
-            let m = SCNMaterial()
-            m.diffuse.contents = roomTints[i % roomTints.count]
-            m.lightingModel = .lambert
-            m.isDoubleSided = true
-            shape.materials = [m]
-            let node = SCNNode(geometry: shape)
-            // Shape lies in its x-y plane; +90° about X maps (x, y, 0) to (x, 0, y).
-            node.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
-            node.position = SCNVector3(0, -0.01, 0)
-            scene.rootNode.addChildNode(node)
-        }
-        return scene
-    }
-
-    // MARK: Scene dressing (main)
-
-    /// Axis-aligned bounds of every geometry in world space.
-    nonisolated static func worldBounds(_ root: SCNNode) -> (min: SIMD3<Float>, max: SIMD3<Float>) {
-        var lo = SIMD3<Float>(repeating: .greatestFiniteMagnitude)
-        var hi = SIMD3<Float>(repeating: -.greatestFiniteMagnitude)
-        root.enumerateHierarchy { node, _ in
-            guard node.geometry != nil else { return }
-            let (a, b) = node.boundingBox
-            let m = node.simdWorldTransform
-            for x in [a.x, b.x] { for y in [a.y, b.y] { for z in [a.z, b.z] {
-                let p = m * SIMD4<Float>(x, y, z, 1)
-                lo = simd_min(lo, SIMD3(p.x, p.y, p.z))
-                hi = simd_max(hi, SIMD3(p.x, p.y, p.z))
-            } } }
-        }
-        if lo.x > hi.x { return (SIMD3(-1, 0, -1), SIMD3(1, 2.4, 1)) }
-        return (lo, hi)
-    }
-
-    static func addGround(to scene: SCNScene, bounds: (min: SIMD3<Float>, max: SIMD3<Float>)) {
-        let w = bounds.max.x - bounds.min.x + 2, d = bounds.max.z - bounds.min.z + 2
-        let plane = SCNPlane(width: CGFloat(w), height: CGFloat(d))
-        let m = SCNMaterial()
-        m.diffuse.contents = UIColor(red: 0.97, green: 0.97, blue: 0.98, alpha: 1)
-        m.lightingModel = .lambert
-        m.isDoubleSided = true
-        plane.materials = [m]
-        let node = SCNNode(geometry: plane)
-        node.eulerAngles = SCNVector3(-Float.pi / 2, 0, 0)       // lie flat, facing up
-        node.position = SCNVector3((bounds.min.x + bounds.max.x) / 2, bounds.min.y - 0.025, (bounds.min.z + bounds.max.z) / 2)
-        scene.rootNode.addChildNode(node)
-    }
-
-    static func addLights(to scene: SCNScene) {
-        let ambient = SCNNode()
-        ambient.light = SCNLight()
-        ambient.light?.type = .ambient
-        ambient.light?.intensity = 420
-        ambient.light?.color = UIColor.white
-        scene.rootNode.addChildNode(ambient)
-
-        func directional(_ intensity: CGFloat, _ euler: SCNVector3) {
-            let n = SCNNode()
-            n.light = SCNLight()
-            n.light?.type = .directional
-            n.light?.intensity = intensity
-            n.light?.color = UIColor.white
-            n.eulerAngles = euler
-            scene.rootNode.addChildNode(n)
-        }
-        directional(560, SCNVector3(-Float.pi / 3, Float.pi / 5, 0))        // key, from above front-right
-        directional(300, SCNVector3(-Float.pi / 4, Float.pi + Float.pi / 4, 0)) // fill, from behind-left
-    }
-
-    /// Elevated three-quarter view of the whole model with a margin.
-    static func frameCamera(_ scene: SCNScene, bounds: (min: SIMD3<Float>, max: SIMD3<Float>)) -> (SCNNode, SCNVector3) {
-        let lo = SIMD3<Double>(bounds.min), hi = SIMD3<Double>(bounds.max)
-        let centre = (lo + hi) / 2
-        var corners: [SIMD3<Double>] = []
-        for x in [lo.x, hi.x] { for y in [lo.y, hi.y] { for z in [lo.z, hi.z] { corners.append(SIMD3(x, y, z)) } } }
-        // SECURESCAN_3D_AZIMUTH (degrees) is for automated screenshots only.
-        let azimuth = ProcessInfo.processInfo.environment["SECURESCAN_3D_AZIMUTH"].flatMap { Double($0) } ?? 28
-        let dir = CameraFit.direction(azimuthDegrees: azimuth, elevationDegrees: 58)
-        let fov = 50.0
-        let tanH = tan(fov / 2 * .pi / 180)
-        let tanV = tanH / 0.62                       // portrait view, roughly w/h = 0.62
-        let d = CameraFit.distance(points: corners, target: centre, direction: dir, tanH: tanH, tanV: tanV, margin: 0.94)
-        let pos = centre + dir * d
-
-        let cam = SCNNode()
-        cam.name = "frame-camera"
-        let camera = SCNCamera()
-        camera.projectionDirection = .horizontal
-        camera.fieldOfView = CGFloat(fov)
-        camera.zNear = 0.05
-        camera.zFar = max(100, d * 6)
-        cam.camera = camera
-        cam.simdPosition = SIMD3<Float>(pos)
-        let c = SCNVector3(Float(centre.x), Float(centre.y), Float(centre.z))
-        cam.look(at: c, up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
-        scene.rootNode.addChildNode(cam)
-        return (cam, c)
-    }
-
     // MARK: Markup nodes (main)
 
-    /// Material that draws on top of the model, so markers are never hidden
-    /// inside or behind walls.
+    /// Drawn on top of the model, so markers are never hidden behind walls.
     static func overlayMaterial(_ color: UIColor, constant: Bool = true) -> SCNMaterial {
         let m = SCNMaterial()
         m.diffuse.contents = color
@@ -457,43 +424,41 @@ final class ModelViewModel: ObservableObject {
         let node = SCNNode()
         node.simdPosition = m.position
         node.renderingOrder = 200
-        let r = CGFloat(max(0.05, min(0.14, scale * 0.012)))
+        let r = CGFloat(max(0.05, min(0.11, scale * 0.011)))
         let geometry: SCNGeometry
         switch m.kind {
-        case "boundary": geometry = SCNBox(width: r * 1.1, height: r * 1.1, length: r * 1.1, chamferRadius: r * 0.1)
-        case "source": geometry = SCNSphere(radius: r * 1.5)
-        case "photo": geometry = SCNSphere(radius: r * 0.9)
-        case "equipment": geometry = SCNBox(width: r * 1.8, height: r * 1.1, length: r * 1.8, chamferRadius: r * 0.25)
+        case "boundary": geometry = SCNBox(width: r * 0.9, height: r * 0.9, length: r * 0.9, chamferRadius: r * 0.1)
+        case "source": geometry = SCNSphere(radius: r * 1.3)
+        case "photo": geometry = SCNBox(width: r * 1.5, height: r * 1.5, length: r * 1.5, chamferRadius: r * 0.3)
+        case "equipment": geometry = SCNBox(width: r * 2.4, height: r * 1.6, length: r * 2.4, chamferRadius: r * 0.4)
         default: geometry = SCNSphere(radius: r)
         }
         geometry.materials = [overlayMaterial(m.color)]
         let dot = SCNNode(geometry: geometry)
         dot.renderingOrder = 200
         node.addChildNode(dot)
-        if m.kind == "source" {
-            // White ring so the source reads as a target, not a reading.
-            let ring = SCNTorus(ringRadius: r * 2.1, pipeRadius: r * 0.28)
-            ring.materials = [overlayMaterial(lineBlue)]
+        if m.kind == "reading" || m.kind == "source" {
+            // White ring round the head reads as a pin, from any angle.
+            let ring = SCNTorus(ringRadius: r * (m.kind == "source" ? 1.9 : 1.25), pipeRadius: r * 0.22)
+            ring.materials = [overlayMaterial(.white)]
             let rn = SCNNode(geometry: ring)
             rn.renderingOrder = 201
-            rn.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)    // ring faces +Z...
+            rn.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
             let facing = SCNNode()
-            facing.constraints = [SCNBillboardConstraint()]    // ...and +Z faces the camera
+            facing.constraints = [SCNBillboardConstraint()]
             facing.addChildNode(rn)
             node.addChildNode(facing)
         }
-
         if let text = m.label, let image = labelImage(text, accent: m.color) {
-            let height = CGFloat(max(0.16, min(0.45, scale * 0.055)))
+            let height = CGFloat(max(0.17, min(0.38, scale * 0.045)))
             let plane = SCNPlane(width: height * image.size.width / image.size.height, height: height)
             let lm = overlayMaterial(.white)
             lm.diffuse.contents = image
             plane.materials = [lm]
             let labelNode = SCNNode(geometry: plane)
+            labelNode.name = "label"
             labelNode.renderingOrder = 210
-            // The container faces the camera, so its local "up" is screen-up:
-            // stacked labels stay apart however steeply the camera looks down.
-            let lift = r * (m.kind == "source" ? 2.6 : 1.4) + height / 2 + CGFloat(m.level) * height * 1.2
+            let lift = r * 1.6 + height / 2 + CGFloat(m.level) * height * 1.15
             labelNode.position = SCNVector3(0, Float(lift), 0)
             let facing = SCNNode()
             facing.constraints = [SCNBillboardConstraint()]
@@ -503,22 +468,16 @@ final class ModelViewModel: ObservableObject {
         return node
     }
 
-    /// Polyline through the marks plus a translucent fill down to the floor,
-    /// both drawn over the model so they show from either side of the wall.
+    /// Polyline through the marks plus a translucent fill down to the floor.
     static func lineNode(_ line: MoistureLine3D, scale: Float) -> SCNNode {
         let node = SCNNode()
         let pts = line.points
         guard pts.count >= 2, line.floorY.count == pts.count else { return node }
-
-        // Fill: one quad strip in the wall's plane, drawn over the wall (a wall
-        // has two faces and the neighbouring room's wall may be right behind
-        // it, so a depth-tested fill would be hidden from one side).
         var vertices: [SCNVector3] = []
         var indices: [Int32] = []
         for (i, p) in pts.enumerated() {
-            let bottom = SIMD3<Float>(p.x, line.floorY[i], p.z)
             vertices.append(SCNVector3(p.x, p.y, p.z))
-            vertices.append(SCNVector3(bottom.x, bottom.y, bottom.z))
+            vertices.append(SCNVector3(p.x, line.floorY[i], p.z))
         }
         for i in 0..<(pts.count - 1) {
             let t0 = Int32(i * 2), b0 = t0 + 1, t1 = t0 + 2, b1 = t0 + 3
@@ -527,7 +486,7 @@ final class ModelViewModel: ObservableObject {
         let fill = SCNGeometry(sources: [SCNGeometrySource(vertices: vertices)],
                                elements: [SCNGeometryElement(indices: indices, primitiveType: .triangles)])
         let fm = SCNMaterial()
-        fm.diffuse.contents = lineBlue.withAlphaComponent(0.42)
+        fm.diffuse.contents = lineBlue.withAlphaComponent(0.32)
         fm.lightingModel = .constant
         fm.isDoubleSided = true
         fm.readsFromDepthBuffer = false
@@ -536,9 +495,7 @@ final class ModelViewModel: ObservableObject {
         let fillNode = SCNNode(geometry: fill)
         fillNode.renderingOrder = 150
         node.addChildNode(fillNode)
-
-        // Line: thin tubes between consecutive marks, drawn on top.
-        let radius = CGFloat(max(0.015, min(0.045, scale * 0.005)))
+        let radius = CGFloat(max(0.012, min(0.03, scale * 0.004)))
         for i in 0..<(pts.count - 1) {
             let a = pts[i], b = pts[i + 1]
             let v = b - a
@@ -555,30 +512,49 @@ final class ModelViewModel: ObservableObject {
         return node
     }
 
-    /// Translucent red (done: green) quad, drawn over the model.
-    static func bandNode(_ c: [SIMD3<Float>], done: Bool) -> SCNNode {
-        guard c.count == 4 else { return SCNNode() }
-        let src = SCNGeometrySource(vertices: c.map { SCNVector3($0.x, $0.y, $0.z) })
-        let el = SCNGeometryElement(indices: [Int32(0), 1, 2, 0, 2, 3], primitiveType: .triangles)
-        let g = SCNGeometry(sources: [src], elements: [el])
+    static func removalColor(done: Bool, alpha: CGFloat) -> UIColor {
+        UIColor(done ? DS.Color.dry : DS.Color.remove).withAlphaComponent(alpha)
+    }
+
+    /// A translucent sleeve round the wall from the floor to the cut height.
+    static func wallBandNode(_ a: PlanVec, _ b: PlanVec, top: Double, done: Bool) -> SCNNode {
+        let len = ((b - a) * (b - a)).sum().squareRoot()
+        guard len > 0.01 else { return SCNNode() }
+        let dir = (b - a) / len
+        let box = SCNBox(width: CGFloat(len), height: CGFloat(top + 0.006), length: CGFloat(Dollhouse.wallThickness + 0.05), chamferRadius: 0)
         let m = SCNMaterial()
-        m.diffuse.contents = done ? UIColor(red: 0.18, green: 0.62, blue: 0.33, alpha: 0.40) : UIColor(red: 0.84, green: 0.20, blue: 0.18, alpha: 0.40)
+        m.diffuse.contents = removalColor(done: done, alpha: 0.55)
+        m.lightingModel = .constant
+        m.writesToDepthBuffer = false
+        box.materials = [m]
+        let n = SCNNode(geometry: box)
+        n.renderingOrder = 140
+        n.position = SCNVector3(Float((a.x + b.x) / 2), Float(top / 2), Float((a.y + b.y) / 2))
+        n.eulerAngles = SCNVector3(0, Float(atan2(-dir.y, dir.x)), 0)
+        return n
+    }
+
+    /// Lifted flooring: a translucent red patch on the floor.
+    static func floorAreaNode(_ poly: [PlanVec], done: Bool) -> SCNNode? {
+        guard let g = Dollhouse.floorGeometry(poly, tile: 1) else { return nil }
+        let m = SCNMaterial()
+        m.diffuse.contents = removalColor(done: done, alpha: 0.38)
         m.lightingModel = .constant
         m.isDoubleSided = true
-        m.readsFromDepthBuffer = false
         m.writesToDepthBuffer = false
         g.materials = [m]
         let n = SCNNode(geometry: g)
-        n.renderingOrder = 140
+        n.position = SCNVector3(0, 0.012, 0)
+        n.renderingOrder = 130
         return n
     }
 
     static func labelImage(_ text: String, accent: UIColor) -> UIImage? {
-        let font = UIFont.systemFont(ofSize: 44, weight: .bold)
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor(white: 0.1, alpha: 1)]
+        let font = UIFont.systemFont(ofSize: 40, weight: .semibold)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor(red: 0.04, green: 0.06, blue: 0.08, alpha: 1)]
         let size = (text as NSString).size(withAttributes: attrs)
-        let dot: CGFloat = 26
-        let canvas = CGSize(width: ceil(size.width) + 40 + dot + 12, height: ceil(size.height) + 20)
+        let dot: CGFloat = 22
+        let canvas = CGSize(width: ceil(size.width) + 36 + dot + 12, height: ceil(size.height) + 20)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 2
         return UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
@@ -586,12 +562,12 @@ final class ModelViewModel: ObservableObject {
             let pill = UIBezierPath(roundedRect: rect, cornerRadius: rect.height / 2)
             UIColor.white.setFill()
             pill.fill()
-            UIColor(white: 0.25, alpha: 1).setStroke()
-            pill.lineWidth = 3
+            UIColor(white: 0, alpha: 0.12).setStroke()
+            pill.lineWidth = 2
             pill.stroke()
             accent.setFill()
-            UIBezierPath(ovalIn: CGRect(x: 20, y: (canvas.height - dot) / 2, width: dot, height: dot)).fill()
-            (text as NSString).draw(at: CGPoint(x: 20 + dot + 12, y: 10), withAttributes: attrs)
+            UIBezierPath(ovalIn: CGRect(x: 18, y: (canvas.height - dot) / 2, width: dot, height: dot)).fill()
+            (text as NSString).draw(at: CGPoint(x: 18 + dot + 12, y: 10), withAttributes: attrs)
         }
     }
 }
@@ -602,74 +578,167 @@ struct ModelTab: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: ModelViewModel.background).ignoresSafeArea(edges: .horizontal)
-            if model.scene != nil {
+            Color(uiColor: Dollhouse.canvas).ignoresSafeArea(edges: .horizontal)
+            if model.ready {
                 SceneContainer(model: model)
+                controls
             } else if model.loading {
                 ProgressView()
-            } else {
-                ContentUnavailableView("No 3D view", systemImage: "cube.transparent",
-                                       description: Text(model.error ?? "This job has no 3D model yet."))
+            } else if let e = model.error {
+                ContentUnavailableView("No 3D view yet", systemImage: "cube.transparent", description: Text(e))
             }
-            if model.scene != nil { controls }
         }
         .onAppear { model.load(folder: vm.folder, version: vm.planVersion) }
         .onChange(of: vm.planVersion) { _, v in model.load(folder: vm.folder, version: v) }
     }
 
-    /// One quiet line top-left; icon buttons top-right (like Maps).
     private var controls: some View {
-        VStack {
-            HStack(alignment: .top, spacing: 12) {
-                if model.usingPlanFallback {
-                    Text("Drawn from the plan")
-                        .font(DS.Font.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                        .frame(height: 30)
-                        .background(.regularMaterial, in: Capsule())
-                }
+        ZStack {
+            VStack(alignment: .leading, spacing: 12) {
+                modeSwitch
+                layersMenu
                 Spacer()
-                VStack(spacing: 12) {
-                    IconButton("mappin.and.ellipse", label: model.showMarkers ? "Hide markers" : "Show markers",
-                               tint: model.showMarkers ? DS.Color.accent : nil) { model.showMarkers.toggle() }
-                    IconButton("camera", label: "Save image") { model.snapshotAndShare() }
-                    if vm.hasModel {
-                        IconButton("arkit", label: "Open in AR Quick Look") { Presenter.quickLook(vm.folder.modelURL) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 12) {
+                IconButton("scope", label: "Reset view", tint: DS.Color.ink, size: 48) { model.resetView() }
+                IconButton("ruler", label: model.measuring ? "Stop measuring" : "Measure",
+                           tint: model.measuring ? DS.Color.accent : DS.Color.ink, size: 48) { model.toggleMeasure() }
+                IconButton("camera", label: "Save image", tint: DS.Color.ink, size: 48) { model.snapshotAndShare() }
+                IconButton("arkit", label: "View in AR", tint: DS.Color.ink, size: 48) { model.openAR() }
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+
+            if model.measuring {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 10) {
+                        Image(systemName: "ruler")
+                        Text(model.measureText ?? "Tap two points")
+                            .font(model.measureText == nil ? DS.Font.calloutBold : DS.Font.value(20))
+                            .monospacedDigit()
+                        if model.measureText != nil {
+                            Button { model.clearMeasure() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.7)) }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Clear measurement")
+                        }
                     }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .frame(height: 44)
+                    .background(Capsule().fill(DS.Color.ink))
                 }
             }
-            Spacer()
         }
         .padding(16)
+        .alert("3D view", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+            Button("OK") { model.error = nil }
+        } message: { Text(model.error ?? "") }
+    }
+
+    /// Orbit / Plan, as one dark capsule.
+    private var modeSwitch: some View {
+        HStack(spacing: 4) {
+            modeButton(.orbit, icon: "rotate.3d", label: "Orbit")
+            modeButton(.plan, icon: "square.split.2x2", label: "Plan")
+        }
+        .padding(4)
+        .background(Capsule().fill(DS.Color.ink))
+    }
+
+    private func modeButton(_ m: ModelViewModel.Mode, icon: String, label: String) -> some View {
+        let on = model.mode == m
+        return Button { withAnimation(DS.Motion.tray) { model.setMode(m) } } label: {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(on ? DS.Color.ink : .white)
+                .frame(width: 52, height: 40)
+                .background { if on { Capsule().fill(Color.white) } }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(DSPressStyle())
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private var layersMenu: some View {
+        Menu {
+            ForEach(ModelLayer.allCases) { l in
+                Toggle(isOn: Binding(get: { !model.hidden.contains(l) }, set: { _ in model.toggle(l) })) {
+                    Label(l.rawValue, systemImage: l.icon)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "square.3.layers.3d")
+                Text("Layers")
+                if !model.hidden.isEmpty {
+                    Text("\(ModelLayer.allCases.count - model.hidden.count)/\(ModelLayer.allCases.count)")
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+            .font(DS.Font.calloutBold)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .background(Capsule().fill(DS.Color.ink))
+        }
+        .accessibilityLabel("Layers")
     }
 }
 
 struct SceneContainer: UIViewRepresentable {
     @ObservedObject var model: ModelViewModel
 
+    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+
     func makeUIView(context: Context) -> SCNView {
         let v = SCNView()
-        v.allowsCameraControl = true
-        v.autoenablesDefaultLighting = false      // the scene has its own lights
+        v.backgroundColor = Dollhouse.canvas
         v.antialiasingMode = .multisampling4X
-        v.backgroundColor = ModelViewModel.background
-        apply(v)
+        v.autoenablesDefaultLighting = false
+        v.scene = model.scene
+        v.allowsCameraControl = true
         model.view = v
+        // Our double-tap focuses a room (SceneKit's own one would reset the view).
+        for g in v.gestureRecognizers ?? [] {
+            if let t = g as? UITapGestureRecognizer, t.numberOfTapsRequired == 2 { t.isEnabled = false }
+        }
+        let double = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTap(_:)))
+        double.numberOfTapsRequired = 2
+        v.addGestureRecognizer(double)
+        let single = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:)))
+        single.require(toFail: double)
+        v.addGestureRecognizer(single)
+        // Frame once the view has its size.
+        Task { @MainActor in model.resetView(animated: false) }
         return v
     }
 
     func updateUIView(_ v: SCNView, context: Context) {
-        if v.scene !== model.scene { apply(v) }
+        if v.scene !== model.scene {
+            v.scene = model.scene
+            Task { @MainActor in model.resetView(animated: false) }
+        }
     }
 
-    private func apply(_ v: SCNView) {
-        v.scene = model.scene
-        v.pointOfView = model.cameraNode
-        // Orbit around the middle of the model, keeping "up" up.
-        v.defaultCameraController.interactionMode = .orbitTurntable
-        v.defaultCameraController.target = model.target
-        v.defaultCameraController.worldUp = SCNVector3(0, 1, 0)
+    @MainActor
+    final class Coordinator: NSObject {
+        let model: ModelViewModel
+        init(model: ModelViewModel) { self.model = model }
+
+        @objc func doubleTap(_ g: UITapGestureRecognizer) {
+            guard let v = g.view else { return }
+            model.focusRoom(at: g.location(in: v))
+        }
+
+        @objc func tap(_ g: UITapGestureRecognizer) {
+            guard let v = g.view else { return }
+            model.measureTap(at: g.location(in: v))
+        }
     }
 }
 

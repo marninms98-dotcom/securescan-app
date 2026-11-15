@@ -275,6 +275,7 @@ struct ReviewTray: View {
                     HStack(spacing: DS.Space.tight) {
                         ForEach(entries) { e in
                             ReviewCard(entry: e, thumb: hud.thumbs[e.id], selected: hud.reviewSelected == e.id) {
+                                if e.kind == "photo" && hud.reviewSelected == e.id { hud.openViewer(e.id); return }
                                 withAnimation(DS.Motion.tray) { hud.reviewSelected = e.id }
                             }
                             .id(e.id)

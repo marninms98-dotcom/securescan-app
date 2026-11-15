@@ -337,6 +337,16 @@ enum CaptureTool: String, CaseIterable, Equatable {
         }
     }
 
+    /// The rail's label: five equal tabs on a 393-402 pt phone leave ~63 pt for 13 pt text,
+    /// so the two long names are shortened rather than shrunk.
+    var railTitle: String {
+        switch self {
+        case .equipment: return "Equip."
+        case .remeasure: return "Measure"
+        default: return title
+        }
+    }
+
     var icon: String {
         switch self {
         case .reading: return "humidity"

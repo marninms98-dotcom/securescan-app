@@ -468,7 +468,7 @@ struct JobView: View {
         HStack(spacing: 12) {
             primary
             if vm.dockAction != .documentsOnly {
-                IconButton("doc.text", label: "Documents") { showDocuments = true }
+                IconButton("doc.text", label: "Documents", size: 48) { showDocuments = true }
                     .disabled(!vm.hasPlan || vm.makingDocument)
             }
             MicButton(recorder: recorder, folder: vm.folder, transcribing: vm.voiceStatus != nil) { vm.toggleRecordNote() }
@@ -560,13 +560,13 @@ struct MicButton: View {
                 .contentShape(Capsule())
             } else if transcribing {
                 ProgressView()
-                    .frame(width: DS.Size.icon, height: DS.Size.icon)
+                    .frame(width: 48, height: 48)
                     .background(Circle().fill(Color(.tertiarySystemFill)))
             } else {
                 Image(systemName: "mic")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color(.label))
-                    .frame(width: DS.Size.icon, height: DS.Size.icon)
+                    .frame(width: 48, height: 48)
                     .background(Circle().fill(Color(.tertiarySystemFill)))
                     .contentShape(Circle())
             }

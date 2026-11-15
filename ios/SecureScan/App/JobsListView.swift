@@ -103,7 +103,7 @@ struct JobsListView: View {
             ForEach(filtered) { job in
                 Section {
                     NavigationLink(value: job.id) {
-                        JobCard(job: job, summary: summaries.byID[job.id])
+                        JobCard(job: job, summary: summaries.byID[job.id], thumbsVersion: summaries.thumbsVersion)
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) { deleteCandidate = job } label: {
@@ -262,6 +262,8 @@ struct JobsListView: View {
 struct JobCard: View {
     let job: JobMeta
     let summary: JobSummary?
+    /// Changes when thumbnails are re-rendered (forces the image to reload).
+    var thumbsVersion = 0
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -286,16 +288,24 @@ struct JobCard: View {
         .padding(.vertical, 6)
     }
 
+    /// The 3D dollhouse (thumb3d.png), else the plan drawing, else a placeholder.
     private var thumbnail: some View {
-        ZStack {
-            Color.white
-            if let img = UIImage(contentsOfFile: JobFiles.folder(for: job.id).thumbURL.path) {
+        let folder = JobFiles.folder(for: job.id)
+        let dollhouse = UIImage(contentsOfFile: Dollhouse.thumbURL(folder).path)
+        return ZStack {
+            if let dollhouse {
+                Color(uiColor: Dollhouse.canvas)
+                Image(uiImage: dollhouse).resizable().scaledToFill()
+            } else if let img = UIImage(contentsOfFile: folder.thumbURL.path) {
+                Color.white
                 Image(uiImage: img).resizable().scaledToFit().padding(5)
             } else {
-                Image(systemName: "square.dashed").font(.system(size: 22)).foregroundStyle(.tertiary)
+                Color(uiColor: Dollhouse.canvas)
+                Image(systemName: "cube.transparent").font(.system(size: 24)).foregroundStyle(.tertiary)
             }
         }
-        .frame(width: 64, height: 64)
+        .id(thumbsVersion)
+        .frame(width: 76, height: 76)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
     }

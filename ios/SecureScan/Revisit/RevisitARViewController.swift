@@ -22,8 +22,6 @@ final class RevisitARViewController: UIViewController, ARSCNViewDelegate {
     private var timer: Timer?
     private var started = false
     private var lastTracking: TrackingStatus?
-    /// The 0.5x photo format, when this device offers one for world tracking.
-    private(set) var ultraWideOn = false
 
     static var isSupported: Bool { ARWorldTrackingConfiguration.isSupported }
 
@@ -71,7 +69,6 @@ final class RevisitARViewController: UIViewController, ARSCNViewDelegate {
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal, .vertical]
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) { config.sceneReconstruction = .mesh }
-        if ultraWideOn, let f = PhotoCapture.ultraWideFormat { config.videoFormat = f }
         config.initialWorldMap = worldMap
         return config
     }
@@ -83,11 +80,12 @@ final class RevisitARViewController: UIViewController, ARSCNViewDelegate {
         clearOutline()
     }
 
-    /// 0.5x: the same session (tracking kept) on the ultra-wide format, if the device offers it.
-    func setUltraWide(_ on: Bool) {
-        guard PhotoCapture.ultraWideFormat != nil, on != ultraWideOn else { return }
-        ultraWideOn = on
-        sceneView.session.run(configuration(worldMap: nil), options: [])
+    /// 0.5x hand-off: the camera goes to AVFoundation for one photo, then back (tracking kept).
+    func pauseForHandoff() { sceneView.session.pause() }
+
+    func resumeAfterHandoff() {
+        guard let c = sceneView.session.configuration else { return }
+        sceneView.session.run(c, options: [])
     }
 
     // MARK: Camera for the capture screen

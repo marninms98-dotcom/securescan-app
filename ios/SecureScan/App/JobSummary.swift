@@ -91,6 +91,9 @@ struct JobSummary: Equatable {
 @MainActor
 final class JobSummaries: ObservableObject {
     @Published private(set) var byID: [UUID: JobSummary] = [:]
+    /// Bumped when 3D thumbnails were (re)rendered, so the cards reload them.
+    @Published private(set) var thumbsVersion = 0
+    private var rendering = false
 
     func refresh(_ jobs: [JobMeta]) {
         let list = jobs
@@ -107,6 +110,26 @@ final class JobSummaries: ObservableObject {
                 return d
             }.value
             byID = out
+            renderThumbs(list)
+        }
+    }
+
+    /// Renders the dollhouse thumbnail of every job whose plan changed since
+    /// its thumb3d.png (one at a time, in the background).
+    private func renderThumbs(_ jobs: [JobMeta]) {
+        guard !rendering else { return }
+        let folders = jobs.map { JobFiles.folder(for: $0.id) }
+        rendering = true
+        Task {
+            let made = await Task.detached(priority: .utility) { () -> Int in
+                var n = 0
+                for f in folders where Dollhouse.thumbNeedsRender(f) {
+                    if Dollhouse.renderThumb(f) { n += 1 }
+                }
+                return n
+            }.value
+            rendering = false
+            if made > 0 { thumbsVersion += 1 }
         }
     }
 }

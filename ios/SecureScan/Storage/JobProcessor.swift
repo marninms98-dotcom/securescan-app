@@ -159,6 +159,7 @@ enum JobProcessor {
             return NeedsFix(id: r.id, sentence: p.sentence, fix: p.fix)
         }
         NeedsFix.save(fixes, folder)
+        meta.unplaced = fixes.isEmpty ? nil : fixes.map(\.id)
         if let text = PlainWords.jobNote(fixCount: fixes.count) {
             meta.note = [meta.note, text].compactMap { $0 }.joined(separator: " · ")
         }

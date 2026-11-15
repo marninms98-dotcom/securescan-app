@@ -27,6 +27,8 @@ struct CaptureScreen: View {
             CaptureHUD(hud: hud)
         }
         .dsSurface(.camera)
+        // The HUD keeps its layout: Dynamic Type is capped at the default size here.
+        .dynamicTypeSize(...DynamicTypeSize.large)
         .onReceive(timer) { _ in hud.tick() }
     }
 }
@@ -42,7 +44,7 @@ struct CaptureHUD: View {
             ZStack {
                 if hud.tray == nil && hud.display.showsTools && hud.display.busy == nil {
                     // The raycast point is the centre of the whole screen, not of the safe area.
-                    ReticleView(aim: hud.aim, label: reticleLabel, snapped: hud.aim.snapped)
+                    ReticleView(aim: hud.aim, label: nil, snapped: hud.aim.snapped)
                         .position(Self.screenCentre(geo))
                         .allowsHitTesting(false)
                 }
@@ -57,11 +59,18 @@ struct CaptureHUD: View {
                 flyingToken(geo)
                 Color.white.opacity(flash).ignoresSafeArea().allowsHitTesting(false)
                 if let busy = hud.display.busy { busyOverlay(busy) }
+                if let start = hud.viewerStart {
+                    PhotoViewer(hud: hud, startId: start).transition(.opacity)
+                }
+                if hud.handoffShot != nil {
+                    UltraWideCaptureView { hud.finishHandoff($0) }.transition(.opacity)
+                }
             }
             .coordinateSpace(name: "hud")
             .ignoresSafeArea(.keyboard)
         }
         .animation(DS.Motion.tray, value: hud.tray)
+        .animation(.easeInOut(duration: 0.2), value: hud.viewerStart)
         .animation(.easeInOut(duration: 0.2), value: hud.toast)
         .animation(.easeInOut(duration: 0.2), value: hud.undoVisible)
         .onChange(of: hud.saveTick) { _, _ in saved() }
@@ -70,14 +79,6 @@ struct CaptureHUD: View {
     static func screenCentre(_ geo: GeometryProxy) -> CGPoint {
         CGPoint(x: geo.size.width / 2 + (geo.safeAreaInsets.trailing - geo.safeAreaInsets.leading) / 2,
                 y: geo.size.height / 2 + (geo.safeAreaInsets.bottom - geo.safeAreaInsets.top) / 2)
-    }
-
-    /// What the reticle is on. While a line or area is drawn the shape carries its own
-    /// length / area capsule; aiming at saved points (re-measure, done) the button says it.
-    private var reticleLabel: String? {
-        if hud.tool == .remeasure || hud.tool == .done { return nil }
-        if hud.tool == .mark, !hud.markPoints.isEmpty, hud.markStartShape == .area { return nil }
-        return CaptureCopy.reticle(hud.aim)
     }
 
     // MARK: Top bar
@@ -97,7 +98,7 @@ struct CaptureHUD: View {
         let content = VStack(spacing: 1) {
             Text(CaptureCopy.phase(hud.display.phase, room: hud.display.room))
                 .font(DS.Font.calloutBold).lineLimit(1).minimumScaleFactor(0.85)
-            if let c = hud.display.coaching ?? hud.coachHint {
+            if let c = hud.display.coaching ?? hud.coachHint ?? hud.photoCountLine {
                 Text(c).font(DS.Font.caption).foregroundStyle(DS.Color.onCameraSecondary).lineLimit(1).minimumScaleFactor(0.85)
             }
         }
@@ -158,6 +159,7 @@ struct CaptureHUD: View {
         } else {
             VStack(spacing: DS.Space.gap) {
                 if hud.display.showsTools {
+                    photoCardRow
                     stackRow
                     toolOptions
                     rail
@@ -175,15 +177,30 @@ struct CaptureHUD: View {
         return PrimaryButton(p.title, enabled: p.enabled, tint: p.tint) { hud.tapPrimary() }
     }
 
+    @ViewBuilder private var photoCardRow: some View {
+        if let card = hud.photoCard {
+            HStack {
+                PhotoCardView(card: card, onOpen: { hud.openViewer(card.id) }, onRetake: { hud.beginRetake(card.id) })
+                Spacer()
+            }
+        }
+    }
+
     private var stackRow: some View {
         HStack(alignment: .bottom) {
-            if hud.stack.count > 0 {
-                StackButton(count: hud.stack.count, thumb: hud.stackThumb, kind: hud.stack.last?.kind ?? "",
-                            needsFix: hud.stack.needsFixCount > 0) { hud.openReview() }
+            if hud.stackCount > 0 {
+                StackButton(count: hud.stackCount, thumb: hud.stackThumb, kind: hud.stackKind,
+                            needsFix: hud.stack.needsFixCount > 0 && hud.tool != .photo) {
+                    if hud.tool == .photo { hud.openViewer() } else { hud.openReview() }
+                }
                     .background(GeometryReader { g in Color.clear.onAppear { stackFrame = g.frame(in: .named("hud")) }
                         .onChange(of: g.frame(in: .named("hud"))) { _, f in stackFrame = f } })
             }
             Spacer()
+            if hud.tool == .photo && hud.engine.zoomState != .unavailable && hud.retakeFor == nil {
+                ZoomToggle(state: hud.engine.zoomState, ultra: $hud.zoomUltra) { hud.showToast($0) }
+                Spacer()
+            }
             if hud.undoVisible && hud.stack.count > 0 {
                 SecondaryButton("Undo", icon: "arrow.uturn.backward") { hud.undo() }
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -242,8 +259,8 @@ struct CaptureHUD: View {
                 OptionChip(id: e.key, title: e.name, selected: hud.equipmentType == e.key) { hud.equipmentType = e.key }
             }
         case .photo:
-            guard let on = hud.engine.ultraWide else { return [] }
-            return [OptionChip(id: "wide", title: on ? "0.5×" : "1×", icon: "camera.aperture", selected: on) { hud.engine.setUltraWide(!on) }]
+            guard hud.retakeFor != nil else { return [] }
+            return [OptionChip(id: "cancel-retake", title: "Cancel retake", icon: "xmark") { hud.cancelRetake() }]
         default:
             return []
         }
@@ -252,7 +269,7 @@ struct CaptureHUD: View {
     private var rail: some View {
         HStack(spacing: 4) {
             ForEach(hud.tools, id: \.self) { t in
-                ToolTab(t.title, icon: t.icon, selected: hud.tool == t) {
+                ToolTab(t.railTitle, icon: t.icon, selected: hud.tool == t) {
                     withAnimation(DS.Motion.tray) { hud.select(t) }
                 }
             }
