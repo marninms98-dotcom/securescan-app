@@ -68,6 +68,8 @@ struct OverlayPainter {
     let proj: Projector
     let size: CGSize
     let time: Double
+    /// Labels already placed this frame: later ones move out of their way.
+    let board = LabelBoard()
 
     /// Labels keep clear of the reticle and its readout.
     var reticleZone: CGRect {
@@ -115,9 +117,18 @@ struct OverlayPainter {
         let label = c.resolve(Text(text).font(DS.Font.captionBold).monospacedDigit().foregroundColor(.white))
         let ts = label.measure(in: CGSize(width: 260, height: 40))
         var r = CGRect(x: p.x - ts.width / 2 - 9, y: p.y - (above ? ts.height + 12 : 0), width: ts.width + 18, height: ts.height + 8)
-        if r.intersects(reticleZone) {
-            r.origin.y = r.midY < reticleZone.midY ? reticleZone.minY - r.height - 4 : reticleZone.maxY + 4
+        // Never under the top bar, never off the sides, never on the reticle or another label.
+        r.origin.x = min(max(r.minX, 10), size.width - r.width - 10)
+        r.origin.y = min(max(r.minY, 112), size.height - r.height - 10)
+        for _ in 0..<6 {
+            if r.intersects(reticleZone) {
+                r.origin.y = r.midY < reticleZone.midY ? reticleZone.minY - r.height - 4 : reticleZone.maxY + 4
+                continue
+            }
+            guard let hit = board.rects.first(where: { $0.insetBy(dx: -3, dy: -3).intersects(r) }) else { break }
+            r.origin.y = r.midY <= hit.midY ? hit.minY - r.height - 4 : hit.maxY + 4
         }
+        board.rects.append(r)
         let shape = Capsule().path(in: r)
         c.fill(shape, with: .color(fill))
         c.stroke(shape, with: .color(.white.opacity(0.25)), lineWidth: 1)
@@ -316,6 +327,7 @@ struct OverlayPainter {
             c.draw(label, at: CGPoint(x: r.midX, y: r.midY), anchor: .center)
         }
         let r = CGRect(x: centre.x - 15, y: centre.y - 15, width: 30, height: 30)
+        board.rects.append(r.insetBy(dx: -2, dy: -2))
         if selected {
             c.stroke(Circle().path(in: r.insetBy(dx: -4, dy: -4)), with: .color(DS.Color.accent), lineWidth: 3)
         }
@@ -401,4 +413,9 @@ struct OverlayPainter {
         var c = ctx
         tag("\(m.tag ?? "Item") \(arrow)", at: cg(at), fill: DS.Color.accent, in: &c, above: false)
     }
+}
+
+/// Label rectangles placed in one frame (shared by the painter's copies).
+final class LabelBoard {
+    var rects: [CGRect] = []
 }

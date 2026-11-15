@@ -300,6 +300,7 @@ extension JobViewModel {
 
     /// The one primary action of the job screen.
     enum DockAction: Equatable {
+        case startScan
         case scope(done: Int, total: Int)
         case continueOnSite
         case nextVisit(Int)
@@ -307,6 +308,7 @@ extension JobViewModel {
     }
 
     var dockAction: DockAction {
+        if !hasPlan { return JobsListView.lidarSupported ? .startScan : .documentsOnly }
         let scope = hasPlan && scopeTotal > 0
         if scope && scopeDone < scopeTotal { return .scope(done: scopeDone, total: scopeTotal) }
         if canReturnVisit {
@@ -325,6 +327,7 @@ struct JobView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var tab = JobTab.fromEnvironment()
     @State private var showDocuments = false
+    @State private var scanning = false
 
     init(jobID: UUID) {
         _vm = StateObject(wrappedValue: JobViewModel(jobID: jobID))
@@ -401,6 +404,17 @@ struct JobView: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $scanning) {
+            if let meta = vm.meta {
+                Group {
+                    if UserDefaults.standard.bool(forKey: "markWhileScanning") {
+                        LiveScanView(job: meta, onFinished: { _ in scanFinished() }, onDiscarded: { scanning = false }, onClassic: {})
+                    } else {
+                        ScanView(job: meta, onFinished: { _ in scanFinished() }, onDiscarded: { scanning = false })
+                    }
+                }
+            }
+        }
         .fullScreenCover(isPresented: $vm.showScope) {
             RevisitView(folder: vm.folder, scope: true,
                         onClose: { vm.showScope = false; vm.revisitClosed() },
@@ -425,6 +439,12 @@ struct JobView: View {
         }
     }
 
+    private func scanFinished() {
+        scanning = false
+        vm.meta = JobFiles.readMeta(vm.folder) ?? vm.meta
+        vm.planVersion += 1
+    }
+
     // MARK: Bottom dock
 
     private var dock: some View {
@@ -440,8 +460,9 @@ struct JobView: View {
         .padding(.top, 12)
         .padding(.bottom, 4)
         .background {
-            Rectangle().fill(.bar)
-                .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5) }
+            // Solid, so nothing of the plan shows through; a hairline on top.
+            Rectangle().fill(Color(.systemBackground))
+                .overlay(alignment: .top) { Rectangle().fill(Color(.separator)).frame(height: 0.5) }
                 .ignoresSafeArea(edges: .bottom)
         }
     }
@@ -449,6 +470,8 @@ struct JobView: View {
     @ViewBuilder
     private var primary: some View {
         switch vm.dockAction {
+        case .startScan:
+            PrimaryButton("Start scan", icon: "viewfinder") { scanning = true }
         case .scope(let done, let total):
             PrimaryButton("See scope on site · \(done) of \(total)", icon: "arkit") { vm.openScope() }
         case .continueOnSite:

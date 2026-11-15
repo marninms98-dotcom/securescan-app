@@ -264,7 +264,7 @@ struct JobCard: View {
     let summary: JobSummary?
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             thumbnail
             VStack(alignment: .leading, spacing: 4) {
                 Text(job.displayAddress)
@@ -301,6 +301,7 @@ struct JobCard: View {
     }
 
     private var facts: String {
+        if job.roomCount == 0 && !JobFiles.folder(for: job.id).hasPlan { return "Not scanned yet" }
         var parts: [String] = []
         parts.append(job.roomCount == 1 ? "1 room" : "\(job.roomCount) rooms")
         if job.totalArea > 0 { parts.append(String(format: "%.0f m²", job.totalArea)) }
@@ -309,7 +310,7 @@ struct JobCard: View {
     }
 
     private func statusLine(withRef: Bool) -> some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             if let summary { StatusBadge(status: summary.status) }
             if let n = summary?.toFix, n > 0 {
                 StatusBadge(title: "\(n) to fix", color: DS.Color.damp)

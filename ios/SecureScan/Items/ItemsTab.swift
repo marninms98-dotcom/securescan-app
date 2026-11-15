@@ -51,11 +51,13 @@ extension JobViewModel {
         }
     }
 
-    func deleteItem(id: String, kind: CapturedItem.Kind?) {
+    func deleteItem(id: String, kind: CapturedItem.Kind?) { deleteItems(ids: [id], kind: kind) }
+
+    func deleteItems(ids: [String], kind: CapturedItem.Kind?) {
         let folder = self.folder
         Task {
             if let editor { await editor.flushLatestPlan() }
-            await Task.detached(priority: .userInitiated) { ItemsModel.delete(folder: folder, id: id, kind: kind) }.value
+            await Task.detached(priority: .userInitiated) { ItemsModel.delete(folder: folder, ids: ids, kind: kind) }.value
             planVersion += 1
         }
     }
@@ -90,7 +92,7 @@ struct ItemsTab: View {
         .sheet(item: $editing) { item in
             ItemEditSheet(item: item, thumb: model.thumbs[item.id], thresholds: (model.snapshot.damp, model.snapshot.wet),
                           onSave: { value, material, text in vm.editItem(item, value: value, material: material, text: text) },
-                          onDelete: { vm.deleteItem(id: item.id, kind: item.kind) })
+                          onDelete: { vm.deleteItems(ids: item.allIDs, kind: item.kind) })
         }
         .confirmationDialog("Discard this item?", isPresented: Binding(get: { discarding != nil }, set: { if !$0 { discarding = nil } }),
                             titleVisibility: .visible, presenting: discarding) { fix in
@@ -116,23 +118,45 @@ struct ItemsTab: View {
     }
 
     private var list: some View {
-        List {
-            if !model.snapshot.fixes.isEmpty && filter == .all { fixSection }
-            ForEach(groups, id: \.id) { g in
-                Section {
-                    ForEach(g.items) { item in row(item) }
-                } header: {
-                    HStack {
-                        Text(g.name)
-                        Spacer()
-                        Text("\(g.items.count)").monospacedDigit()
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if !model.snapshot.fixes.isEmpty && filter == .all {
+                    Section { fixCard } header: { header("Needs a quick fix", count: model.snapshot.fixes.count) }
+                }
+                ForEach(groups, id: \.id) { g in
+                    Section {
+                        card(g.items)
+                    } header: {
+                        header(g.name, count: g.items.count)
                     }
                 }
             }
+            .padding(.bottom, 16)
         }
-        .listStyle(.insetGrouped)
-        .listSectionSpacing(16)
-        .contentMargins(.top, 0, for: .scrollContent)
+    }
+
+    private func header(_ title: String, count: Int) -> some View {
+        HStack {
+            Text(title).font(DS.Font.calloutBold)
+            Spacer()
+            Text("\(count)").font(DS.Font.callout).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+        .frame(maxWidth: .infinity)
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private func card(_ items: [CapturedItem]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                row(item)
+                if i < items.count - 1 { Divider().padding(.leading, 84) }
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .padding(.horizontal, 16)
     }
 
     private struct RoomGroup { var id: String; var name: String; var items: [CapturedItem] }
@@ -159,9 +183,9 @@ struct ItemsTab: View {
 
     // MARK: Needs a quick fix
 
-    private var fixSection: some View {
-        Section {
-            ForEach(model.snapshot.fixes) { fix in
+    private var fixCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(model.snapshot.fixes.enumerated()), id: \.element.id) { i, fix in
                 HStack(spacing: 12) {
                     Image(systemName: "exclamationmark.circle.fill")
                         .font(.system(size: 20))
@@ -169,18 +193,21 @@ struct ItemsTab: View {
                         .frame(width: 56, height: 56)
                         .background(DS.Color.damp.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(fix.title).font(DS.Font.body.weight(.medium)).lineLimit(1)
-                        Text(fix.detail).font(DS.Font.callout).foregroundStyle(.secondary).lineLimit(1)
+                        Text(fix.title).font(DS.Font.body.weight(.medium)).lineLimit(2)
+                        Text(fix.detail).font(DS.Font.callout).foregroundStyle(.secondary).lineLimit(2)
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.vertical, 2)
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+                .contextMenu {
                     Button(role: .destructive) { discarding = fix } label: { Label("Discard", systemImage: "trash") }
                 }
+                if i < model.snapshot.fixes.count - 1 { Divider().padding(.leading, 84) }
             }
+            Divider()
             HStack {
-                Spacer()
                 if model.snapshot.fixesFromInterruptedScan {
                     SecondaryButton(vm.busy ? "Placing…" : "Place them on the plan", icon: "wand.and.stars") { vm.regenerate() }
                         .disabled(vm.busy)
@@ -188,12 +215,14 @@ struct ItemsTab: View {
                     SecondaryButton("Draw on the plan", icon: "pencil.and.outline") { vm.requestedTab = 0 }
                 }
                 Spacer()
+                if model.snapshot.fixes.count == 1, let only = model.snapshot.fixes.first {
+                    SecondaryButton("Discard", role: .destructive) { discarding = only }
+                }
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 0))
-        } header: {
-            Text("Needs a quick fix")
+            .padding(12)
         }
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+        .padding(.horizontal, 16)
     }
 
     // MARK: Rows
@@ -206,23 +235,29 @@ struct ItemsTab: View {
                     Text(item.title)
                         .font(DS.Font.body.weight(.medium))
                         .foregroundStyle(.primary)
-                        .lineLimit(item.kind == .note ? 2 : 1)
+                        .lineLimit(2)
                     Text(item.detail)
                         .font(DS.Font.callout)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 if item.kind == .reading, let v = item.value {
-                    ValueBadge(value: v, reference: item.reference, damp: model.snapshot.damp, wet: model.snapshot.wet)
+                    ValueBadge(value: v, damp: model.snapshot.damp, wet: model.snapshot.wet)
+                }
+                if item.editable {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) { vm.deleteItem(id: item.id, kind: item.kind) } label: { Label("Delete", systemImage: "trash") }
+        .contextMenu {
+            Button(role: .destructive) { vm.deleteItems(ids: item.allIDs, kind: item.kind) } label: { Label("Delete", systemImage: "trash") }
         }
     }
 }
@@ -234,22 +269,21 @@ enum ReadingColor {
     }
 }
 
+/// A reading's value: white on its dry / damp / wet colour, "24.5%".
 struct ValueBadge: View {
     let value: Double
-    var reference = false
     let damp: Double
     let wet: Double
 
     var body: some View {
-        let c = ReadingColor.color(value, damp: damp, wet: wet)
-        Text("\(ItemsModel.fmt(value)) %")
+        Text("\(ItemsModel.fmt(value))%")
             .font(DS.Font.value(15))
-            .monospacedDigit()
-            .foregroundStyle(reference ? c : .white)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 10)
             .frame(height: 28)
-            .background(reference ? AnyShapeStyle(Color.clear) : AnyShapeStyle(c), in: Capsule())
-            .overlay(Capsule().strokeBorder(c, lineWidth: reference ? 1.5 : 0))
+            .background(ReadingColor.color(value, damp: damp, wet: wet), in: Capsule())
     }
 }
 
@@ -360,6 +394,7 @@ struct ItemEditSheet: View {
                                 .font(DS.Font.value(34))
                                 .foregroundStyle(value.map { ReadingColor.color($0, damp: thresholds.0, wet: thresholds.1) } ?? .primary)
                             Text("%").font(DS.Font.headline).foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
                         }
                     }
                     Section("Material") {
@@ -380,11 +415,11 @@ struct ItemEditSheet: View {
                     }
                 }
                 Section {
-                    Button("Delete", role: .destructive) { confirmDelete = true }
+                    Button(item.kind == .boundary ? "Delete this line" : "Delete", role: .destructive) { confirmDelete = true }
                         .frame(maxWidth: .infinity)
                 }
             }
-            .navigationTitle(item.kind == .note ? "Site note" : item.title)
+            .navigationTitle(item.kind == .note ? "Site note" : (item.kind == .boundary ? "Moisture line" : item.title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

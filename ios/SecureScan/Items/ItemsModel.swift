@@ -35,6 +35,8 @@ struct CapturedItem: Identifiable, Equatable {
     var photo: String?
     var roomID: String?
     var order: Int
+    /// A moisture line: the ids of its points (the row stands for all of them).
+    var memberIDs: [String] = []
 
     func matches(_ f: Filter) -> Bool {
         switch f {
@@ -47,6 +49,8 @@ struct CapturedItem: Identifiable, Equatable {
     }
 
     var editable: Bool { kind != .floor }
+    /// Every plan id this row stands for.
+    var allIDs: [String] { memberIDs.isEmpty ? [id] : memberIDs }
 
     static func == (a: CapturedItem, b: CapturedItem) -> Bool {
         a.id == b.id && a.title == b.title && a.detail == b.detail && a.value == b.value && a.text == b.text
@@ -79,7 +83,7 @@ enum ItemsModel {
 
     static func load(folder: JobFolder, meta: JobMeta?) -> ItemsSnapshot {
         let plan = (try? Data(contentsOf: folder.planURL)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
-        var s = parse(plan: plan ?? [:])
+        var s = parse(plan: plan ?? [:], names: EditorNamesStore.load(folder))
         let raw = JobFiles.loadRawReadings(folder)
         let interrupted = ScanOpenMarker.exists(folder)
         let ids = fixIDs(raw: raw, plan: plan, interrupted: interrupted, note: meta?.note)
@@ -125,7 +129,7 @@ enum ItemsModel {
     }
 
     /// Pure: plan.json -> rooms and items.
-    static func parse(plan: [String: Any]) -> ItemsSnapshot {
+    static func parse(plan: [String: Any], names: EditorNames? = nil) -> ItemsSnapshot {
         var s = ItemsSnapshot()
         let markup = plan["markup"] as? [String: Any] ?? [:]
         if let t = markup["thresholds"] as? [String: Any] {
@@ -157,6 +161,16 @@ enum ItemsModel {
         var order = 0
         func next() -> Int { order += 1; return order }
 
+        func wallName(_ id: String?) -> String? {
+            guard let id, !id.isEmpty else { return nil }
+            if let n = names?.wallNames[id] { return n }
+            return nil
+        }
+        // Moisture lines: one row per wall and visit, however many points.
+        struct Line { var ids: [String] = []; var top = 0.0; var first: [String: Any] = [:]; var photo: String?; var order = 0; var visit = "v1"; var wall: String? }
+        var lines: [String: Line] = [:]
+        var lineKeys: [String] = []
+
         var readingN = 0, photoN = 0
         for r in markup["readings"] as? [[String: Any]] ?? [] {
             guard let id = r["id"] as? String else { continue }
@@ -168,8 +182,13 @@ enum ItemsModel {
             let where_ = place(material: kind == "reading" ? material : nil, height: PlanDocument.number(r["height"]))
             switch kind {
             case "boundary":
-                s.items.append(CapturedItem(id: id, kind: .boundary, title: "Moisture line point", detail: where_.isEmpty ? "On the wall" : where_,
-                                            text: note, photo: photo, roomID: room(r, at: pos), order: next()))
+                let wall = r["wallId"] as? String
+                let visit = (r["visit"] as? String) ?? "v1"
+                let key = "\(wall ?? "-")|\(visit)"
+                if lines[key] == nil { lineKeys.append(key); lines[key] = Line(first: r, order: next(), visit: visit, wall: wall) }
+                lines[key]!.ids.append(id)
+                lines[key]!.top = max(lines[key]!.top, PlanDocument.number(r["height"]) ?? 0)
+                if lines[key]!.photo == nil { lines[key]!.photo = photo }
             case "photo":
                 photoN += 1
                 s.items.append(CapturedItem(id: id, kind: .photo, title: "Photo P\(photoN)", detail: note.isEmpty ? "No caption" : note,
@@ -186,6 +205,17 @@ enum ItemsModel {
                                             value: value, reference: ref, material: material, text: note, photo: photo,
                                             roomID: room(r, at: pos), order: next()))
             }
+        }
+        for key in lineKeys {
+            guard let l = lines[key] else { continue }
+            var parts: [String] = []
+            if let w = wallName(l.wall) { parts.append(w) }
+            if l.top > 0.005 { parts.append("up to \(fmt(l.top)) m") }
+            if l.visit != "v1", let n = Int(l.visit.dropFirst()) { parts.append("visit \(n)") }
+            let n = l.ids.count
+            s.items.append(CapturedItem(id: "line:" + key, kind: .boundary, title: n == 1 ? "Moisture line · 1 point" : "Moisture line · \(n) points",
+                                        detail: parts.isEmpty ? "On the wall" : parts.joined(separator: " · "), photo: l.photo,
+                                        roomID: room(l.first, at: ScopeList.pt(l.first["pos"])), order: l.order, memberIDs: l.ids))
         }
         for x in markup["sources"] as? [[String: Any]] ?? [] {
             guard let id = x["id"] as? String else { continue }
@@ -212,7 +242,7 @@ enum ItemsModel {
             if let area = (x["area"] as? [Any])?.compactMap(ScopeList.pt), area.count >= 3 {
                 let type = (x["floorType"] as? String).map { $0.capitalized } ?? "Flooring"
                 s.items.append(CapturedItem(id: id, kind: .removal, title: "Lift \(type.lowercased()) · \(area2(FloorArea.area(area))) m²",
-                                            detail: done ? "Done" : "To do", text: note, photo: photo,
+                                            detail: (names?.removalRefs[id].map { $0 + " · " } ?? "") + (done ? "Done" : "To do"), text: note, photo: photo,
                                             roomID: room(x, at: PlanBuilder.centroid(area)), order: next()))
             } else {
                 var mid: PlanVec?
@@ -227,6 +257,8 @@ enum ItemsModel {
                 var title = "Remove \(what)"
                 if let len { title += " · \(fmt(len)) m" }
                 var detail = done ? "Done" : "To do"
+                if let tag = names?.removalRefs[id] { detail = tag + " · " + detail }
+                if let w = wallName(x["wallId"] as? String) { detail += " · " + w }
                 if item != "skirting", let h = PlanDocument.number(x["heightMm"]), h > 0 { detail += " · to \(Int(h)) mm" }
                 if !note.isEmpty { detail += " · " + note }
                 s.items.append(CapturedItem(id: id, kind: .removal, title: title, detail: detail, text: note, photo: photo,
@@ -332,6 +364,10 @@ enum ItemsModel {
             }
         }
         if let out = MarkupEdit.update(doc, id: item.id, set: set) { writePlan(out, folder) }
+    }
+
+    static func delete(folder: JobFolder, ids: [String], kind: CapturedItem.Kind?) {
+        for id in ids { delete(folder: folder, id: id, kind: kind) }
     }
 
     static func delete(folder: JobFolder, id: String, kind: CapturedItem.Kind?) {

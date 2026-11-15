@@ -20,6 +20,8 @@ struct NewJobFlow: View {
     @State private var jobRef = ""
     @State private var scanningJob: JobMeta?
     @State private var errorText: String?
+    @State private var needAddress = false
+    @FocusState private var addressFocused: Bool
     /// "Scan and mark together (new)"; default from Settings › Mark while scanning.
     @State private var live = UserDefaults.standard.bool(forKey: "markWhileScanning")
 
@@ -43,6 +45,8 @@ struct NewJobFlow: View {
                         .font(DS.Font.body)
                         .textInputAutocapitalization(.words)
                         .lineLimit(1...3)
+                        .focused($addressFocused)
+                        .onChange(of: address) { _, a in if !a.isEmpty { needAddress = false } }
                     Button { location.request() } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "location.fill")
@@ -64,6 +68,12 @@ struct NewJobFlow: View {
                     .disabled(location.finding)
                 } header: {
                     Text("Address")
+                } footer: {
+                    if needAddress {
+                        Text("Add the address to start.")
+                            .font(DS.Font.caption)
+                            .foregroundStyle(DS.Color.wet)
+                    }
                 }
 
                 Section {
@@ -82,6 +92,12 @@ struct NewJobFlow: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 PrimaryButton("Start", icon: "viewfinder") {
+                    guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        withAnimation(DS.Motion.tray) { needAddress = true }
+                        addressFocused = true
+                        DS.Haptic.warning()
+                        return
+                    }
                     live = UserDefaults.standard.bool(forKey: "markWhileScanning")
                     start()
                 }

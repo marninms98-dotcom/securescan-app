@@ -19,7 +19,7 @@
 //    DS.Radius.control (14) / card (22),  DS.Space.margin (16) / gap (12) / tight (8)
 //    DS.Size.primary (60) / chip (36) / icon (44)
 //    DS.Motion.tray / fly,  DS.Haptic.lock / save / undo / warning
-//    PrimaryButton, SecondaryButton, Chip, IconButton, ToolTab, Tray, CameraCapsule
+//    PrimaryButton, SecondaryButton, Chip, IconButton, ToolTab, Tray, CameraCapsule, CameraFill
 //    .dsSurface(_:), .dsCapsule(), .dsCard()
 //
 
@@ -47,6 +47,10 @@ enum DS {
         static let hairline = SwiftUI.Color.white.opacity(0.12)
         /// Secondary text over the camera.
         static let onCameraSecondary = SwiftUI.Color.white.opacity(0.72)
+        /// The dark tint laid under every camera material, so white text holds over bright walls.
+        static let cameraTint = SwiftUI.Color.black.opacity(0.34)
+        /// Destructive text over the camera (remove red, lifted for dark materials).
+        static let removeOnCamera = SwiftUI.Color(hex: 0xFF7A7D)
 
         /// One neutral ramp: 0 = white ... 9 = ink.
         static func grey(_ level: Int) -> SwiftUI.Color {
@@ -144,7 +148,7 @@ extension View {
 
     /// A dark material capsule with the hairline (the over-camera look).
     func dsCapsule() -> some View {
-        background(.ultraThinMaterial, in: Capsule())
+        background(CameraFill(shape: Capsule()))
             .overlay(Capsule().strokeBorder(DS.Color.hairline, lineWidth: 1))
     }
 
@@ -159,7 +163,7 @@ private struct DSCard: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
         if surface == .camera {
-            content.background(.ultraThinMaterial, in: shape).overlay(shape.strokeBorder(DS.Color.hairline, lineWidth: 1))
+            content.background(CameraFill(shape: shape)).overlay(shape.strokeBorder(DS.Color.hairline, lineWidth: 1))
         } else {
             content.background(SwiftUI.Color(.secondarySystemGroupedBackground), in: shape)
         }
@@ -203,7 +207,7 @@ struct PrimaryButton: View {
             .frame(maxWidth: .infinity, minHeight: DS.Size.primary)
             .padding(.horizontal, 20)
             .background {
-                if enabled { Capsule().fill(tint) } else { Capsule().fill(.ultraThinMaterial) }
+                if enabled { Capsule().fill(tint) } else { CameraFill(shape: Capsule()) }
             }
             .overlay(Capsule().strokeBorder(enabled ? Color.white.opacity(0.18) : DS.Color.hairline, lineWidth: 1))
             .contentShape(Capsule())
@@ -239,7 +243,7 @@ struct SecondaryButton: View {
             .padding(.horizontal, 16)
             .frame(minHeight: DS.Size.minTarget)
             .background {
-                if surface == .camera { Capsule().fill(.ultraThinMaterial) } else { Capsule().fill(Color(.tertiarySystemFill)) }
+                if surface == .camera { CameraFill(shape: Capsule()) } else { Capsule().fill(Color(.tertiarySystemFill)) }
             }
             .overlay(Capsule().strokeBorder(surface == .camera ? DS.Color.hairline : Color.clear, lineWidth: 1))
             .contentShape(Capsule())
@@ -248,7 +252,7 @@ struct SecondaryButton: View {
     }
 
     private var fg: Color {
-        if role == .destructive { return DS.Color.remove }
+        if role == .destructive { return surface == .camera ? DS.Color.removeOnCamera : DS.Color.remove }
         return surface == .camera ? .white : Color(.label)
     }
 }
@@ -297,7 +301,7 @@ struct Chip: View {
 
     @ViewBuilder private var background: some View {
         if surface == .camera {
-            if selected { Capsule().fill(Color.white) } else { Capsule().fill(.ultraThinMaterial) }
+            if selected { Capsule().fill(Color.white).shadow(color: .black.opacity(0.28), radius: 3, y: 1) } else { CameraFill(shape: Capsule()) }
         } else {
             Capsule().fill(selected ? DS.Color.ink : Color(.tertiarySystemFill))
         }
@@ -327,7 +331,7 @@ struct IconButton: View {
                 .frame(width: DS.Size.icon, height: DS.Size.icon)
                 .background {
                     if let tint { Circle().fill(tint) }
-                    else if surface == .camera { Circle().fill(.ultraThinMaterial) }
+                    else if surface == .camera { CameraFill(shape: Circle()) }
                     else { Circle().fill(Color(.tertiarySystemFill)) }
                 }
                 .overlay(Circle().strokeBorder(surface == .camera && tint == nil ? DS.Color.hairline : Color.clear, lineWidth: 1))
@@ -398,9 +402,13 @@ struct Tray<Content: View>: View {
         .padding(.bottom, DS.Space.tight)
         .frame(maxWidth: .infinity)
         .background {
-            UnevenRoundedRectangle(topLeadingRadius: DS.Radius.card, topTrailingRadius: DS.Radius.card, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea(edges: .bottom)
+            ZStack {
+                UnevenRoundedRectangle(topLeadingRadius: DS.Radius.card, topTrailingRadius: DS.Radius.card, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                UnevenRoundedRectangle(topLeadingRadius: DS.Radius.card, topTrailingRadius: DS.Radius.card, style: .continuous)
+                    .fill(Color.black.opacity(0.42))
+            }
+            .ignoresSafeArea(edges: .bottom)
         }
         .overlay {
             UnevenRoundedRectangle(topLeadingRadius: DS.Radius.card, topTrailingRadius: DS.Radius.card, style: .continuous)
@@ -427,6 +435,17 @@ struct CameraCapsule: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 30)
         .dsCapsule()
+    }
+}
+
+/// The over-camera material: ultra-thin blur plus the dark tint (one look everywhere).
+struct CameraFill<S: Shape>: View {
+    let shape: S
+    var body: some View {
+        ZStack {
+            shape.fill(.ultraThinMaterial)
+            shape.fill(DS.Color.cameraTint)
+        }
     }
 }
 

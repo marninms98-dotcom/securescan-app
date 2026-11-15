@@ -165,7 +165,7 @@ jobs:
           # what a LiDAR iPhone shows; SECURESCAN_SEED=jobs adds demo jobs in four states.
           L="SIMCTL_CHILD_SECURESCAN_LIDAR=1"
           env $L xcrun simctl launch "$UDID" "$BID";                                                            shot app-jobs-empty 10
-          env $L SIMCTL_CHILD_SECURESCAN_SEED=jobs xcrun simctl launch "$UDID" "$BID";                          shot app-jobs-list 35
+          env $L SIMCTL_CHILD_SECURESCAN_SEED=jobs xcrun simctl launch "$UDID" "$BID";                          shot app-jobs-list 45
           env $L SIMCTL_CHILD_SECURESCAN_PREVIEW=newjob xcrun simctl launch "$UDID" "$BID";                     shot app-new-job 10
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=plan xcrun simctl launch "$UDID" "$BID";   shot app-job-plan 18
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=3d xcrun simctl launch "$UDID" "$BID";     shot app-job-3d 16
@@ -174,6 +174,13 @@ jobs:
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=files xcrun simctl launch "$UDID" "$BID";  shot app-job-files 12
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_PREVIEW=documents xcrun simctl launch "$UDID" "$BID"; shot app-job-documents-menu 18
           env $L SIMCTL_CHILD_SECURESCAN_PREVIEW=settings xcrun simctl launch "$UDID" "$BID";                   shot app-settings 10
+          # A two-visit job: Documents adds the Monitoring report.
+          SIMCTL_CHILD_SECURESCAN_SEED=jobs SIMCTL_CHILD_SECURESCAN_OPEN_REF=QBE-7731902 SIMCTL_CHILD_SECURESCAN_PREVIEW=documents xcrun simctl launch "$UDID" "$BID"; shot app-job-documents-menu-visits 20
+          # Dynamic Type at XXL for the list screens.
+          xcrun simctl ui "$UDID" content_size extra-extra-large || true
+          env $L xcrun simctl launch "$UDID" "$BID";                                                            shot app-jobs-list-xl 12
+          SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=items xcrun simctl launch "$UDID" "$BID";  shot app-job-items-xl 14
+          xcrun simctl ui "$UDID" content_size large || true
           # Same 3D view from the side, square-on to the wall with the moisture line.
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=1 SIMCTL_CHILD_SECURESCAN_3D_AZIMUTH=100 xcrun simctl launch "$UDID" "$BID"; shot 06-demo-3d-side 16
           # The hosted editor's other views (switched through its public SecureScan.setView hook).

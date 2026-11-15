@@ -10,6 +10,7 @@
 import SwiftUI
 
 enum JobStatus: Equatable {
+    case notScanned
     case inspecting
     case quoted
     case drying(day: Int)
@@ -17,6 +18,7 @@ enum JobStatus: Equatable {
 
     var title: String {
         switch self {
+        case .notScanned: return "New"
         case .inspecting: return "Inspecting"
         case .quoted: return "Quoted"
         case .drying(let d): return "Drying · day \(d)"
@@ -26,8 +28,9 @@ enum JobStatus: Equatable {
 
     var color: Color {
         switch self {
+        case .notScanned: return DS.Color.grey(6)
         case .inspecting: return DS.Color.accent
-        case .quoted: return .secondary
+        case .quoted: return DS.Color.grey(8)
         case .drying: return DS.Color.equip
         case .complete: return DS.Color.dry
         }
@@ -44,7 +47,7 @@ struct JobSummary: Equatable {
     /// Pure: from a parsed plan.json. `now` for the drying day count.
     static func from(plan: [String: Any]?, created: Date, now: Date = Date()) -> JobSummary {
         var s = JobSummary()
-        guard let plan else { s.lastVisit = created; return s }
+        guard let plan else { s.lastVisit = created; s.status = .notScanned; return s }
         let markup = plan["markup"] as? [String: Any] ?? [:]
         let visits = markup["visits"] as? [[String: Any]] ?? []
         s.visitCount = max(1, visits.count)
