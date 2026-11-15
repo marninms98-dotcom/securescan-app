@@ -1,0 +1,109 @@
+# XcodeGen spec for SecureScan.  Generate the Xcode project with:
+#   brew install xcodegen
+#   cd ios && xcodegen generate
+# then open ios/SecureScan.xcodeproj
+name: SecureScan
+
+options:
+  bundleIdPrefix: com.secureworkswa
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"            # Swift 5 language mode (any Swift 5.9+ / 6.x compiler)
+    CODE_SIGN_STYLE: Automatic
+    # >>> SET YOUR TEAM HERE <<<  Xcode > Settings > Accounts shows it, or pick
+    # your team in the target's Signing & Capabilities tab (that writes it for you).
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  SecureScan:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: SecureScan
+      # The plan editor, owned by the web developer. Copied into the app bundle
+      # as editor.html. If it is missing the app shows a clear error on the Plan tab.
+      - path: ../web/editor.html
+        buildPhase: resources
+        optional: true
+    info:
+      path: SecureScan/Info.plist
+      properties:
+        CFBundleDisplayName: SecureScan
+        CFBundleShortVersionString: "1.1"
+        CFBundleVersion: "2"
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Only arm64: LiDAR is NOT a hard requirement (the app installs anywhere
+        # and explains that scanning needs LiDAR).
+        UIRequiredDeviceCapabilities:
+          - arm64
+        NSCameraUsageDescription: SecureScan uses the camera to scan rooms with LiDAR and to photograph moisture readings.
+        NSMicrophoneUsageDescription: SecureScan records your spoken site notes (audio only, no video) and saves them with the job.
+        NSSpeechRecognitionUsageDescription: SecureScan turns your voice notes into text on this iPhone. The audio is not sent anywhere.
+        # Keeps a voice note recording when the screen locks.
+        UIBackgroundModes:
+          - audio
+        NSLocationWhenInUseUsageDescription: SecureScan uses your location once to fill in the job's street address. You can always type it instead.
+        # Without this, choosing "Save Image" in the share sheet (exported PNG,
+        # 3D snapshot) terminates the app.
+        NSPhotoLibraryAddUsageDescription: SecureScan saves exported plans and 3D views to your photo library when you choose Save Image.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.secureworkswa.securescan
+        PRODUCT_NAME: SecureScan
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: SecureScan/Info.plist
+
+  # Pure-maths unit tests. Compiles the converter files directly (no app host,
+  # no RoomPlan), so they run on any iOS simulator.
+  SecureScanTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: SecureScanTests
+      - path: SecureScan/Core/PlanBuilder.swift
+      - path: SecureScan/Core/PlanDocument.swift
+      - path: SecureScan/Core/SimulatedScan.swift
+      - path: SecureScan/Core/AddressFormatter.swift
+      - path: SecureScan/Core/VoiceNotes.swift
+      - path: SecureScan/Core/Timeline.swift
+      - path: SecureScan/Core/PackNames.swift
+      - path: SecureScan/Core/MarkupGeometry.swift
+      - path: SecureScan/Core/ReportLayout.swift
+      - path: SecureScan/Core/AppSettings.swift
+      - path: SecureScan/Core/Alignment.swift
+      - path: SecureScan/Core/Revisit.swift
+      - path: SecureScan/Core/Sweep.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.secureworkswa.securescan.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  SecureScan:
+    build:
+      targets:
+        SecureScan: [run, archive, analyze, profile]
+        SecureScanTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - SecureScanTests
+    archive:
+      config: Release
