@@ -65,6 +65,8 @@ enum OverlayLayout {
         /// Tag capsules (key = mark id; the reticle label is "reticle").
         var labels: [String: CGRect] = [:]
         var reticle: CGRect = .zero
+        /// Glyphs that are 3D models' footprints: the reticle may sit on a model (aiming at it).
+        var models: Set<String> = []
 
         /// Everything that must not overlap anything else.
         var solids: [(String, CGRect)] {
@@ -80,7 +82,11 @@ enum OverlayLayout {
         func overlaps() -> [String] {
             var out: [String] = []
             let s = solids
+            let onModel: (String, String) -> Bool = { a, b in
+                a == "reticle-ring" && b.hasPrefix("glyph:") && models.contains(String(b.dropFirst(6)))
+            }
             for i in s.indices { for j in s.indices where j > i {
+                if onModel(s[i].0, s[j].0) || onModel(s[j].0, s[i].0) { continue }
                 if s[i].1.insetBy(dx: 0.5, dy: 0.5).intersects(s[j].1.insetBy(dx: 0.5, dy: 0.5)) { out.append("\(s[i].0) × \(s[j].0)") }
             } }
             for (k, a) in arrows { for (l, r) in labels where a.intersects(r) && l != k { out.append("arrow:\(k) × label:\(l)") } }
@@ -140,6 +146,7 @@ enum OverlayLayout {
         }
         // Glyphs that land on each other (or on the reticle) step sideways (3D models stay put).
         let models = Set(marks.filter { $0.modelHeight != nil }.map(\.id))
+        plan.models = models
         for id in plan.glyphs.keys.sorted() where !models.contains(id) {
             guard var r = plan.glyphs[id] else { continue }
             if r.intersects(plan.reticle) { r.origin.x = r.midX < plan.reticle.midX ? plan.reticle.minX - r.width - 6 : plan.reticle.maxX + 6 }
