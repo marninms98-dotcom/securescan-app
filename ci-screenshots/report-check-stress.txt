@@ -1,0 +1,40 @@
+file: 2 Stress Test St, Wangara, WA-assessment-report.pdf
+html: 1202522 bytes
+pages: 30 (editor said 30)
+page sizes (pt): 595.0x842.0 - all exact A4 page boxes
+  page 1: 595.0x842.0
+  page 2: 595.0x842.0
+  page 3: 595.0x842.0
+  page 4: 595.0x842.0
+  page 5: 595.0x842.0
+  page 6: 595.0x842.0
+  page 7: 595.0x842.0
+  page 8: 595.0x842.0
+  page 9: 595.0x842.0
+  page 10: 595.0x842.0
+  page 11: 595.0x842.0
+  page 12: 595.0x842.0
+  page 13: 595.0x842.0
+  page 14: 595.0x842.0
+  page 15: 595.0x842.0
+  page 16: 595.0x842.0
+  page 17: 595.0x842.0
+  page 18: 595.0x842.0
+  page 19: 595.0x842.0
+  page 20: 595.0x842.0
+  page 21: 595.0x842.0
+  page 22: 595.0x842.0
+  page 23: 595.0x842.0
+  page 24: 595.0x842.0
+  page 25: 595.0x842.0
+  page 26: 595.0x842.0
+  page 27: 595.0x842.0
+  page 28: 595.0x842.0
+  page 29: 595.0x842.0
+  page 30: 595.0x842.0
+link annotations: 255 (editor sent 255)
+links resolving to a valid page: 255 of 255
+links WebKit wrote itself (removed): 133
+text extractable via PDFKit: yes (20974 characters)
+file size: 3112838 bytes (2.97 MB)
+elapsed: 5.8 s
