@@ -88,12 +88,25 @@ struct OverlayPainter {
             }
         }
         let sorted = marks.sorted { order($0) < order($1) }
+        // Pins are drawn last but claim their space first, so no label lands under a pin.
+        for m in marks {
+            switch m.style {
+            case .reading, .readingDraft:
+                if let p = m.points.first, let sp = proj.project(p) {
+                    board.rects.append(CGRect(x: sp.x - 17, y: sp.y - 44 - 17, width: 34 + 30, height: 34 + 10))
+                }
+            default: break
+            }
+        }
         var labels: [(CGRect, () -> Void)] = []
         for m in sorted {
             var c = ctx
             if m.faded { c.opacity = 0.5 }
             draw(m, in: &c, labels: &labels)
         }
+        // Tags go on top of every shape (placed as they came, drawn last).
+        for d in board.deferred { d() }
+        board.deferred = []
         for m in sorted where m.selected { edgeArrowIfNeeded(m) }
     }
 
@@ -113,13 +126,15 @@ struct OverlayPainter {
     func status(_ s: String) -> Color { s == "none" || s == "reference" ? DS.Color.grey(6) : DS.Color.status(s) }
 
     /// A tag capsule centred at `p`, nudged out of the reticle zone.
-    func tag(_ text: String, at p: CGPoint, fill: Color, in c: inout GraphicsContext, above: Bool = true) {
+    func tag(_ text: String, at p: CGPoint, fill: Color, in c: inout GraphicsContext, above: Bool = true, force: Bool = false) {
+        // A label whose anchor is off screen is not drawn (a selected item gets the edge chip instead).
+        guard force || (p.x >= 0 && p.x <= size.width && p.y >= 0 && p.y <= size.height) else { return }
         let label = c.resolve(Text(text).font(DS.Font.captionBold).monospacedDigit().foregroundColor(.white))
         let ts = label.measure(in: CGSize(width: 260, height: 40))
         var r = CGRect(x: p.x - ts.width / 2 - 9, y: p.y - (above ? ts.height + 12 : 0), width: ts.width + 18, height: ts.height + 8)
         // Never under the top bar, never off the sides, never on the reticle or another label.
-        r.origin.x = min(max(r.minX, 10), size.width - r.width - 10)
-        r.origin.y = min(max(r.minY, 112), size.height - r.height - 10)
+        r.origin.x = min(max(r.minX, 12), size.width - r.width - 12)
+        r.origin.y = min(max(r.minY, 116), size.height - r.height - 12)
         for _ in 0..<6 {
             if r.intersects(reticleZone) {
                 r.origin.y = r.midY < reticleZone.midY ? reticleZone.minY - r.height - 4 : reticleZone.maxY + 4
@@ -129,10 +144,14 @@ struct OverlayPainter {
             r.origin.y = r.midY <= hit.midY ? hit.minY - r.height - 4 : hit.maxY + 4
         }
         board.rects.append(r)
-        let shape = Capsule().path(in: r)
-        c.fill(shape, with: .color(fill))
-        c.stroke(shape, with: .color(.white.opacity(0.25)), lineWidth: 1)
-        c.draw(label, at: CGPoint(x: r.midX, y: r.midY), anchor: .center)
+        let cc = c
+        board.deferred.append {
+            var c2 = cc
+            let shape = Capsule().path(in: r)
+            c2.fill(shape, with: .color(fill))
+            c2.stroke(shape, with: .color(.white.opacity(0.25)), lineWidth: 1)
+            c2.draw(label, at: CGPoint(x: r.midX, y: r.midY), anchor: .center)
+        }
     }
 
     func symbol(_ name: String, in r: CGRect, color: Color = .white, c: inout GraphicsContext) {
@@ -196,12 +215,13 @@ struct OverlayPainter {
         case .equipment(let type, let planned):
             guard let p = m.points.first else { return }
             if let d = m.airflow { airflow(from: p, dir: d, planned: planned, live: m.id == "draft-airflow", in: &c) }
+            // The live arrow is drawn from the saved unit, which draws its own glyph.
             guard m.id != "draft-airflow", let s = proj.project(p + WorldVec(0, 0.17, 0)) else { return }
             let r = CGRect(x: s.x - 17, y: s.y - 17, width: 34, height: 34)
             let shape = RoundedRectangle(cornerRadius: 9, style: .continuous).path(in: r)
             if planned {
-                c.fill(shape, with: .color(DS.Color.ink.opacity(0.45)))
-                c.stroke(shape, with: .color(DS.Color.equip), style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                c.fill(shape, with: .color(DS.Color.ink.opacity(0.55)))
+                c.stroke(shape, with: .color(DS.Color.equip), lineWidth: 2.5)
             } else {
                 c.fill(shape, with: .color(DS.Color.equip))
                 c.stroke(shape, with: .color(.white), lineWidth: m.selected ? 3 : 2)
@@ -257,7 +277,7 @@ struct OverlayPainter {
             guard m.points.count >= 2, let seg = proj.projectSegment(m.points[0], m.points[1]) else { return }
             let a = cg(seg.0), b = cg(seg.1)
             var line = Path(); line.move(to: a); line.addLine(to: b)
-            c.stroke(line, with: .color(DS.Color.ink.opacity(0.35)), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+            c.stroke(line, with: .color(DS.Color.ink.opacity(0.6)), style: StrokeStyle(lineWidth: 6.5, lineCap: .round))
             c.stroke(line, with: .color(.white), style: StrokeStyle(lineWidth: 4, lineCap: .round))
             if proj.depth(m.points[0]) > proj.near { startCap(a, in: &c) }
             if let t = m.tag { tag(t, at: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 4), fill: DS.Color.ink.opacity(0.8), in: &c) }
@@ -272,15 +292,18 @@ struct OverlayPainter {
             }
             let fixed = proj.projectPolyline(corners)
             for run in fixed {
-                c.stroke(path(run, closed: false), with: .color(.white), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                let pth = path(run, closed: false)
+                c.stroke(pth, with: .color(DS.Color.ink.opacity(0.5)), style: StrokeStyle(lineWidth: 5.5, lineCap: .round, lineJoin: .round))
+                c.stroke(pth, with: .color(.white), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
             }
             if let last = corners.last, let seg = proj.projectSegment(last, pts[pts.count - 1]) {
                 var e = Path(); e.move(to: cg(seg.0)); e.addLine(to: cg(seg.1))
-                c.stroke(e, with: .color(.white), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [8, 6]))
+                c.stroke(e, with: .color(DS.Color.ink.opacity(0.4)), style: StrokeStyle(lineWidth: 5.5, lineCap: .round))
+                c.stroke(e, with: .color(.white.opacity(0.85)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
             }
             if corners.count >= 2, let seg = proj.projectSegment(pts[pts.count - 1], corners[0]) {
                 var e = Path(); e.move(to: cg(seg.0)); e.addLine(to: cg(seg.1))
-                c.stroke(e, with: .color(.white.opacity(0.55)), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4, 6]))
+                c.stroke(e, with: .color(.white.opacity(0.45)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
             }
             for (i, q) in corners.enumerated() {
                 guard let s = proj.project(q) else { continue }
@@ -313,29 +336,41 @@ struct OverlayPainter {
     /// Reading pin: 30 pt circle above the surface point, white 2 pt ring, value inside,
     /// sequence tag below, 1 pt stem to the point.
     func pin(at s: CGPoint, value: String, fill: Color, hollow: Bool, tagText: String?, selected: Bool, in c: inout GraphicsContext) {
-        let lift: CGFloat = 46
-        let centre = CGPoint(x: s.x, y: s.y - lift)
-        var stem = Path(); stem.move(to: s); stem.addLine(to: CGPoint(x: s.x, y: centre.y + 15))
+        let lift: CGFloat = 44
+        var centre = CGPoint(x: s.x, y: s.y - lift)
+        // Pins never sit on each other: a second pin at the same spot steps sideways.
+        for _ in 0..<4 {
+            // A pin's footprint includes its tag at the lower right.
+            guard let other = board.pins.first(where: { abs($0.x - centre.x) < 52 && abs($0.y - centre.y) < 34 }) else { break }
+            centre.x = other.x + (centre.x >= other.x ? 54 : -54)
+        }
+        board.pins.append(centre)
+        var stem = Path(); stem.move(to: s); stem.addLine(to: CGPoint(x: centre.x, y: centre.y + 15))
         c.stroke(stem, with: .color(DS.Color.ink.opacity(0.5)), lineWidth: 3)
         c.stroke(stem, with: .color(.white), lineWidth: 1)
         c.fill(Circle().path(in: CGRect(x: s.x - 2.5, y: s.y - 2.5, width: 5, height: 5)), with: .color(.white))
-        if let tagText {
-            let label = c.resolve(Text(tagText).font(DS.Font.captionBold).foregroundColor(.white))
-            let ts = label.measure(in: CGSize(width: 80, height: 30))
-            let r = CGRect(x: s.x - ts.width / 2 - 6, y: centre.y + 18, width: ts.width + 12, height: ts.height + 2)
-            c.fill(Capsule().path(in: r), with: .color(DS.Color.ink.opacity(0.75)))
-            c.draw(label, at: CGPoint(x: r.midX, y: r.midY), anchor: .center)
-        }
         let r = CGRect(x: centre.x - 15, y: centre.y - 15, width: 30, height: 30)
         board.rects.append(r.insetBy(dx: -2, dy: -2))
         if selected {
             c.stroke(Circle().path(in: r.insetBy(dx: -4, dy: -4)), with: .color(DS.Color.accent), lineWidth: 3)
         }
-        c.fill(Circle().path(in: r.insetBy(dx: -1, dy: -1)), with: .color(DS.Color.ink.opacity(0.25)))
+        c.fill(Circle().path(in: r.insetBy(dx: -1, dy: -1)), with: .color(DS.Color.ink.opacity(0.3)))
         c.fill(Circle().path(in: r), with: .color(fill))
         c.stroke(Circle().path(in: r), with: .color(.white), lineWidth: hollow ? 3 : 2)
         let text = c.resolve(Text(value).font(DS.Font.value(value.count > 3 ? 11 : 14)).foregroundColor(.white))
         c.draw(text, at: centre, anchor: .center)
+        // The sequence tag: a small capsule tucked at the pin's lower right.
+        if let tagText {
+            let label = c.resolve(Text(tagText).font(DS.Font.captionBold).foregroundColor(.white))
+            let ts = label.measure(in: CGSize(width: 80, height: 30))
+            var tr = CGRect(x: centre.x + 9, y: centre.y + 5, width: ts.width + 10, height: ts.height + 1)
+            // Kept off the reticle's label: the tag moves to the pin's lower left.
+            if tr.intersects(reticleZone) { tr.origin.x = centre.x - 9 - tr.width }
+            c.fill(Capsule().path(in: tr), with: .color(DS.Color.ink.opacity(0.82)))
+            c.stroke(Capsule().path(in: tr), with: .color(.white.opacity(0.35)), lineWidth: 1)
+            c.draw(label, at: CGPoint(x: tr.midX, y: tr.midY), anchor: .center)
+            board.rects.append(tr)
+        }
     }
 
     func startCap(_ p: CGPoint, in c: inout GraphicsContext) {
@@ -390,12 +425,9 @@ struct OverlayPainter {
         let sp = proj.projectPolygon(poly)
         guard sp.count >= 3 else { return }
         let shape = path(sp, closed: true)
-        if planned {
-            c.stroke(shape, with: .color(DS.Color.equip), style: StrokeStyle(lineWidth: 2, lineJoin: .round, dash: [6, 4]))
-        } else {
-            c.fill(shape, with: .color(DS.Color.equip.opacity(live ? 0.95 : 0.85)))
-            c.stroke(shape, with: .color(.white.opacity(0.9)), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
-        }
+        c.fill(shape, with: .color(DS.Color.equip.opacity(planned ? 0.18 : 0.4)))
+        c.stroke(shape, with: .color(DS.Color.ink.opacity(0.35)), style: StrokeStyle(lineWidth: 4, lineJoin: .round))
+        c.stroke(shape, with: .color(planned ? DS.Color.equip : .white), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
     }
 
     /// A selected item off screen: an edge chip pointing at it ("R3 ←").
@@ -411,11 +443,13 @@ struct OverlayPainter {
         let arrow: String
         if abs(dir.x) > abs(dir.y) { arrow = dir.x > 0 ? "→" : "←" } else { arrow = dir.y > 0 ? "↓" : "↑" }
         var c = ctx
-        tag("\(m.tag ?? "Item") \(arrow)", at: cg(at), fill: DS.Color.accent, in: &c, above: false)
+        tag("\(m.tag ?? "Item") \(arrow)", at: cg(at), fill: DS.Color.accent, in: &c, above: false, force: true)
     }
 }
 
 /// Label rectangles placed in one frame (shared by the painter's copies).
 final class LabelBoard {
     var rects: [CGRect] = []
+    var deferred: [() -> Void] = []
+    var pins: [CGPoint] = []
 }

@@ -688,9 +688,9 @@ final class RevisitModel: ObservableObject, CaptureEngine {
             }
             guard let m = marker(target?.id) else { return EnginePrimary(title: "Aim at a removal or equipment", enabled: false, action: {}) }
             if m.kind == "equipment" {
-                return EnginePrimary(title: "Mark removed · \(m.label)", tint: DS.Color.dry) { [weak self] in self?.markRemoved(m) }
+                return EnginePrimary(title: "Mark removed · \(m.label)") { [weak self] in self?.markRemoved(m) }
             }
-            return EnginePrimary(title: "\(CaptureCopy.markDone) · \(m.label.replacingOccurrences(of: "Remove ", with: ""))", tint: DS.Color.dry) { [weak self] in
+            return EnginePrimary(title: "\(CaptureCopy.markDone) · \(m.label.replacingOccurrences(of: "Remove ", with: ""))") { [weak self] in
                 self?.markDone(m.id, title: m.label)
             }
         default:

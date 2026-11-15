@@ -24,7 +24,7 @@ enum StudioLaunch {
         return (s?.isEmpty ?? true) ? nil : s
     }
 
-    static let scenes = ["aim-wall", "aim-skirting", "aim-nothing", "reading-tray", "reading-saved", "line-progress",
+    static let scenes = ["aim-wall", "aim-wall-bright", "aim-skirting", "aim-nothing", "reading-tray", "reading-saved", "line-progress",
                          "line-tray-skirting", "lining-band-done", "area-progress", "area-tray", "photo-taken", "review-drawer",
                          "equipment-place", "equipment-airflow", "source-tray", "room-name-tray", "scan-coaching",
                          "visit-remeasure", "scope-on-site", "needs-fix"]
@@ -41,8 +41,8 @@ enum StudioRoom {
     ]
     static let world = CaptureWorld(floorY: 0, walls: walls,
                                     rooms: [WorldRoom(name: "Bedroom", polygon: [PlanVec(0, 0), PlanVec(width, 0), PlanVec(width, depth), PlanVec(0, depth)])])
-    /// Drawers against w1 (x 2.45...3.30, z 0...0.45, 0.80 high).
-    static let drawers = (x0: 2.45, x1: 3.30, z1: 0.45, h: 0.80)
+    /// Drawers against w3 (x 2.30...3.15, z 2.35...2.80, 0.80 high).
+    static let drawers = (x0: 2.30, x1: 3.15, z0: 2.35, z1: 2.80, h: 0.80)
     /// The doorway in w4 (z 1.75...2.57, 2.04 high): open, dark beyond.
     static let door = (z0: 1.75, z1: 2.57, h: 2.04)
 
@@ -57,19 +57,19 @@ enum StudioRoom {
         if abs(d.y) > 1e-9 {
             consider((0 - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= 0 && $0.x <= width && $0.z >= 0 && $0.z <= depth }
             consider((height - o.y) / d.y, WorldVec(0, -1, 0)) { $0.x >= 0 && $0.x <= width && $0.z >= 0 && $0.z <= depth }
-            consider((drawers.h - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.z <= drawers.z1 && $0.z >= 0 }
+            consider((drawers.h - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.z >= drawers.z0 && $0.z <= drawers.z1 }
         }
         if abs(d.z) > 1e-9 {
             consider((0 - o.z) / d.z, WorldVec(0, 0, 1)) { $0.x >= 0 && $0.x <= width && $0.y >= 0 && $0.y <= height }
             consider((depth - o.z) / d.z, WorldVec(0, 0, -1)) { $0.x >= 0 && $0.x <= width && $0.y >= 0 && $0.y <= height }
-            consider((drawers.z1 - o.z) / d.z, WorldVec(0, 0, 1)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.y <= drawers.h && $0.y >= 0 }
+            consider((drawers.z0 - o.z) / d.z, WorldVec(0, 0, -1)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.y <= drawers.h && $0.y >= 0 }
         }
         if abs(d.x) > 1e-9 {
             consider((0 - o.x) / d.x, WorldVec(1, 0, 0)) {
                 $0.z >= 0 && $0.z <= depth && $0.y >= 0 && $0.y <= height && !($0.z > door.z0 && $0.z < door.z1 && $0.y < door.h)
             }
             consider((width - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= 0 && $0.z <= depth && $0.y >= 0 && $0.y <= height }
-            consider((drawers.x0 - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= 0 && $0.z <= drawers.z1 && $0.y >= 0 && $0.y <= drawers.h }
+            consider((drawers.x0 - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= drawers.z0 && $0.z <= drawers.z1 && $0.y >= 0 && $0.y <= drawers.h }
         }
         guard let b = best else { return nil }
         return (o + d * b.0, b.1)
@@ -80,8 +80,10 @@ enum StudioRoom {
 @MainActor
 final class StudioEngine: ObservableObject, CaptureEngine {
     var camera = WorldVec(3.05, 1.45, 2.55)
+    /// The bright-room variant (white walls, strong light).
+    var bright = false
     var target = WorldVec(1.0, 0.6, 0.0)
-    let fovY = 68.0
+    let fovY = 62.0
     var noHit = false
 
     var roomName = "Bedroom"
@@ -162,14 +164,15 @@ enum StudioScript {
         let hud = e.hud
         let thumb = StudioThumbs.make
         switch scene {
-        case "aim-wall":
+        case "aim-wall", "aim-wall-bright":
             e.recordingSince = Date().addingTimeInterval(-42)
             e.saved = [pin("r1", r2, 10, 1)]
             hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: thumb(0))
-            e.look(at: WorldVec(1.55, 0.32, 0.0))
+            e.look(at: WorldVec(1.55, 0.32, 0.0), from: WorldVec(3.3, 1.5, 1.0))
+            if scene == "aim-wall-bright" { e.bright = true }
         case "aim-skirting":
             hud.tool = .mark
-            e.look(at: WorldVec(1.25, 0.05, 0.0))
+            e.look(at: WorldVec(1.25, 0.05, 0.0), from: WorldVec(3.3, 1.5, 1.0))
         case "aim-nothing":
             e.noHit = true
             e.look(at: WorldVec(0.0, 1.0, 2.2))
@@ -187,35 +190,35 @@ enum StudioScript {
             hud.studioAdd(entry("r2", "reading", "R2 · 18%", "Wall · Bedroom", photo: true), thumb: thumb(1))
             hud.studioAdd(entry("r3", "reading", "R3 · 26%", "Wall · Bedroom", photo: true), thumb: thumb(2))
             hud.studioUndo(true)
-            e.look(at: WorldVec(0.8, 0.35, 0.2), from: WorldVec(3.2, 1.62, 0.55))
+            e.look(at: WorldVec(0.8, 0.35, 0.2), from: WorldVec(3.3, 1.5, 0.5))
         case "line-progress":
             hud.tool = .mark
             hud.studioMark(points: [MarkPoint(world: WorldVec(0.6, 0.05, 0.0), surface: .wall, height: 0.05, distanceToWall: 0, wallId: "w1")],
                            shape: nil, start: .line)
-            e.look(at: WorldVec(1.9, 0.05, 0.0), from: WorldVec(3.2, 1.62, 0.55))
+            e.look(at: WorldVec(1.9, 0.05, 0.0), from: WorldVec(3.3, 1.5, 0.5))
         case "line-tray-skirting":
             hud.tool = .mark
             let a = MarkPoint(world: WorldVec(0.6, 0.05, 0.0), surface: .wall, height: 0.05, distanceToWall: 0, wallId: "w1")
             let b = MarkPoint(world: WorldVec(1.9, 0.04, 0.0), surface: .wall, height: 0.04, distanceToWall: 0, wallId: "w1")
             hud.studioMark(points: [a, b], shape: .line, start: .line)
             hud.tray = .mark
-            e.look(at: WorldVec(1.25, 0.05, 0.25), from: WorldVec(1.2, 1.62, 2.6))
+            e.look(at: WorldVec(1.25, 0.05, 0.25), from: WorldVec(3.0, 1.5, 2.6))
         case "lining-band-done":
             hud.tool = .mark
             e.saved = [OverlayMark(id: "x1", style: .lining, points: [WorldVec(0.0, 0, 0.25), WorldVec(0.0, 0, 1.55)], top: 0.6, tag: "Wall lining · 1.30 m"),
                        OverlayMark(id: "x2", style: .skirting, points: [WorldVec(0.30, 0, 0.0), WorldVec(2.10, 0, 0.0)], tag: "Skirting · 1.80 m"),
-                       pin("r1", WorldVec(0.0, 0.35, 0.9), 24, 1)]
+                       pin("r1", WorldVec(0.0, 0.4, 1.3), 24, 1)]
             hud.studioAdd(entry("x2", "mark", "Skirting · 1.80 m", "Bedroom", photo: true), thumb: thumb(1))
             hud.studioAdd(entry("x1", "mark", "Wall lining · 1.30 m", "Bedroom", photo: true), thumb: thumb(2))
             hud.studioUndo(true)
-            e.look(at: WorldVec(0.1, 0.3, 0.9), from: WorldVec(0.3, 1.38, 2.6))
+            e.look(at: WorldVec(0.0, 0.3, 0.9), from: WorldVec(2.4, 1.4, 1.4))
         case "area-progress":
             hud.tool = .mark
             let pts = [WorldVec(1.0, 0, 1.0), WorldVec(1.7, 0, 0.95), WorldVec(1.75, 0, 1.55)].map {
                 MarkPoint(world: $0, surface: .floor, height: 0, distanceToWall: 0.7)
             }
             hud.studioMark(points: pts, shape: nil, start: .area)
-            e.look(at: WorldVec(1.05, 0, 1.6), from: WorldVec(0.35, 1.65, 2.45))
+            e.look(at: WorldVec(1.05, 0, 1.6), from: WorldVec(0.3, 1.5, 2.45))
         case "area-tray":
             hud.tool = .mark
             hud.context = .scope
@@ -226,7 +229,7 @@ enum StudioScript {
             hud.floorType = "carpet"
             hud.underlay = true
             hud.tray = .mark
-            e.look(at: WorldVec(1.38, 0, 1.6), from: WorldVec(1.4, 1.65, 2.6))
+            e.look(at: WorldVec(1.38, 0, 1.6), from: WorldVec(1.3, 1.5, 2.6))
         case "photo-taken":
             hud.tool = .photo
             e.saved = [OverlayMark(id: "p1", style: .photo, points: [WorldVec(1.4, 0.9, 0.0)], tag: "P1"), pin("r1", r2, 10, 1)]
@@ -234,7 +237,7 @@ enum StudioScript {
             hud.studioAdd(entry("p1", "photo", "P1", "Bedroom", photo: true), thumb: thumb(3))
             hud.studioUndo(true)
             hud.showToast("Photo saved · P1")
-            e.look(at: WorldVec(1.3, 0.8, 0.0))
+            e.look(at: WorldVec(1.0, 0.55, 0.0), from: WorldVec(2.4, 1.45, 2.4))
         case "review-drawer":
             e.saved = [pin("r1", r2, 10, 1), pin("r2", r1, 18, 2), pin("r3", r3, 26, 3),
                        OverlayMark(id: "x1", style: .skirting, points: [WorldVec(0.3, 0, 0.0), WorldVec(1.0, 0, 0.0)], tag: "Skirting · 0.70 m")]
@@ -243,7 +246,7 @@ enum StudioScript {
             hud.studioAdd(entry("p1", "photo", "P1", "Bedroom", photo: true), thumb: thumb(3))
             hud.studioAdd(entry("x1", "mark", "Skirting · 0.70 m", "Bedroom", photo: true), thumb: thumb(2))
             hud.studioAdd(entry("r3", "reading", "R3 · 26%", "Wall · Bedroom", photo: true), thumb: thumb(4))
-            e.look(at: WorldVec(0.7, 0.2, 0.4), from: WorldVec(0.6, 1.62, 1.6))
+            e.look(at: WorldVec(0.7, 0.2, 0.4), from: WorldVec(0.6, 1.5, 1.9))
             hud.tick()
             hud.openReview()
             hud.reviewSelected = "r2"
@@ -252,14 +255,14 @@ enum StudioScript {
             e.saved = [OverlayMark(id: "d1", style: .equipment(type: "dehumidifier", planned: false), points: [WorldVec(2.0, 0, 0.6)], tag: "DH 1")]
             e.units = [EquipmentGuard.Unit(id: "d1", type: "dehumidifier", pos: PlanVec(2.0, 0.6), hasAirflow: false, tag: "DH 1")]
             hud.studioAdd(entry("d1", "equipment", "Dehumidifier 1", "Bedroom", photo: true), thumb: thumb(2))
-            e.look(at: WorldVec(1.2, 0, 1.0), from: WorldVec(0.45, 1.62, 1.95))
+            e.look(at: WorldVec(1.2, 0, 1.0), from: WorldVec(0.3, 1.4, 2.0))
         case "equipment-airflow":
             hud.tool = .equipment
             e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(1.6, 1.4), hasAirflow: false, tag: "AM 1")]
             e.saved = [OverlayMark(id: "a1", style: .equipment(type: "airMover", planned: false), points: [WorldVec(1.6, 0, 1.4)], tag: "AM 1")]
             hud.studioAdd(entry("a1", "equipment", "Air mover 1", "Bedroom", photo: true), thumb: thumb(2))
             hud.studioAirflow("a1")
-            e.look(at: WorldVec(1.5, 0, 1.25), from: WorldVec(3.3, 1.42, 1.6))
+            e.look(at: WorldVec(1.5, 0, 1.25), from: WorldVec(3.3, 1.4, 1.7))
         case "source-tray":
             e.look(at: WorldVec(0.0, 0.55, 1.1))
             hud.tick()
@@ -293,7 +296,7 @@ enum StudioScript {
             hud.studioAdd(entry("m1", "remeasure", "R1 · 9%", "was 10%", photo: true), thumb: thumb(0))
             e.override = EnginePrimary(title: CaptureCopy.remeasure("R2"), action: {})
             e.coaching = "R3 is to your left"
-            e.look(at: r1 + WorldVec(0, 0.0, 0.05), from: WorldVec(2.5, 1.62, 0.55))
+            e.look(at: r1 + WorldVec(0, 0.0, 0.05), from: WorldVec(2.7, 1.4, 0.5))
         case "scope-on-site":
             e.isScopeOnSite = true
             e.quietActions = []
@@ -308,8 +311,8 @@ enum StudioScript {
                 OverlayMark(id: "f1", style: .liftFlooring, points: [WorldVec(0.3, 0, 0.6), WorldVec(1.6, 0, 0.6), WorldVec(1.6, 0, 1.9), WorldVec(0.3, 0, 1.9)],
                             tag: "F1 · Carpet 1.7 m²"),
             ]
-            e.override = EnginePrimary(title: "Mark placed · AM-1", tint: DS.Color.dry, action: {})
-            e.look(at: WorldVec(1.2, 0, 1.3), from: WorldVec(3.3, 1.42, 2.1))
+            e.override = EnginePrimary(title: "Mark placed · AM-1", action: {})
+            e.look(at: WorldVec(1.2, 0, 1.3), from: WorldVec(3.3, 1.4, 2.6))
         case "needs-fix":
             e.saved = [pin("r1", r2, 10, 1), pin("r2", r1, 18, 2)]
             hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: thumb(0))
@@ -317,7 +320,7 @@ enum StudioScript {
             var fix = entry("x9", "mark", "Skirting · 2.40 m", "Bedroom", photo: true)
             fix.needsFix = PlainWords.problem("The start and end are on different walls.").sentence
             hud.studioAdd(fix, thumb: thumb(2))
-            e.look(at: WorldVec(0.7, 0.2, 0.4), from: WorldVec(0.6, 1.62, 1.6))
+            e.look(at: WorldVec(0.7, 0.2, 0.4), from: WorldVec(0.6, 1.5, 1.9))
             hud.tick()
             hud.openReview()
             hud.reviewSelected = "x9"
@@ -350,17 +353,28 @@ enum StudioThumbs {
 
 struct StudioView: View {
     let scene: String
-    @StateObject private var engine = StudioEngine()
+    @StateObject private var engine: StudioEngine
+
+    init(scene: String) {
+        self.scene = scene
+        let e = StudioEngine()
+        e.bright = scene == "aim-wall-bright"
+        _engine = StateObject(wrappedValue: e)
+    }
     @State private var ready = false
 
     var body: some View {
         ZStack {
             StudioCameraView(engine: engine).ignoresSafeArea()
+            // A slight lens vignette, so it reads as a camera feed.
+            RadialGradient(colors: [.clear, .black.opacity(engine.bright ? 0.12 : 0.32)], center: .center, startRadius: 220, endRadius: 560)
+                .ignoresSafeArea().allowsHitTesting(false)
             if ready { CaptureScreen(hud: engine.hud) }
         }
         .statusBarHidden()
         .background(Color.black)
         .onAppear {
+            engine.hud.hintsEnabled = scene == "aim-skirting"
             StudioScript.run(scene, engine)
             engine.objectWillChange.send()
             engine.hud.tick()
@@ -375,7 +389,7 @@ struct StudioCameraView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> SCNView {
         let v = SCNView(frame: .zero)
-        v.scene = StudioSceneBuilder.scene()
+        v.scene = StudioSceneBuilder.scene(bright: engine.bright)
         v.backgroundColor = .black
         v.antialiasingMode = .multisampling4X
         v.allowsCameraControl = false
@@ -429,23 +443,24 @@ enum StudioSceneBuilder {
         var seed: UInt32 = 12345
         func rnd() -> CGFloat { seed = seed &* 1664525 &+ 1013904223; return CGFloat(seed >> 8) / CGFloat(1 << 24) }
         return r.image { ctx in
-            UIColor(red: 0.50, green: 0.46, blue: 0.41, alpha: 1).setFill()
+            UIColor(red: 0.43, green: 0.415, blue: 0.40, alpha: 1).setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
             for _ in 0..<5000 {
-                let g = 0.38 + rnd() * 0.16
+                let g = 0.34 + rnd() * 0.14
                 UIColor(red: g + 0.06, green: g + 0.02, blue: g - 0.04, alpha: 0.5).setFill()
                 ctx.fill(CGRect(x: rnd() * CGFloat(size), y: rnd() * CGFloat(size), width: 1.5, height: 1.5))
             }
         }
     }
 
-    static func scene() -> SCNScene {
+    static func scene(bright: Bool = false) -> SCNScene {
         let s = SCNScene()
         let root = s.rootNode
         let W = StudioRoom.width, D = StudioRoom.depth, H = StudioRoom.height
-        let wall = mat(0xCFC8BC)
-        let skirt = mat(0xEDEBE6, rough: 0.5)
+        let wall = mat(bright ? 0xF4F2EE : 0xB9B2A6)
+        let skirt = mat(0xF4F3EF, rough: 0.5)
         let floorM = mat(0, image: carpet())
+        if bright { floorM.diffuse.contents = UIColor(red: 0.86, green: 0.83, blue: 0.78, alpha: 1) }
         floorM.diffuse.wrapS = .repeat
         floorM.diffuse.wrapT = .repeat
         floorM.diffuse.contentsTransform = SCNMatrix4MakeScale(4, 4, 1)
@@ -453,11 +468,11 @@ enum StudioSceneBuilder {
         root.addChildNode(box(W + 0.2, 0.02, D + 0.2, at: WorldVec(W / 2, H + 0.01, D / 2), mat(0xE6E3DD)))
         let t = 0.06
         root.addChildNode(box(W, H, t, at: WorldVec(W / 2, H / 2, -t / 2), wall))                          // w1
-        root.addChildNode(box(t, H, D, at: WorldVec(W + t / 2, H / 2, D / 2), mat(0xC4BDB0)))              // w2
+        root.addChildNode(box(t, H, D, at: WorldVec(W + t / 2, H / 2, D / 2), mat(bright ? 0xEDEAE4 : 0xAEA79B)))              // w2
         root.addChildNode(box(W, H, t, at: WorldVec(W / 2, H / 2, D + t / 2), wall))                       // w3
         // w4 with the doorway (z 1.75...2.57): three pieces.
         let d = StudioRoom.door
-        let w4 = mat(0xBDB6A9)
+        let w4 = mat(bright ? 0xE9E6E0 : 0xA7A094)
         root.addChildNode(box(t, H, d.z0, at: WorldVec(-t / 2, H / 2, d.z0 / 2), w4))
         root.addChildNode(box(t, H, D - d.z1, at: WorldVec(-t / 2, H / 2, (d.z1 + D) / 2), w4))
         root.addChildNode(box(t, H - d.h, d.z1 - d.z0, at: WorldVec(-t / 2, (H + d.h) / 2, (d.z0 + d.z1) / 2), w4))
@@ -484,21 +499,21 @@ enum StudioSceneBuilder {
         root.addChildNode(box(0.03, 1.04, 0.035, at: WorldVec(1.3, 0.95 + 0.55, 0.03), frame))
         // Drawers.
         let dr = StudioRoom.drawers
-        root.addChildNode(box(dr.x1 - dr.x0, dr.h, dr.z1, at: WorldVec((dr.x0 + dr.x1) / 2, dr.h / 2, dr.z1 / 2), mat(0x8C6E52, rough: 0.6)))
+        root.addChildNode(box(dr.x1 - dr.x0, dr.h, dr.z1 - dr.z0, at: WorldVec((dr.x0 + dr.x1) / 2, dr.h / 2, (dr.z0 + dr.z1) / 2), mat(0x8C6E52, rough: 0.6)))
         for k in 0..<3 {
-            root.addChildNode(box(0.12, 0.018, 0.02, at: WorldVec((dr.x0 + dr.x1) / 2, 0.16 + Double(k) * 0.24, dr.z1 + 0.01), mat(0xD9D4CC, rough: 0.3)))
+            root.addChildNode(box(0.12, 0.018, 0.02, at: WorldVec((dr.x0 + dr.x1) / 2, 0.16 + Double(k) * 0.24, dr.z0 - 0.01), mat(0xD9D4CC, rough: 0.3)))
         }
         // Light: soft ambient + a ceiling light + window fill.
-        let amb = SCNNode(); amb.light = SCNLight(); amb.light?.type = .ambient; amb.light?.intensity = 520
+        let amb = SCNNode(); amb.light = SCNLight(); amb.light?.type = .ambient; amb.light?.intensity = bright ? 900 : 430
         amb.light?.color = UIColor(white: 1, alpha: 1)
         root.addChildNode(amb)
-        let top = SCNNode(); top.light = SCNLight(); top.light?.type = .omni; top.light?.intensity = 520
+        let top = SCNNode(); top.light = SCNLight(); top.light?.type = .omni; top.light?.intensity = bright ? 900 : 480
         top.light?.attenuationStartDistance = 1.0
         top.light?.attenuationEndDistance = 6.0
         top.light?.color = UIColor(red: 1, green: 0.96, blue: 0.9, alpha: 1)
         top.simdPosition = SIMD3<Float>(Float(W / 2), Float(H - 0.2), Float(D / 2))
         root.addChildNode(top)
-        let win = SCNNode(); win.light = SCNLight(); win.light?.type = .directional; win.light?.intensity = 180
+        let win = SCNNode(); win.light = SCNLight(); win.light?.type = .directional; win.light?.intensity = bright ? 600 : 260
         win.light?.color = UIColor(red: 0.85, green: 0.9, blue: 1, alpha: 1)
         win.simdLook(at: SIMD3<Float>(1.5, 0, 2.0), up: SIMD3<Float>(0, 1, 0), localFront: SIMD3<Float>(0, 0, -1))
         win.simdPosition = SIMD3<Float>(1.3, 1.6, 0.1)

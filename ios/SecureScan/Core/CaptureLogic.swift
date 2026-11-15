@@ -426,6 +426,16 @@ enum CaptureCopy {
     /// Leak causes. "Unknown" is a choice the user makes, never a default.
     static let causes = ["Shower", "Flexi hose", "Pipe", "Roof", "Window", "Appliance", "Overflow", "Unknown"]
 
+    /// First-run help: one line per tool, shown until the tool is first used.
+    static func coach(_ t: CaptureTool) -> String? {
+        switch t {
+        case .reading: return "Aim where the meter touches"
+        case .mark: return "Tap start and end, or floor corners"
+        case .equipment: return "Aim at the floor where it stands"
+        default: return nil
+        }
+    }
+
     static func readingTag(_ n: Int) -> String { "R\(n)" }
     static func photoTag(_ n: Int) -> String { "P\(n)" }
 

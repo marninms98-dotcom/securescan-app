@@ -97,7 +97,7 @@ struct CaptureHUD: View {
         let content = VStack(spacing: 1) {
             Text(CaptureCopy.phase(hud.display.phase, room: hud.display.room))
                 .font(DS.Font.calloutBold).lineLimit(1).minimumScaleFactor(0.85)
-            if let c = hud.display.coaching {
+            if let c = hud.display.coaching ?? hud.coachHint {
                 Text(c).font(DS.Font.caption).foregroundStyle(DS.Color.onCameraSecondary).lineLimit(1).minimumScaleFactor(0.85)
             }
         }
@@ -163,7 +163,7 @@ struct CaptureHUD: View {
                     rail
                 }
                 primaryButton
-                quietRow
+                if hud.markPoints.isEmpty && hud.airflowFor == nil { quietRow }
             }
             .padding(.horizontal, DS.Space.margin)
             .padding(.bottom, 4)
@@ -203,7 +203,7 @@ struct CaptureHUD: View {
                 }
                 .padding(.horizontal, 1)
             }
-            .scrollClipDisabled()
+            .mask(FadeEdge())
         }
     }
 
@@ -225,7 +225,7 @@ struct CaptureHUD: View {
                 if hud.canWholeRoom { out.append(OptionChip(id: "room", title: "Whole room", icon: "square.dashed") { hud.wholeRoom() }) }
                 return out
             }
-            var out = [OptionChip(id: "undo", title: "Undo point", icon: "arrow.uturn.backward") { hud.undoMarkPoint() }]
+            var out = [OptionChip(id: "undo", title: "Undo", icon: "arrow.uturn.backward") { hud.undoMarkPoint() }]
             if hud.markStartShape == .line {
                 out.append(OptionChip(id: "area", title: "Add corners", icon: "plus") { hud.continueAsArea() })
             } else {
@@ -258,8 +258,8 @@ struct CaptureHUD: View {
             }
         }
         .padding(4)
-        .background(CameraFill(shape: RoundedRectangle(cornerRadius: DS.Radius.control + 4, style: .continuous)))
-        .overlay(RoundedRectangle(cornerRadius: DS.Radius.control + 4, style: .continuous).strokeBorder(DS.Color.hairline, lineWidth: 1))
+        .background(CameraFill(shape: RoundedRectangle(cornerRadius: 24, style: .continuous)))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(DS.Color.hairline, lineWidth: 1))
     }
 
     @ViewBuilder private var quietRow: some View {
@@ -330,14 +330,15 @@ struct ReticleView: View {
                     .fixedSize()
                     .offset(y: -36)
             }
+            // 2 pt white ring with a 1 pt dark stroke either side, and the centre dot: holds on any wall.
             Circle()
-                .stroke(Color.black.opacity(0.35), lineWidth: 4)
+                .stroke(Color.black.opacity(0.55), lineWidth: 4)
                 .frame(width: 28, height: 28)
             Circle()
                 .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: locked ? [] : [4, 4]))
                 .frame(width: 28, height: 28)
-            Circle().fill(Color.white).frame(width: 4, height: 4)
-                .shadow(color: .black.opacity(0.5), radius: 1)
+            Circle().fill(Color.black.opacity(0.55)).frame(width: 7, height: 7)
+            Circle().fill(Color.white).frame(width: 5, height: 5)
             if snapped {
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .heavy))
