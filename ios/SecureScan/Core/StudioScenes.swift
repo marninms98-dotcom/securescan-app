@@ -97,11 +97,12 @@ enum StudioScenes {
                 OverlayMark(id: "d1", style: .equipment(type: "dehumidifier", planned: false), points: [WorldVec(2.0, 0, 0.6)], tag: "DH 1"),
             ])
         case "equipment-airflow":
-            let cam = WorldVec(3.3, 1.4, 1.7), tgt = WorldVec(1.5, 0, 1.25)
-            let f = simd_normalize(WorldVec(tgt.x - cam.x, 0, tgt.z - cam.z))
+            // The airflow points from the unit to where the reticle is on the floor.
+            let cam = WorldVec(2.9, 1.45, 2.6), tgt = WorldVec(0.9, 0, 1.1), unit = WorldVec(0.96, 0, 0.52)
+            let f = simd_normalize(WorldVec(tgt.x - unit.x, 0, tgt.z - unit.z))
             return StudioSceneData(name: name, camera: cam, target: tgt, marks: [
-                OverlayMark(id: "a1", style: .equipment(type: "airMover", planned: false), points: [WorldVec(1.6, 0, 1.4)], tag: "AM 1"),
-                OverlayMark(id: "draft-airflow", style: .equipment(type: "airMover", planned: false), points: [WorldVec(1.6, 0, 1.4)], airflow: f, tag: nil),
+                OverlayMark(id: "a1", style: .equipment(type: "airMover", planned: false), points: [unit], tag: "AM 1"),
+                OverlayMark(id: "draft-airflow", style: .equipment(type: "airMover", planned: false), points: [unit], airflow: f, tag: nil),
             ])
         case "source-tray":
             return StudioSceneData(name: name, camera: WorldVec(2.6, 1.5, 2.4), target: WorldVec(0.5, 0.25, 1.2))

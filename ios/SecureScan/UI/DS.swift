@@ -71,15 +71,18 @@ enum DS {
 
     // MARK: Type (SF Pro; nothing below 13 pt)
 
+    /// Text styles, so light screens follow Dynamic Type; at the default size they are exactly
+    /// 28 / 20 / 17 / 15 / 13 pt. The capture screen caps Dynamic Type (CaptureScreen) so the
+    /// HUD keeps its layout; value readouts stay fixed.
     enum Font {
-        static let title = SwiftUI.Font.system(size: 28, weight: .bold)
-        static let headline = SwiftUI.Font.system(size: 20, weight: .semibold)
-        static let body = SwiftUI.Font.system(size: 17, weight: .regular)
-        static let bodyBold = SwiftUI.Font.system(size: 17, weight: .semibold)
-        static let callout = SwiftUI.Font.system(size: 15, weight: .regular)
-        static let calloutBold = SwiftUI.Font.system(size: 15, weight: .semibold)
-        static let caption = SwiftUI.Font.system(size: 13, weight: .medium)
-        static let captionBold = SwiftUI.Font.system(size: 13, weight: .semibold)
+        static let title = SwiftUI.Font.system(.title, design: .default, weight: .bold)
+        static let headline = SwiftUI.Font.system(.title3, design: .default, weight: .semibold)
+        static let body = SwiftUI.Font.system(.body, design: .default, weight: .regular)
+        static let bodyBold = SwiftUI.Font.system(.body, design: .default, weight: .semibold)
+        static let callout = SwiftUI.Font.system(.subheadline, design: .default, weight: .regular)
+        static let calloutBold = SwiftUI.Font.system(.subheadline, design: .default, weight: .semibold)
+        static let caption = SwiftUI.Font.system(.footnote, design: .default, weight: .medium)
+        static let captionBold = SwiftUI.Font.system(.footnote, design: .default, weight: .semibold)
         /// Value readouts: SF Pro Rounded semibold, monospaced digits.
         static func value(_ size: CGFloat) -> SwiftUI.Font {
             SwiftUI.Font.system(size: size, weight: .semibold, design: .rounded).monospacedDigit()
@@ -316,13 +319,16 @@ struct IconButton: View {
     let icon: String
     let label: String
     var tint: Color? = nil
+    /// Diameter (44 pt default; the job screen's dock uses 48).
+    var size: CGFloat = DS.Size.icon
     let action: () -> Void
     @Environment(\.dsSurface) private var surface
 
-    init(_ icon: String, label: String, tint: Color? = nil, action: @escaping () -> Void) {
+    init(_ icon: String, label: String, tint: Color? = nil, size: CGFloat = DS.Size.icon, action: @escaping () -> Void) {
         self.icon = icon
         self.label = label
         self.tint = tint
+        self.size = size
         self.action = action
     }
 
@@ -331,7 +337,7 @@ struct IconButton: View {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(tint == nil ? (surface == .camera ? Color.white : Color(.label)) : Color.white)
-                .frame(width: DS.Size.icon, height: DS.Size.icon)
+                .frame(width: size, height: size)
                 .background {
                     if let tint { Circle().fill(tint) }
                     else if surface == .camera { CameraFill(shape: Circle()) }

@@ -149,7 +149,7 @@ struct PhotoViewer: View {
             }
             if let p = current {
                 VStack(spacing: 1) {
-                    Text("\(p.title) · \(index + 1) of \(photos.count)").font(DS.Font.calloutBold).monospacedDigit()
+                    Text("\(p.title) of \(photos.count)").font(DS.Font.calloutBold).monospacedDigit()
                     Text([p.place, p.caption].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(DS.Font.caption).foregroundStyle(DS.Color.onCameraSecondary).lineLimit(1)
                 }

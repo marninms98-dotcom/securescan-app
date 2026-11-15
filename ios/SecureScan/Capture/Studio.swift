@@ -260,7 +260,7 @@ enum StudioScript {
             hud.studioAdd(entry("d1", "equipment", "Dehumidifier 1", "Bedroom", photo: true), thumb: shot(2, nil))
         case "equipment-airflow":
             hud.tool = .equipment
-            e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(1.6, 1.4), hasAirflow: false, tag: "AM 1")]
+            e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(0.96, 0.52), hasAirflow: false, tag: "AM 1")]
             hud.studioAdd(entry("a1", "equipment", "Air mover 1", "Bedroom", photo: true), thumb: shot(2, nil))
             hud.studioAirflow("a1")
         case "source-tray":

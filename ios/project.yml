@@ -96,6 +96,11 @@ targets:
       - path: SecureScan/Core/OverlayModel.swift
       - path: SecureScan/Core/OverlayLayout.swift
       - path: SecureScan/Core/StudioScenes.swift
+      # From the app shell (ux2-app); optional until that branch is merged.
+      - path: SecureScan/App/JobSummary.swift
+        optional: true
+      - path: SecureScan/Items/ItemsModel.swift
+        optional: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.secureworkswa.securescan.tests

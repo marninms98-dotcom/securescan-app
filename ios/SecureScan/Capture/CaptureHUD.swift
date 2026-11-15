@@ -27,6 +27,8 @@ struct CaptureScreen: View {
             CaptureHUD(hud: hud)
         }
         .dsSurface(.camera)
+        // The HUD keeps its layout: Dynamic Type is capped at the default size here.
+        .dynamicTypeSize(...DynamicTypeSize.large)
         .onReceive(timer) { _ in hud.tick() }
     }
 }

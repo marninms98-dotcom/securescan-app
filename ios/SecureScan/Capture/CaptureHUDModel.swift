@@ -413,11 +413,22 @@ final class CaptureHUDModel: ObservableObject {
         persist(.equipment(s, type: equipmentType, asset: ""))
     }
 
-    private func setAirflow(_ id: String) {
-        guard let s = engine.aimSample() else { return }
+    /// The airflow points from the unit to the spot on the floor the reticle is on (or, with
+    /// nothing under the reticle, the way the phone points).
+    private func airflowDirection(_ id: String) -> WorldVec? {
+        guard let u = engine.equipmentUnits().first(where: { $0.id == id }) else { return nil }
+        if let h = aim.hit {
+            let d = WorldVec(h.x - u.pos.x, 0, h.z - u.pos.y)
+            if simd_length(d) > 0.25 { return simd_normalize(d) }
+        }
+        guard let s = engine.aimSample() else { return nil }
         let f = WorldVec(s.forward.x, 0, s.forward.z)
-        guard simd_length(f) > 0.2 else { showToast("Hold the phone up and point it the way the air should blow"); DS.Haptic.warning(); return }
-        if engine.setAirflow(id: id, direction: simd_normalize(f)) {
+        return simd_length(f) > 0.2 ? simd_normalize(f) : nil
+    }
+
+    private func setAirflow(_ id: String) {
+        guard let dir = airflowDirection(id) else { showToast("Aim at the floor where the air should go"); DS.Haptic.warning(); return }
+        if engine.setAirflow(id: id, direction: dir) {
             airflowFor = nil
             DS.Haptic.save()
             showToast("Airflow set")
@@ -429,10 +440,8 @@ final class CaptureHUDModel: ObservableObject {
     /// The live arrow while aiming the airflow.
     var airflowPreview: (from: WorldVec, dir: WorldVec)? {
         guard let id = airflowFor, let u = engine.equipmentUnits().first(where: { $0.id == id }),
-              let s = engine.aimSample() else { return nil }
-        let f = WorldVec(s.forward.x, 0, s.forward.z)
-        guard simd_length(f) > 0.2 else { return nil }
-        return (WorldVec(u.pos.x, engine.world.floorY ?? 0, u.pos.y), simd_normalize(f))
+              let dir = airflowDirection(id) else { return nil }
+        return (WorldVec(u.pos.x, engine.world.floorY ?? 0, u.pos.y), dir)
     }
 
     // MARK: Mark
