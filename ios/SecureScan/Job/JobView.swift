@@ -364,11 +364,20 @@ struct JobView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(vm.meta?.displayAddress ?? "Job")
-                    .font(.system(size: 17, weight: .semibold))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.9)
+                let parts = JobView.titleParts(vm.meta?.displayAddress ?? "Job")
+                VStack(spacing: 0) {
+                    Text(parts.0)
+                        .font(DS.Font.bodyBold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    if let suburb = parts.1 {
+                        Text(suburb)
+                            .font(DS.Font.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .accessibilityElement(children: .combine)
             }
             ToolbarItem(placement: .topBarTrailing) { moreMenu }
         }
@@ -437,6 +446,14 @@ struct JobView: View {
         } message: {
             Text(vm.alertText ?? "")
         }
+    }
+
+    /// "Unit 4/118 Wanneroo Road, Madeley, WA 6065" -> ("Unit 4/118 Wanneroo Road", "Madeley, WA 6065").
+    static func titleParts(_ address: String) -> (String, String?) {
+        guard let comma = address.firstIndex(of: ",") else { return (address, nil) }
+        let street = address[..<comma].trimmingCharacters(in: .whitespaces)
+        let rest = address[address.index(after: comma)...].trimmingCharacters(in: .whitespaces)
+        return street.isEmpty || rest.isEmpty ? (address, nil) : (street, rest)
     }
 
     private func scanFinished() {
