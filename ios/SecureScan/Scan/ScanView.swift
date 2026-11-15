@@ -20,14 +20,12 @@ struct ScanView: View {
     }
 
     var body: some View {
-        ZStack {
+        CaptureScreen(hud: model.hud) {
             if preview {
                 LinearGradient(colors: [Color(white: 0.32), Color(white: 0.12)], startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea()
             } else {
-                CaptureContainer(model: model).ignoresSafeArea()
+                CaptureContainer(model: model)
             }
-            CaptureScreen(hud: model.hud)
         }
         .statusBarHidden()
         .onChange(of: scenePhase) { _, phase in

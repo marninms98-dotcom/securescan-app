@@ -99,7 +99,37 @@ struct EnginePrimary {
     var title: String
     var enabled = true
     var tint: Color = DS.Color.accent
+    /// SF Symbol on the round action button.
+    var icon: String = "checkmark"
+    /// The white Camera-style "Start" shutter instead of the accent action.
+    var start = false
     var action: () -> Void
+}
+
+/// The camera for the 3D layer (equipment models): world -> camera and camera -> clip,
+/// for the viewport's size and orientation (portrait).
+struct Camera3D {
+    var view: simd_float4x4
+    var projection: simd_float4x4
+
+    /// A pinhole camera (the Studio): vertical field of view, looking at a point.
+    static func pinhole(position: WorldVec, lookAt: WorldVec, fovYDegrees: Double, viewport: CGSize, near: Float = 0.02, far: Float = 60) -> Camera3D {
+        let eye = SIMD3<Float>(Float(position.x), Float(position.y), Float(position.z))
+        let at = SIMD3<Float>(Float(lookAt.x), Float(lookAt.y), Float(lookAt.z))
+        let f = simd_normalize(at - eye)
+        var r = simd_cross(f, SIMD3<Float>(0, 1, 0))
+        if simd_length(r) < 1e-5 { r = SIMD3<Float>(1, 0, 0) }
+        r = simd_normalize(r)
+        let u = simd_cross(r, f)
+        // Camera-to-world: x = right, y = up, z = backwards.
+        let c2w = simd_float4x4(columns: (SIMD4<Float>(r, 0), SIMD4<Float>(u, 0), SIMD4<Float>(-f, 0), SIMD4<Float>(eye, 1)))
+        let aspect = Float(max(viewport.width, 1) / max(viewport.height, 1))
+        let t = 1 / tan(Float(fovYDegrees) * .pi / 360)
+        let proj = simd_float4x4(columns: (SIMD4<Float>(t / aspect, 0, 0, 0), SIMD4<Float>(0, t, 0, 0),
+                                           SIMD4<Float>(0, 0, (far + near) / (near - far), -1),
+                                           SIMD4<Float>(0, 0, 2 * far * near / (near - far), 0)))
+        return Camera3D(view: c2w.inverse, projection: proj)
+    }
 }
 
 /// The quiet text buttons under the primary ("Room done", "Finish", "Next room").
@@ -107,6 +137,8 @@ struct QuietAction: Identifiable, Equatable {
     var id: String
     var title: String
     var enabled = true
+    /// A filled accent pill ("Finish" once the job has a room) instead of an outline.
+    var prominent = false
 }
 
 /// A one-line edit made in the review drawer.
@@ -173,6 +205,10 @@ protocol CaptureEngine: AnyObject {
     func endHandoff()
     /// A tray was closed without saving (re-measure cancelled).
     func trayCancelled()
+    /// The camera for the 3D equipment layer (nil = no 3D: the 2D glyphs are drawn).
+    func camera3D(viewport: CGSize) -> Camera3D?
+    /// The torch button (back camera with a torch, AR running).
+    var hasTorch: Bool { get }
 }
 
 extension CaptureEngine {
@@ -183,6 +219,8 @@ extension CaptureEngine {
     func customTray() -> AnyView? { nil }
     var canRenameRoom: Bool { false }
     func roomSections() -> [String] { [] }
+    func camera3D(viewport: CGSize) -> Camera3D? { nil }
+    var hasTorch: Bool { Torch.available }
 }
 
 /// Shared helpers for engines.

@@ -50,6 +50,8 @@ struct SceneContent {
     var lines: [MoistureLine3D] = []
     /// Removal bands: 4 corners each (bottom a, bottom b, top b, top a); `done` drawn green.
     var bands: [(corners: [SIMD3<Float>], done: Bool)] = []
+    /// Drying equipment as 3D models: type, floor position, yaw (outlet = airflow; 0 = +Z).
+    var equipment: [(type: String, position: SIMD3<Float>, yaw: Float, flow: Bool)] = []
     var fallback = false
     var error: String?
 }
@@ -103,6 +105,13 @@ final class ModelViewModel: ObservableObject {
             for line in content.lines { markersNode.addChildNode(Self.lineNode(line, scale: scale)) }
             for b in content.bands { markersNode.addChildNode(Self.bandNode(b.corners, done: b.done)) }
             for m in content.markers { markersNode.addChildNode(Self.markerNode(m, scale: scale)) }
+            for e in content.equipment {
+                let n = EquipmentModels.model(e.type)
+                if e.flow { n.addChildNode(EquipmentModels.airflow()) }
+                n.simdPosition = e.position
+                n.simdEulerAngles = [0, e.yaw, 0]
+                markersNode.addChildNode(n)
+            }
             markersNode.isHidden = !showMarkers
             scene.rootNode.addChildNode(markersNode)
 
@@ -151,6 +160,8 @@ final class ModelViewModel: ObservableObject {
         let place: ([String: Any]) -> (SIMD3<Float>, Float)?
         // Plan point + height above floor -> 3D point (nil: unknown frame).
         var toWorld: ((PlanVec, Double) -> SIMD3<Float>)? = nil
+        // Plan angle (radians) -> world yaw about +y with 0 = +Z (nil: unknown frame).
+        var yawOf: ((Double) -> Float)? = nil
 
         if folder.hasModel {
             do { scene = try SCNScene(url: folder.modelURL, options: nil) }
@@ -168,6 +179,10 @@ final class ModelViewModel: ObservableObject {
                 toWorld = { p, h in
                     let w = t.world(p, y: floorY + h)
                     return SIMD3<Float>(Float(w.x), Float(w.y), Float(w.z))
+                }
+                yawOf = { a in
+                    let d = Airflow.worldDirection(a, transform: t)
+                    return Float(atan2(d.x, d.z))
                 }
             } else {
                 var resolved: [String: SIMD3<Float>] = [:]
@@ -192,6 +207,7 @@ final class ModelViewModel: ObservableObject {
                 return (SIMD3<Float>(Float(p.x), Float(h), Float(p.y)), 0)
             }
             toWorld = { p, h in SIMD3<Float>(Float(p.x), Float(h), Float(p.y)) }
+            yawOf = { a in Float(atan2(cos(a), sin(a))) }
         }
 
         var byId: [String: (SIMD3<Float>, Float)] = [:]
@@ -230,10 +246,15 @@ final class ModelViewModel: ObservableObject {
             guard let placed = place(d) else { continue }
             let label = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
             let name = PlanDocument.equipmentName((d["type"] as? String) ?? "other")
+            let type = (d["type"] as? String) ?? "other"
+            let dir = PlanDocument.number(d["dir"])
+            // The unit itself as a model on the floor; its label floats above it.
+            content.equipment.append((type: type, position: SIMD3<Float>(placed.0.x, placed.1, placed.0.z),
+                                      yaw: dir.flatMap { a in yawOf?(a) } ?? 0, flow: dir != nil && type == "airMover"))
             // Short labels (the asset number when there is one) so they don't cover readings.
             content.markers.append(MarkerInfo(kind: "equipment", label: label.isEmpty ? name : label,
                                               color: UIColor(red: 0.20, green: 0.45, blue: 0.50, alpha: 1),
-                                              position: placed.0 + SIMD3<Float>(0, 0.08, 0)))
+                                              position: SIMD3<Float>(placed.0.x, placed.1 + Float(EquipmentModels.height(type)) + 0.12, placed.0.z)))
         }
         // Removals: a band on the wall t0..t1 up to the cut height; flooring
         // sections as a low band round their outline.

@@ -122,9 +122,8 @@ struct RevisitARScreen: View {
     let onClose: () -> Void
 
     var body: some View {
-        ZStack {
-            RevisitCameraContainer(model: model).ignoresSafeArea()
-            CaptureScreen(hud: model.hud)
+        CaptureScreen(hud: model.hud) {
+            RevisitCameraContainer(model: model)
         }
         .statusBarHidden()
         .onAppear { model.onClose = onClose }

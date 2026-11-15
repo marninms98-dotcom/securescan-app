@@ -94,12 +94,25 @@ final class CaptureHUDModel: ObservableObject {
     /// Bumped when the job's photos change (viewer, badge).
     @Published private(set) var photosTick = 0
 
-    /// First-run coach lines (off in the Studio).
+    /// First-run coach lines (off in the Studio unless a scene asks).
     var hintsEnabled = true
     var coachHint: String? {
         guard hintsEnabled, tray == nil, !UserDefaults.standard.bool(forKey: "coach." + tool.rawValue) else { return nil }
         return CaptureCopy.coach(tool)
     }
+
+    /// "Tips" in the top bar: one line per mode, over the viewport.
+    @Published var tipsOpen = false
+
+    /// Strip-out: the kind the user picked on the sub-picker (nil = follow the aim).
+    @Published var stripPick: MarkMeaning?
+    /// Strip-out: the kind fixed when the first point went down.
+    @Published private(set) var stripAtStart: MarkMeaning?
+
+    /// The 3D equipment layer is on screen (the overlay then draws tags only).
+    @Published var models3D = false
+    /// Two-finger twist on a unit: the yaw added while the fingers are down (radians).
+    @Published var twist: (id: String, angle: Double)?
 
     private var undoTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
@@ -107,11 +120,26 @@ final class CaptureHUDModel: ObservableObject {
 
     init(engine: CaptureEngine) {
         self.engine = engine
-        tool = CaptureTool.rail(returnVisit: engine.isReturnVisit, scopeOnSite: engine.isScopeOnSite).first ?? .reading
+        tool = CaptureTool.modes(returnVisit: engine.isReturnVisit, scopeOnSite: engine.isScopeOnSite).first ?? .moisture
         display = EngineDisplay(engine)
     }
 
-    var tools: [CaptureTool] { CaptureTool.rail(returnVisit: engine.isReturnVisit, scopeOnSite: engine.isScopeOnSite) }
+    var tools: [CaptureTool] { CaptureTool.modes(returnVisit: engine.isReturnVisit, scopeOnSite: engine.isScopeOnSite) }
+
+    /// Moisture mode: the next tap starts a moisture line / wet area instead of a reading.
+    @Published var drawArmed: MarkShape?
+
+    /// The marks the current mode draws.
+    var markFamily: MarkFamily { tool.markFamily ?? .stripOut }
+
+    /// The mode is drawing a line or area (strip-out always; moisture once armed or started).
+    var drawing: Bool {
+        switch tool {
+        case .stripOut: return true
+        case .moisture: return drawArmed != nil || !markPoints.isEmpty
+        default: return false
+        }
+    }
 
     // MARK: Tick (~15 Hz, from the view)
 
@@ -120,7 +148,7 @@ final class CaptureHUDModel: ObservableObject {
         if d != display { display = d }
         // While a tray is open the reticle is frozen on the captured point.
         guard tray == nil else { return }
-        let a = engine.aimSample().map { AimInterpreter.interpret($0, world: engine.world, snapEnds: tool == .mark) } ?? .none
+        let a = engine.aimSample().map { AimInterpreter.interpret($0, world: engine.world, snapEnds: tool.markFamily != nil) } ?? .none
         if a != aim {
             let key = "\(a.surface?.rawValue ?? "-")|\(a.wall?.id ?? "-")|\(a.snapped)"
             if key != lastLockKey && a.hit != nil && aim.hit != nil { DS.Haptic.lock() }
@@ -134,11 +162,12 @@ final class CaptureHUDModel: ObservableObject {
     var reticleText: String? {
         guard tray == nil, display.showsTools, display.busy == nil, airflowFor == nil, retakeFor == nil else { return nil }
         switch tool {
-        case .remeasure, .done, .photo, .equipment: return nil
-        case .mark:
-            if !markPoints.isEmpty && markStartShape == .area { return nil }
-            if markPoints.isEmpty && aim.surface == .floor { return nil }
-        default: break
+        case .remeasure, .equipment: return nil
+        case .stripOut, .moisture:
+            // While drawing, the line's or area's own label says it.
+            if !markPoints.isEmpty { return nil }
+            if tool == .stripOut && markPoints.isEmpty && aim.surface == .floor { return nil }
+        case .source: break
         }
         return CaptureCopy.reticle(aim)
     }
@@ -152,10 +181,121 @@ final class CaptureHUDModel: ObservableObject {
         guard t != tool else { return }
         cancelMark()
         airflowFor = nil
-        retakeFor = nil
+        drawArmed = nil
         tray = nil
+        tipsOpen = false
         tool = t
     }
+
+    // MARK: The sub-picker (moisture kinds, strip-out kinds, equipment types)
+
+    var subPicker: [(key: String, title: String)] { CaptureCopy.subPicker(tool) }
+
+    /// The strip-out kind the reticle suggests now.
+    var stripAuto: MarkMeaning { MarkIntent.stripKind(aim.hit == nil ? nil : MarkPoint(aim: aim), remembered: remembered) }
+
+    /// The strip-out kind in effect: fixed once drawing started, else picked, else from the aim.
+    var stripKind: MarkMeaning { markPoints.isEmpty ? (stripPick ?? stripAuto) : (stripAtStart ?? stripPick ?? stripAuto) }
+
+    var subSelection: String? {
+        switch tool {
+        case .moisture: return drawArmed == .line ? "line" : drawArmed == .area ? "area" : "reading"
+        case .stripOut: return stripKind.rawValue
+        case .equipment: return equipmentType
+        default: return nil
+        }
+    }
+
+    func pickSub(_ key: String) {
+        guard key != subSelection else { return }
+        DS.Haptic.selection()
+        switch tool {
+        case .moisture:
+            guard markPoints.isEmpty else { return }
+            drawArmed = key == "line" ? .line : key == "area" ? .area : nil
+        case .stripOut:
+            guard let m = MarkMeaning(rawValue: key) else { return }
+            stripPick = m
+            if !markPoints.isEmpty {
+                stripAtStart = m
+                markStartShape = m.isArea ? .area : (markPoints.count <= 2 ? .line : markStartShape)
+            }
+        case .equipment:
+            airflowFor = nil
+            equipmentType = key
+        default: break
+        }
+    }
+
+    // MARK: The instruction card, the top bar's lines
+
+    /// The one card at the top of the viewport: a toast, RoomPlan's coaching, a status, or the
+    /// first-use line for the mode.
+    var cardText: String? {
+        if display.busy != nil { return nil }
+        if let t = toast { return t }
+        if let c = display.coaching { return c }
+        guard tray == nil else { return nil }
+        if airflowFor != nil { return CaptureCopy.aimAirflow }
+        if !markPoints.isEmpty && aim.snapped { return CaptureCopy.snappedEnd }
+        if tool == .moisture && markPoints.isEmpty {
+            if drawArmed == .line { return CaptureCopy.wetLineStart }
+            if drawArmed == .area { return CaptureCopy.wetAreaStart }
+        }
+        return coachHint
+    }
+
+    /// "Scanning · 3 readings", "Drying setup · 2 units", "Visit 2 · 1 of 3".
+    var subtitle: String {
+        let marks = engine.overlayMarks()
+        var readings = 0, strip = 0
+        for m in marks {
+            switch m.style {
+            case .reading: readings += 1
+            case .skirting, .lining, .liftFlooring: strip += 1
+            default: break
+            }
+        }
+        return CaptureCopy.subtitle(phase: display.phase, tool: tool, readings: readings, marks: strip,
+                                    units: engine.equipmentUnits().count, fixed: engine.isReturnVisit || engine.isScopeOnSite)
+    }
+
+    // MARK: The bottom panel's pills and caption
+
+    struct Pill: Identifiable, Equatable {
+        var id: String
+        var title: String
+        var enabled = true
+        var prominent = false
+    }
+
+    /// Left pill, the action's words in the middle (when they say something the mode doesn't),
+    /// right pill.
+    var pills: (left: Pill?, caption: String?, right: Pill?) {
+        let p = primary
+        if retakeFor != nil { return (nil, "Retake photo", Pill(id: "cancelRetake", title: "Cancel")) }
+        if airflowFor != nil { return (nil, p.title, Pill(id: "skipAirflow", title: "Skip")) }
+        if !markPoints.isEmpty { return (Pill(id: "undoPoint", title: "Undo"), p.title, Pill(id: "cancelMark", title: "Cancel")) }
+        let q = display.quiet.map { Pill(id: "quiet:" + $0.id, title: $0.title, enabled: $0.enabled, prominent: $0.prominent) }
+        let contextual = !p.enabled || engine.primaryOverride(tool: tool, aim: aim) != nil || existingUnit != nil
+            || (tool == .moisture && drawArmed != nil) || q.isEmpty
+        return (q.first, contextual ? p.title : nil, q.count > 1 ? q.last : nil)
+    }
+
+    func tapPill(_ id: String) {
+        switch id {
+        case "cancelRetake": cancelRetake()
+        case "skipAirflow": skipAirflow()
+        case "undoPoint": undoMarkPoint()
+        case "cancelMark": cancelMark()
+        default:
+            if id.hasPrefix("quiet:") { engine.perform(quiet: String(id.dropFirst(6))) }
+        }
+    }
+
+    /// The centre button is the white "Start" shutter (a scan not started yet).
+    var primaryIsStart: Bool { tray == nil && (engine.primaryOverride(tool: tool, aim: aim)?.start ?? false) }
+
 
     // MARK: The primary button
 
@@ -170,22 +310,36 @@ final class CaptureHUDModel: ObservableObject {
         // One primary colour everywhere: meaning colours live on chips and world marks.
         if let o = engine.primaryOverride(tool: tool, aim: aim) { return Primary(title: o.title, enabled: o.enabled) }
         if airflowFor != nil { return Primary(title: CaptureCopy.setAirflow, enabled: aim.blocked != CaptureCopy.findingRoom) }
-        if tool == .photo {
-            let title = retakeFor.flatMap { id in stack.entries.first { $0.id == id }?.title }.map { "Retake \($0)" }
-                ?? (zoomUltra && engine.zoomState == .available ? "Take 0.5× photo" : CaptureCopy.takePhoto)
-            return Primary(title: title, enabled: aim.blocked != CaptureCopy.findingRoom)
-        }
         if let why = aim.blocked { return Primary(title: why, enabled: false) }
         switch tool {
-        case .reading: return Primary(title: CaptureCopy.addReading, enabled: true)
+        case .moisture: return Primary(title: drawing ? markTitle : CaptureCopy.addReading, enabled: true)
         case .source: return Primary(title: CaptureCopy.markSource, enabled: true)
         case .equipment:
             if let u = existingUnit { return Primary(title: EquipmentGuard.action(for: u), enabled: u.type == "airMover") }
             return Primary(title: CaptureCopy.place(equipmentType), enabled: true)
-        case .mark: return Primary(title: markTitle, enabled: true)
-        case .photo: return Primary(title: CaptureCopy.takePhoto, enabled: true)
-        case .remeasure, .done: return Primary(title: "Aim at a saved point", enabled: false)
+        case .stripOut: return Primary(title: markTitle, enabled: true)
+        case .remeasure: return Primary(title: "Aim at a saved point", enabled: false)
         }
+    }
+
+    /// The symbol on the round action button.
+    var primaryIcon: String {
+        if let o = engine.primaryOverride(tool: tool, aim: aim) { return o.icon }
+        if airflowFor != nil { return "arrow.turn.up.right" }
+        if aim.blocked != nil { return "scope" }
+        switch tool {
+        case .moisture: return drawing ? markIcon : "drop.fill"
+        case .stripOut: return markIcon
+        case .equipment: return existingUnit != nil ? "arrow.turn.up.right" : "plus"
+        case .source: return "mappin"
+        case .remeasure: return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    private var markIcon: String {
+        if markPoints.isEmpty { return "plus" }
+        if markStartShape == .line { return "checkmark" }
+        return markPoints.count >= 3 && closesArea ? "checkmark" : "plus"
     }
 
     private func trayPrimary(_ t: CaptureTray) -> Primary {
@@ -211,7 +365,10 @@ final class CaptureHUDModel: ObservableObject {
     }
 
     private var markTitle: String {
-        guard let first = markPoints.first else { return CaptureCopy.startHere }
+        guard let first = markPoints.first else {
+            if tool == .moisture { return drawArmed == .area ? "Start wet area" : "Start line" }
+            return CaptureCopy.startHere
+        }
         let cursor = aim.hit
         if markStartShape == .line {
             return CaptureCopy.endHere(cursor.map { simd_distance(first.world, $0) })
@@ -248,12 +405,11 @@ final class CaptureHUDModel: ObservableObject {
         if let o = engine.primaryOverride(tool: tool, aim: aim) { o.action(); return }
         if let id = airflowFor { setAirflow(id); return }
         switch tool {
-        case .reading: beginReading()
-        case .photo: takePhoto()
+        case .moisture: if drawing { markTap() } else { beginReading() }
         case .source: beginSource()
         case .equipment: placeEquipment()
-        case .mark: markTap()
-        case .remeasure, .done: break
+        case .stripOut: markTap()
+        case .remeasure: break
         }
     }
 
@@ -308,6 +464,17 @@ final class CaptureHUDModel: ObservableObject {
 
     // MARK: Photo
 
+    /// The shutter: always there, in every mode.
+    var shutterEnabled: Bool { aim.blocked != CaptureCopy.findingRoom && tray == nil && display.showsTools }
+
+    /// The job's photo count (the shutter's badge).
+    var photoCount: Int { engine.jobPhotos().count }
+
+    func shutter() {
+        guard shutterEnabled else { DS.Haptic.warning(); return }
+        takePhoto()
+    }
+
     private func takePhoto() {
         if zoomUltra, engine.zoomState == .available, retakeFor == nil {
             guard var s = engine.beginHandoff() else { showToast("Camera not ready — try again"); return }
@@ -351,7 +518,6 @@ final class CaptureHUDModel: ObservableObject {
         tray = nil
         viewerStart = nil
         photoCard = nil
-        tool = .photo
         retakeFor = id
     }
 
@@ -368,11 +534,11 @@ final class CaptureHUDModel: ObservableObject {
     }
 
     /// The capture stack's number: the job's photos while the Photo tool is out, else this session's captures.
-    var stackCount: Int { tool == .photo ? max(engine.jobPhotos().count, 0) : stack.count }
+    var stackCount: Int { stack.count }
 
     /// "12 photos" under the room name while the Photo tool is out.
     var photoCountLine: String? {
-        guard tool == .photo else { return nil }
+        guard retakeFor != nil else { return nil }
         let n = engine.jobPhotos().count
         return n == 1 ? "1 photo" : "\(n) photos"
     }
@@ -453,8 +619,16 @@ final class CaptureHUDModel: ObservableObject {
         let p = MarkPoint(aim: aim)
         markShots.append(s)
         markPoints.append(p)
-        if markPoints.count == 1 { markStartShape = MarkIntent.startShape(p) }
-        DS.Haptic.save()
+        if markPoints.count == 1 {
+            if tool == .stripOut {
+                let k = stripPick ?? MarkIntent.stripKind(p, remembered: remembered)
+                stripAtStart = k
+                markStartShape = k.isArea ? .area : .line
+            } else {
+                markStartShape = drawArmed ?? MarkIntent.startShape(p)
+            }
+        }
+        DS.Haptic.lock()
         if markStartShape == .line && markPoints.count == 2 { finishMark() }
     }
 
@@ -479,17 +653,19 @@ final class CaptureHUDModel: ObservableObject {
         guard !markShots.isEmpty else { return }
         markShots.removeLast()
         markPoints.removeLast()
-        if markPoints.isEmpty { markStartShape = nil }
+        if markPoints.isEmpty { markStartShape = nil; stripAtStart = nil }
         DS.Haptic.undo()
     }
 
     func cancelMark() {
+        drawArmed = nil
         markShots = []
         markPoints = []
         markStartShape = nil
         markShape = nil
         markMeaning = nil
         markWholeRoom = false
+        stripAtStart = nil
         if tray == .mark { tray = nil }
     }
 
@@ -517,9 +693,9 @@ final class CaptureHUDModel: ObservableObject {
         finishMark()
     }
 
-    var canWholeWall: Bool { tool == .mark && markPoints.isEmpty && aim.wall != nil }
+    var canWholeWall: Bool { tool == .stripOut && markPoints.isEmpty && aim.wall != nil }
     var canWholeRoom: Bool {
-        guard tool == .mark, markPoints.isEmpty, let h = aim.hit, aim.surface == .floor else { return false }
+        guard drawing, markPoints.isEmpty, let h = aim.hit, aim.surface == .floor else { return false }
         return engine.world.room(containing: PlanVec(h.x, h.z)) != nil
     }
 
@@ -535,8 +711,14 @@ final class CaptureHUDModel: ObservableObject {
         markShots = kept.count == r.points.count ? kept : Array(markShots.prefix(r.points.count))
         markPoints = r.points
         markShape = r.shape
-        markMeaning = MarkIntent.defaultMeaning(shape: r.shape, points: r.points, context: context, remembered: remembered)
+        markMeaning = MarkIntent.defaultMeaning(shape: r.shape, points: r.points, family: markFamily, remembered: remembered)
+        if markFamily == .stripOut, !markWholeRoom, let k = stripAtStart ?? stripPick, k.isArea == (r.shape == .area) {
+            chooseMeaning(k)
+        }
         liningMm = MarkIntent.liningHeightMm(endHeight: r.points.last?.height, fullMm: fullHeightMm)
+        // Marks with nothing to set are saved straight away (Undo is there); lining and
+        // flooring open the tray for the height / floor type.
+        if let m = markMeaning, MarkIntent.savesDirectly(m) { drawArmed = nil; saveTray(.mark); return }
         open(.mark)
     }
 
@@ -552,7 +734,7 @@ final class CaptureHUDModel: ObservableObject {
     func chooseMeaning(_ m: MarkMeaning) {
         if m == .skirting, markPoints.allSatisfy({ !$0.nearFloorLine }) { snapLineToWall() }
         markMeaning = m
-        if let shape = markShape, let key = MarkIntent.memoryKey(shape: shape, points: markPoints), m != .skirting { remembered[key] = m }
+        if markShape == .line, m == .wallLining || m == .cabinetry { remembered["stripLine"] = m }
     }
 
     private func snapLineToWall() {
@@ -573,7 +755,8 @@ final class CaptureHUDModel: ObservableObject {
 
     var markOptions: [MarkMeaning] {
         guard let s = markShape else { return [] }
-        return MarkIntent.options(shape: s, default: MarkIntent.defaultMeaning(shape: s, points: markPoints, context: context, remembered: remembered))
+        return MarkIntent.options(shape: s, family: markFamily,
+                                  default: MarkIntent.defaultMeaning(shape: s, points: markPoints, family: markFamily, remembered: remembered))
     }
 
     // MARK: Trays
@@ -617,7 +800,7 @@ final class CaptureHUDModel: ObservableObject {
             let d = MarkDraft(meaning: m, shots: markShots, heightMm: m == .wallLining ? liningMm : MarkIntent.defaultHeightMm(m),
                               floorType: m == .liftFlooring ? floorType : nil, underlay: m == .liftFlooring && underlay,
                               wholeRoom: markWholeRoom, length: markLength, area: markArea)
-            if let shape = markShape, let key = MarkIntent.memoryKey(shape: shape, points: markPoints), m != .skirting { remembered[key] = m }
+            if markShape == .line, m == .wallLining || m == .cabinetry { remembered["stripLine"] = m }
             tray = nil
             markShots = []
             markPoints = []
@@ -625,6 +808,7 @@ final class CaptureHUDModel: ObservableObject {
             markShape = nil
             markMeaning = nil
             markWholeRoom = false
+            stripAtStart = nil
             persist(.mark(d))
         case .source:
             guard let c = sourceCause, let s = pendingShot else { return }
@@ -717,7 +901,7 @@ final class CaptureHUDModel: ObservableObject {
         markShape = shape
         markStartShape = start ?? shape
         if let shape {
-            markMeaning = MarkIntent.defaultMeaning(shape: shape, points: points, context: context, remembered: remembered)
+            markMeaning = MarkIntent.defaultMeaning(shape: shape, points: points, family: markFamily, remembered: remembered)
             liningMm = MarkIntent.liningHeightMm(endHeight: points.last?.height)
         }
     }
@@ -750,12 +934,11 @@ final class CaptureHUDModel: ObservableObject {
     /// The stack's picture: the newest photo while the Photo tool is out, else the last
     /// capture's photo (a type glyph is shown when the last capture isn't a photo).
     var stackThumb: UIImage? {
-        if tool == .photo { return stack.lastPhoto.flatMap { thumbs[$0.id] } }
         guard let last = stack.last, last.kind == "photo" else { return nil }
         return thumbs[last.id]
     }
 
-    var stackKind: String { tool == .photo ? "photo" : (stack.last?.kind ?? "") }
+    var stackKind: String { stack.last?.kind ?? "" }
 
     func openReview() {
         guard stack.count > 0 else { return }
@@ -805,8 +988,16 @@ final class CaptureHUDModel: ObservableObject {
             if let shape = markShape {
                 out.append(finishedMarkPreview(shape: shape, pts: pts))
             } else if markStartShape == .line, let h = aim.hit {
-                out.append(OverlayMark(id: "draft-line", style: .lineDraft, points: [pts[0], h],
-                                       tag: CaptureCopy.length(simd_distance(PlanVec(pts[0].x, pts[0].z), PlanVec(h.x, h.z)))))
+                let len = CaptureCopy.length(simd_distance(PlanVec(pts[0].x, pts[0].z), PlanVec(h.x, h.z)))
+                if tool == .stripOut {
+                    // Strip-out draws in its own red while the line is being drawn.
+                    let fy = engine.world.floorY ?? min(pts[0].y, h.y)
+                    let k = stripKind
+                    let base = k == .skirting ? [WorldVec(pts[0].x, fy, pts[0].z), WorldVec(h.x, fy, h.z)] : [pts[0], h]
+                    out.append(OverlayMark(id: "draft-line", style: .skirting, points: base, tag: "\(k.tag) · \(len)"))
+                } else {
+                    out.append(OverlayMark(id: "draft-line", style: .lineDraft, points: [pts[0], h], tag: len))
+                }
             } else {
                 let fy = engine.world.floorY ?? pts[0].y
                 var poly = pts.map { WorldVec($0.x, fy + 0.005, $0.z) }
@@ -853,7 +1044,82 @@ final class CaptureHUDModel: ObservableObject {
             let ids = Set(e.ids + [e.id])
             for i in saved.indices where ids.contains(saved[i].id) { saved[i].selected = true }
         }
-        return saved + draftMarks()
+        var all = saved + draftMarks()
+        if models3D {
+            // Units near enough are 3D models (tags only here); far ones keep the 2D glyph.
+            let cam = engine.aimSample()?.camera
+            all.removeAll { $0.id == "draft-airflow" }
+            for i in all.indices {
+                guard case .equipment(let type, _) = all[i].style, let p = all[i].points.first else { continue }
+                if let c = cam, simd_distance(c, p) > EquipmentModels.maxDistance { continue }
+                all[i].modelHeight = EquipmentModels.height(type)
+                all[i].airflow = nil
+            }
+        }
+        return all
+    }
+
+    // MARK: 3D equipment
+
+    /// The models to draw: saved units (planned ones translucent), the air mover whose airflow is
+    /// being aimed (turning live), a unit being twisted, and the ghost on the reticle before placing.
+    func equipmentModels() -> [EquipmentModelState] {
+        let cam = engine.aimSample()?.camera
+        func sideOn(_ p: WorldVec) -> Float {
+            guard let c = cam else { return 0 }
+            let v = WorldVec(c.x - p.x, 0, c.z - p.z)
+            return Float(atan2(v.z, -v.x))
+        }
+        var out: [EquipmentModelState] = []
+        for m in engine.overlayMarks() {
+            guard case .equipment(let type, let planned) = m.style, let p = m.points.first else { continue }
+            if let c = cam, simd_distance(c, p) > EquipmentModels.maxDistance { continue }
+            var yaw = m.airflow.map(EquipmentModelState.yaw(for:)) ?? sideOn(p)
+            var flow = m.airflow != nil && type == "airMover"
+            if airflowFor == m.id, let a = airflowPreview { yaw = EquipmentModelState.yaw(for: a.dir); flow = true }
+            if let t = twist, t.id == m.id { yaw += Float(t.angle); flow = type == "airMover" }
+            out.append(EquipmentModelState(id: m.id, type: type, position: SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)),
+                                           yaw: yaw, planned: planned, flow: flow))
+        }
+        if let g = ghost { out.append(g) }
+        return out
+    }
+
+    /// Equipment mode, nothing placed here yet, the reticle on the floor: the model to be placed.
+    var ghost: EquipmentModelState? {
+        guard tool == .equipment, tray == nil, airflowFor == nil, retakeFor == nil, existingUnit == nil,
+              aim.surface == .floor, aim.blocked == nil, let h = aim.hit else { return nil }
+        let cam = engine.aimSample()?.camera
+        var yaw: Float = 0
+        if let c = cam { let v = WorldVec(c.x - h.x, 0, c.z - h.z); yaw = Float(atan2(v.z, -v.x)) }
+        return EquipmentModelState(id: "ghost", type: equipmentType, position: SIMD3<Float>(Float(h.x), Float(h.y), Float(h.z)),
+                                   yaw: yaw, ghost: true)
+    }
+
+    /// The air mover a two-finger twist turns: the one being aimed, else the one the reticle is on.
+    var twistTarget: String? {
+        if let id = airflowFor { return id }
+        guard tool == .equipment, let u = existingUnit, u.type == "airMover" else { return nil }
+        return u.id
+    }
+
+    func twistChanged(_ angle: Double) {
+        guard let id = twistTarget else { return }
+        if twist == nil { DS.Haptic.selection() }
+        twist = (id, angle)
+    }
+
+    /// The twist ends: the unit's airflow turns by the angle (outlet = airflow).
+    func twistEnded() {
+        guard let t = twist else { return }
+        twist = nil
+        guard let m = engine.overlayMarks().first(where: { $0.id == t.id }) else { return }
+        let base = m.airflow.map(EquipmentModelState.yaw(for:)) ?? 0
+        let yaw = Double(base) + t.angle
+        if engine.setAirflow(id: t.id, direction: WorldVec(sin(yaw), 0, cos(yaw))) {
+            if airflowFor == t.id { airflowFor = nil }
+            DS.Haptic.save()
+        }
     }
 
     // MARK: Toast

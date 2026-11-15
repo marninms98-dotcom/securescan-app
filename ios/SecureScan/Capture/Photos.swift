@@ -65,19 +65,20 @@ struct PhotoCardView: View {
 struct ZoomToggle: View {
     let state: ZoomState
     @Binding var ultra: Bool
+    var vertical = false
     let onBlocked: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        layout {
             dot(".5", on: ultra, dim: state != .available) {
                 if case .blocked(let why) = state { onBlocked(why); return }
                 ultra = true
             }
             dot("1×", on: !ultra, dim: false) { ultra = false }
         }
-        .padding(4)
-        .background(CameraFill(shape: Capsule()))
-        .overlay(Capsule().strokeBorder(DS.Color.hairline, lineWidth: 1))
+        .padding(2)
+        .dsCapsule()
         .accessibilityElement(children: .combine)
         .accessibilityLabel(ultra ? "Zoom 0.5 times" : "Zoom 1 times")
     }
@@ -85,8 +86,8 @@ struct ZoomToggle: View {
     private func dot(_ t: String, on: Bool, dim: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(t).font(.system(size: on ? 14 : 13, weight: .bold, design: .rounded)).monospacedDigit()
-                .foregroundStyle(on ? DS.Color.damp : Color.white.opacity(dim ? 0.4 : 0.9))
-                .frame(width: 36, height: 36)
+                .foregroundStyle(on ? DS.Color.modeOn : Color.white.opacity(dim ? 0.4 : 0.9))
+                .frame(width: 34, height: 34)
                 .background(Circle().fill(Color.black.opacity(on ? 0.55 : 0.25)))
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
