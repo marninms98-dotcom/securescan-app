@@ -55,7 +55,7 @@ struct RevisitView: View {
                         .font(DS.Font.body).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: DS.Space.gap) {
                         Text("Tap the room you're in").font(DS.Font.bodyBold)
-                        MiniPlanView(model: model, interactive: true)
+                        MiniPlanView(model: model, interactive: true, focus: model.picking)
                             .frame(height: 300)
                             .background(RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).fill(Color(.tertiarySystemFill)))
                         HStack(spacing: DS.Space.tight) {

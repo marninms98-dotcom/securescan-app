@@ -188,6 +188,7 @@ struct PrimaryButton: View {
     var enabled = true
     var tint: Color = DS.Color.accent
     let action: () -> Void
+    @Environment(\.dsSurface) private var surface
 
     init(_ title: String, icon: String? = nil, enabled: Bool = true, tint: Color = DS.Color.accent, action: @escaping () -> Void) {
         self.title = title
@@ -203,13 +204,15 @@ struct PrimaryButton: View {
                 if let icon { Image(systemName: icon).font(.system(size: 17, weight: .semibold)) }
                 Text(title).font(DS.Font.bodyBold).monospacedDigit().lineLimit(1).minimumScaleFactor(0.75)
             }
-            .foregroundStyle(enabled ? Color.white : DS.Color.onCameraSecondary)
+            .foregroundStyle(enabled ? Color.white : (surface == .camera ? DS.Color.onCameraSecondary : Color(.tertiaryLabel)))
             .frame(maxWidth: .infinity, minHeight: DS.Size.primary)
             .padding(.horizontal, 20)
             .background {
-                if enabled { Capsule().fill(tint) } else { CameraFill(shape: Capsule()) }
+                if enabled { Capsule().fill(tint) }
+                else if surface == .camera { CameraFill(shape: Capsule()) }
+                else { Capsule().fill(Color(.tertiarySystemFill)) }
             }
-            .overlay(Capsule().strokeBorder(enabled ? Color.white.opacity(0.18) : DS.Color.hairline, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(enabled ? Color.white.opacity(0.18) : (surface == .camera ? DS.Color.hairline : Color.clear), lineWidth: 1))
             .contentShape(Capsule())
         }
         .buttonStyle(DSPressStyle())

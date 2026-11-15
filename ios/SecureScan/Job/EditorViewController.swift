@@ -146,8 +146,8 @@ final class EditorViewController: UIViewController, WKScriptMessageHandler, WKNa
             Task { @MainActor [weak self] in
                 // After every load: tell the editor whether to show prices (when it can).
                 self?.webView?.callAsyncJavaScript(
-                    "window.SecureScan.load(JSON.parse(planText)); " + Self.pricesJS,
-                    arguments: ["planText": planText, "prices": PriceLock.pricesVisible], in: nil, in: .page,
+                    "window.SecureScan.load(JSON.parse(planText), { chrome: chrome }); " + Self.chromeJS + Self.pricesJS,
+                    arguments: ["planText": planText, "prices": PriceLock.pricesVisible, "chrome": Self.hostChrome], in: nil, in: .page,
                     completionHandler: { [weak self] result in
                         switch result {
                         case .failure(let error):
@@ -167,6 +167,12 @@ final class EditorViewController: UIViewController, WKScriptMessageHandler, WKNa
             }
         }
     }
+
+    /// The job screen supplies back, Documents and the dock, so the editor runs
+    /// embedded (no Done / share in its own bars) in the light theme.
+    /// SecureScan.setHostChrome is feature-detected: older editors ignore it.
+    static let hostChrome: [String: Any] = ["embedded": true, "theme": "light"]
+    private static let chromeJS = "var sc = window.SecureScan; if (sc && typeof sc.setHostChrome === 'function') { try { sc.setHostChrome(chrome); } catch (e) {} } "
 
     /// Calls SecureScan.setPricesVisible(prices) when the editor has it; returns whether it does.
     private static let pricesJS = "var s = window.SecureScan; var hook = !!(s && typeof s.setPricesVisible === 'function'); if (hook) { s.setPricesVisible(prices); } return hook;"

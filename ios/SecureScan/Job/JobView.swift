@@ -642,7 +642,7 @@ struct DocumentsSheet: View {
                 Spacer(minLength: 8)
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(enabled ? Color(.secondaryLabel) : Color(.tertiaryLabel))
             }
             .padding(.vertical, 4)
             .contentShape(Rectangle())
