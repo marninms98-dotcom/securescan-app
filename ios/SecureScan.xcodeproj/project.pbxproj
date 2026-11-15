@@ -16,6 +16,7 @@
 		14FE007DFD2F2E010AF49222 /* InputFeel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED45266E268D00911E4916A /* InputFeel.swift */; };
 		1705D6EDEA863B59FB5ECE3C /* Scope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82EC14652724466B54E9EEDB /* Scope.swift */; };
 		1B7274541637A4AD1F9C2DA3 /* NewJobFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72349662F88DFF0DAD368B42 /* NewJobFlow.swift */; };
+		2449A5BD387271AD9B97D93E /* Photos.swift in Sources */ = {isa = PBXBuildFile; fileRef = E674AF7A46AD9963C946755D /* Photos.swift */; };
 		2533A1F481C60D93B502F512 /* JobView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E11FBFFF26ED1A5296D33F /* JobView.swift */; };
 		2940F1B46A0C0A128E587650 /* CaptureHUDModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16612738B9304308FC4DC1C4 /* CaptureHUDModel.swift */; };
 		2C88FAC9B218758A324749F9 /* Sweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B269C5F9F876B39DCED60A /* Sweep.swift */; };
@@ -62,6 +63,7 @@
 		9A9A10DBEB78C4D7749DF437 /* JobStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32ECF4547052B48F86E69D1E /* JobStore.swift */; };
 		9C0437FD0A09F0A793730A50 /* EditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75160D182A87CDD7718FCFBF /* EditorViewController.swift */; };
 		9C6CBB6FFF051A3A392DB190 /* RecordToggle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8982D66B35C64BAB0906BF2 /* RecordToggle.swift */; };
+		9CD01FAB99446E8FB8E95F74 /* OverlayLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5070F87B056970F22663AB2D /* OverlayLayout.swift */; };
 		9FB76C54AD51C7B45BAE7F9C /* PlanDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2197DC1A6B584C593A2AB /* PlanDocument.swift */; };
 		A43EB9E8F939E022AA9658DD /* ReportLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C7F81CDFDB8AA74346BF55 /* ReportLayout.swift */; };
 		A76652FE195BA5BA96CC679F /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ABDB05C165E2EC2E4FFC7A2 /* AppSettings.swift */; };
@@ -80,20 +82,24 @@
 		C2E4637B11DFE3D608FEFC9C /* ModesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F69575822ECB508760CDC2F2 /* ModesTests.swift */; };
 		C3ED2F041721987BA24F007C /* PlanBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CFA44C764579C40ABD046D /* PlanBuilderTests.swift */; };
 		C4ADE2E622914AB3544FC0B5 /* ScanModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 373447E547FD794C6A8418AE /* ScanModel.swift */; };
+		C4DC0253D7354A17FF149B74 /* StudioScenes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A940501A83F3AB5372893C /* StudioScenes.swift */; };
 		C66F45F6B1AD4177D161706D /* Projection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3071F280AE263694C58F2FE /* Projection.swift */; };
 		CA89FC760193E0ED385D2A59 /* Modes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 082D373B3599A42D55CD3CA3 /* Modes.swift */; };
 		CC2301103811483D0FA47F7B /* Revisit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6650B690EFD1F269235B4F2A /* Revisit.swift */; };
+		D7C02BAB270942A154C2FC2B /* OverlayLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5070F87B056970F22663AB2D /* OverlayLayout.swift */; };
 		DA6181F99B1F28862406F00B /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400DDEE925593DF18AF3B58 /* VoiceNotes.swift */; };
 		DBEE091A1684FC448CF1FAC2 /* Sweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B269C5F9F876B39DCED60A /* Sweep.swift */; };
 		E01357908278E9C34AB5F662 /* RevisitARViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD76E1808F26326A58D22EF /* RevisitARViewController.swift */; };
 		E204800E1AEDA9E9B157982A /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400DDEE925593DF18AF3B58 /* VoiceNotes.swift */; };
 		E2A03CC9392CCCEF8C0BCC58 /* RevisitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 280CA172C1062162C99E85CD /* RevisitView.swift */; };
 		E578CEDF714B90467843B32A /* VoiceProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175BEBD42C4A2501409992C2 /* VoiceProcessor.swift */; };
+		E5D223AFC536DACD070421F0 /* Dollhouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3353FA7789929D4921F6528E /* Dollhouse.swift */; };
 		E636F4AADF4B76F2CB887B0D /* ItemsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CF94422A5381D2769E636EF /* ItemsTab.swift */; };
 		E8FB7BB1D511F112D4C83661 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ABE9FB9301A9E92B954140 /* SettingsView.swift */; };
 		EA3C2EE65856013716C5285D /* EditorNamesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB09B78C73572450CFC63953 /* EditorNamesStore.swift */; };
 		EB4938BD3B4A46A3CEE8715B /* SimulatedScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6234205DEE44BA2EC3B5AFA /* SimulatedScan.swift */; };
 		EFA68A72A6DD0E1CC152B27D /* ScanViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAAE56E02E65BDCAC4C7118F /* ScanViewController.swift */; };
+		F73E721DDD770AF259786E18 /* StudioScenes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A940501A83F3AB5372893C /* StudioScenes.swift */; };
 		F7E5199DE20A6E8943A1CE54 /* JobProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C494151986E37147B8A62358 /* JobProcessor.swift */; };
 		F7F01A38763029EE3057C13C /* Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4230E52A33B203C95F30D77F /* Timeline.swift */; };
 		FCA2A0B59947DEC943BC6EE1 /* OverlayModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE55844FCB0D65267AB81647 /* OverlayModel.swift */; };
@@ -117,9 +123,11 @@
 		22626A246EB4723EB7A4EBE4 /* RevisitModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevisitModel.swift; sourceTree = "<group>"; };
 		23CFA44C764579C40ABD046D /* PlanBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanBuilderTests.swift; sourceTree = "<group>"; };
 		280CA172C1062162C99E85CD /* RevisitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevisitView.swift; sourceTree = "<group>"; };
+		29A940501A83F3AB5372893C /* StudioScenes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioScenes.swift; sourceTree = "<group>"; };
 		2B6AF0FC89F477DE670A015E /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
 		31B269C5F9F876B39DCED60A /* Sweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sweep.swift; sourceTree = "<group>"; };
 		32ECF4547052B48F86E69D1E /* JobStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobStore.swift; sourceTree = "<group>"; };
+		3353FA7789929D4921F6528E /* Dollhouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dollhouse.swift; sourceTree = "<group>"; };
 		373447E547FD794C6A8418AE /* ScanModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanModel.swift; sourceTree = "<group>"; };
 		38E2197DC1A6B584C593A2AB /* PlanDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanDocument.swift; sourceTree = "<group>"; };
 		39C20CADF6502F316B25D3D7 /* Trays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trays.swift; sourceTree = "<group>"; };
@@ -132,6 +140,7 @@
 		4B93888769208D41E42B8B6E /* SecureScanTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SecureScanTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D9D7640E3301580E5072F43 /* CaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureEngine.swift; sourceTree = "<group>"; };
 		4ED45266E268D00911E4916A /* InputFeel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFeel.swift; sourceTree = "<group>"; };
+		5070F87B056970F22663AB2D /* OverlayLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayLayout.swift; sourceTree = "<group>"; };
 		52ABE9FB9301A9E92B954140 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		53937D90BD3DA994D9C9436D /* Alignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Alignment.swift; sourceTree = "<group>"; };
 		53B45A9E5D9AC939DA70DAEB /* PhotoCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoCapture.swift; sourceTree = "<group>"; };
@@ -171,6 +180,7 @@
 		D4732AE235C1D0D88B76E337 /* ScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeTests.swift; sourceTree = "<group>"; };
 		DF265C2BB1B102842A2CAE66 /* ScanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanView.swift; sourceTree = "<group>"; };
 		E3071F280AE263694C58F2FE /* Projection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Projection.swift; sourceTree = "<group>"; };
+		E674AF7A46AD9963C946755D /* Photos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Photos.swift; sourceTree = "<group>"; };
 		E70D9705BA697834341E95EA /* PriceLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PriceLock.swift; sourceTree = "<group>"; };
 		EAF607A2C2593BE133649C00 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
 		ED404D61185CC99DFC5F222E /* HTMLPDFRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLPDFRenderer.swift; sourceTree = "<group>"; };
@@ -186,6 +196,7 @@
 		2C80FD7D1805C933BC96E1C3 /* Job */ = {
 			isa = PBXGroup;
 			children = (
+				3353FA7789929D4921F6528E /* Dollhouse.swift */,
 				75160D182A87CDD7718FCFBF /* EditorViewController.swift */,
 				B03974756DAB880BC304AA5E /* FilesTab.swift */,
 				ED404D61185CC99DFC5F222E /* HTMLPDFRenderer.swift */,
@@ -306,6 +317,7 @@
 				4ED45266E268D00911E4916A /* InputFeel.swift */,
 				3FED7702BA69074CDCF1E9E0 /* MarkupGeometry.swift */,
 				082D373B3599A42D55CD3CA3 /* Modes.swift */,
+				5070F87B056970F22663AB2D /* OverlayLayout.swift */,
 				BE55844FCB0D65267AB81647 /* OverlayModel.swift */,
 				99AEF8B1F5F07A956A653E96 /* PackNames.swift */,
 				94F1DC83DFE5F5BC26F5BF31 /* PlanBuilder.swift */,
@@ -315,6 +327,7 @@
 				6650B690EFD1F269235B4F2A /* Revisit.swift */,
 				82EC14652724466B54E9EEDB /* Scope.swift */,
 				B6234205DEE44BA2EC3B5AFA /* SimulatedScan.swift */,
+				29A940501A83F3AB5372893C /* StudioScenes.swift */,
 				31B269C5F9F876B39DCED60A /* Sweep.swift */,
 				4230E52A33B203C95F30D77F /* Timeline.swift */,
 				5400DDEE925593DF18AF3B58 /* VoiceNotes.swift */,
@@ -353,6 +366,7 @@
 				16612738B9304308FC4DC1C4 /* CaptureHUDModel.swift */,
 				F43BBFEDEDB818E33C7455CF /* OverlayRenderer.swift */,
 				53B45A9E5D9AC939DA70DAEB /* PhotoCapture.swift */,
+				E674AF7A46AD9963C946755D /* Photos.swift */,
 				7EBAF4775CB74B9033656953 /* ScanWorld.swift */,
 				892F8056D63D0AB2E99AE0E0 /* Studio.swift */,
 				39C20CADF6502F316B25D3D7 /* Trays.swift */,
@@ -493,6 +507,7 @@
 				7FEC28C6F80CA2043808D5D5 /* MarkupTests.swift in Sources */,
 				CA89FC760193E0ED385D2A59 /* Modes.swift in Sources */,
 				C2E4637B11DFE3D608FEFC9C /* ModesTests.swift in Sources */,
+				D7C02BAB270942A154C2FC2B /* OverlayLayout.swift in Sources */,
 				AAE9D789F5A4C693D02822DC /* OverlayModel.swift in Sources */,
 				506A2EAB1E8834E0EA22CFA1 /* PackNames.swift in Sources */,
 				C07EC60F336BE6ACB1FCA04A /* PlanBuilder.swift in Sources */,
@@ -505,6 +520,7 @@
 				4D094F223AA7817634F76FCC /* Scope.swift in Sources */,
 				92116773746725798560554B /* ScopeTests.swift in Sources */,
 				EB4938BD3B4A46A3CEE8715B /* SimulatedScan.swift in Sources */,
+				C4DC0253D7354A17FF149B74 /* StudioScenes.swift in Sources */,
 				2C88FAC9B218758A324749F9 /* Sweep.swift in Sources */,
 				F7F01A38763029EE3057C13C /* Timeline.swift in Sources */,
 				889A2ACC1F6453F98CB2B397 /* VoiceAndPackTests.swift in Sources */,
@@ -525,6 +541,7 @@
 				AF5E2B5F72BB0836FDAE0EEB /* CaptureLogic.swift in Sources */,
 				870E47D4FDA27D84141CDAC1 /* DS.swift in Sources */,
 				2EE122F6FEB937260754E304 /* DemoSeed.swift in Sources */,
+				E5D223AFC536DACD070421F0 /* Dollhouse.swift in Sources */,
 				EA3C2EE65856013716C5285D /* EditorNamesStore.swift in Sources */,
 				9C0437FD0A09F0A793730A50 /* EditorViewController.swift in Sources */,
 				8C9041912440CA587AD98FC2 /* FilesTab.swift in Sources */,
@@ -544,10 +561,12 @@
 				73E81F2D7D06F3D2AD2C6569 /* ModelTab.swift in Sources */,
 				0856DD40078E1D7D1D41E665 /* Modes.swift in Sources */,
 				1B7274541637A4AD1F9C2DA3 /* NewJobFlow.swift in Sources */,
+				9CD01FAB99446E8FB8E95F74 /* OverlayLayout.swift in Sources */,
 				FCA2A0B59947DEC943BC6EE1 /* OverlayModel.swift in Sources */,
 				4DB0A097DFF888488BD4BF33 /* OverlayRenderer.swift in Sources */,
 				76D708F1901A261AA350A143 /* PackNames.swift in Sources */,
 				7109A95E03EF1DDE3D03CBCD /* PhotoCapture.swift in Sources */,
+				2449A5BD387271AD9B97D93E /* Photos.swift in Sources */,
 				3199C90C80FC88A12902B63E /* PlanBuilder.swift in Sources */,
 				9FB76C54AD51C7B45BAE7F9C /* PlanDocument.swift in Sources */,
 				0E12844F1DF652410E683BC9 /* PriceLock.swift in Sources */,
@@ -572,6 +591,7 @@
 				E8FB7BB1D511F112D4C83661 /* SettingsView.swift in Sources */,
 				046AE6D70F2912CC555D4988 /* SimulatedScan.swift in Sources */,
 				381C871EF44B350B6A603F2E /* Studio.swift in Sources */,
+				F73E721DDD770AF259786E18 /* StudioScenes.swift in Sources */,
 				DBEE091A1684FC448CF1FAC2 /* Sweep.swift in Sources */,
 				070AAFD04D24BB2444753F03 /* Timeline.swift in Sources */,
 				58A10F3AF03542C865386310 /* Transcriber.swift in Sources */,
