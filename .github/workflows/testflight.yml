@@ -1,0 +1,83 @@
+# Uploads a build to TestFlight. Runs only in the public securescan-app repo and
+# only once the Apple developer account owner has added these repository secrets
+# (Settings > Secrets and variables > Actions):
+#   APPLE_TEAM_ID   - 10-character Team ID (developer.apple.com > Membership)
+#   ASC_KEY_ID      - App Store Connect API key ID
+#   ASC_ISSUER_ID   - App Store Connect issuer ID (same page as the key)
+#   ASC_KEY_P8      - the full text of the downloaded AuthKey_XXXX.p8 file
+# The key needs the Admin role so Xcode can create the distribution certificate
+# and profile in the cloud. Nothing here stores or prints the key.
+name: TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  upload:
+    if: github.repository == 'marninms98-dotcom/securescan-app'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Check the Apple secrets are set
+        id: check
+        env:
+          A: ${{ secrets.APPLE_TEAM_ID }}
+          B: ${{ secrets.ASC_KEY_ID }}
+          C: ${{ secrets.ASC_ISSUER_ID }}
+          D: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          if [ -n "$A" ] && [ -n "$B" ] && [ -n "$C" ] && [ -n "$D" ]; then echo "ok=1" >> "$GITHUB_OUTPUT";
+          else echo "::notice::TestFlight secrets not set yet - skipping upload."; fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ok == '1'
+
+      - name: Select Xcode, install XcodeGen
+        if: steps.check.outputs.ok == '1'
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1); [ -n "$X" ] && sudo xcode-select -s "$X"
+          xcodebuild -version
+          brew install xcodegen
+
+      - name: Generate project with the team and a new build number
+        if: steps.check.outputs.ok == '1'
+        working-directory: ios
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          sed -i '' "s/DEVELOPMENT_TEAM: \"\"/DEVELOPMENT_TEAM: \"$TEAM\"/" project.yml
+          xcodegen generate
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((GITHUB_RUN_NUMBER + 100))" SecureScan/Info.plist
+
+      - name: Archive and upload
+        if: steps.check.outputs.ok == '1'
+        working-directory: ios
+        env:
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_ISSUER_ID }}
+          KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -o pipefail
+          KEYFILE="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
+          printf '%s\n' "$KEY_P8" > "$KEYFILE"
+          AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEYFILE" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER")
+          xcodebuild archive -project SecureScan.xcodeproj -scheme SecureScan -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/SecureScan.xcarchive" \
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic "${AUTH[@]}" | tail -40
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>automatic</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/SecureScan.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${AUTH[@]}" | tail -40
+          rm -f "$KEYFILE"
+          echo "Uploaded build $((GITHUB_RUN_NUMBER + 100)). It appears in TestFlight after Apple finishes processing (usually 5-30 min)."
