@@ -252,7 +252,7 @@ enum Dollhouse {
 
     /// Elevated three-quarter (or top-down orthographic) camera that fits `lo...hi`.
     static func camera(lo: SIMD3<Float>, hi: SIMD3<Float>, aspect: Double, plan: Bool, points: [SIMD3<Float>]? = nil,
-                       azimuth: Double = 28, elevation: Double = 70, margin: Double = 0.9,
+                       azimuth: Double = 28, elevation: Double = 63, margin: Double = 0.9,
                        rect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> (SCNNode, SIMD3<Float>) {
         // rect: the part of the view (0...1, y down) the model is fitted into;
         // its centre in normalised device coordinates (y up):

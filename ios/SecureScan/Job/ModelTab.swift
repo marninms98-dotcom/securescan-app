@@ -274,8 +274,10 @@ final class ModelViewModel: ObservableObject {
             if let cam = c.0.camera, cam.usesOrthographicProjection { return cam.orthographicScale }
             return Double(simd_distance(c.0.simdPosition, c.1))
         }
-        // Orbit: turn the house to the angle that shows it biggest (Plan stays north-up).
-        let azimuths: [Double] = mode == .plan ? [0] : (fixedAzimuth.map { [$0] } ?? Array(stride(from: 10.0, to: 360, by: 15)))
+        // Orbit: of the diagonal three-quarter angles (the Polycam look), the one
+        // that shows the house biggest. Plan stays north-up.
+        let diagonals: [Double] = [45, 135, 225, 315].flatMap { [$0 - 10, $0, $0 + 10] }
+        let azimuths: [Double] = mode == .plan ? [0] : (fixedAzimuth.map { [$0] } ?? diagonals)
         var best: (SCNNode, SIMD3<Float>)?
         for az in azimuths {
             for rect in [below, beside] {
