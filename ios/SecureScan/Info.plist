@@ -34,6 +34,10 @@
 	<string>SecureScan turns your voice notes into text on this iPhone. The audio is not sent anywhere.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>SecureScan saves exported plans and 3D views to your photo library when you choose Save Image.</string>
+	<key>SECURESCAN_SUPABASE_KEY</key>
+	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>SECURESCAN_SUPABASE_URL</key>
+	<string>$(SUPABASE_URL)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

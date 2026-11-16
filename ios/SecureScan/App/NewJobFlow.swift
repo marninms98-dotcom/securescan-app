@@ -21,6 +21,7 @@ struct NewJobFlow: View {
     @State private var scanningJob: JobMeta?
     @State private var errorText: String?
     @State private var needAddress = false
+    @State private var secureSuiteLink: SecureSuiteLink?  // SecureSuite sync hook
     @FocusState private var addressFocused: Bool
     /// "Scan and mark together (new)"; default from Settings › Mark while scanning.
     @State private var live = UserDefaults.standard.bool(forKey: "markWhileScanning")
@@ -40,6 +41,7 @@ struct NewJobFlow: View {
     private var form: some View {
         NavigationStack {
             Form {
+                LinkJobSection(link: $secureSuiteLink, address: $address)  // SecureSuite sync hook (hidden unless signed in)
                 Section {
                     TextField("Street address", text: $address, axis: .vertical)
                         .font(DS.Font.body)
@@ -133,6 +135,7 @@ struct NewJobFlow: View {
         do {
             scanningJob = try JobFiles.create(address: address.trimmingCharacters(in: .whitespacesAndNewlines),
                                               jobRef: jobRef.trimmingCharacters(in: .whitespacesAndNewlines))
+            if let id = scanningJob?.id { SyncLinks.save(secureSuiteLink, for: id) }  // SecureSuite sync hook
         } catch {
             errorText = "Couldn't create the job folder: \(error.localizedDescription)"
         }

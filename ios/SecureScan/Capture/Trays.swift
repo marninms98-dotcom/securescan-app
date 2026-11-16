@@ -296,7 +296,7 @@ struct ReviewTray: View {
     @ViewBuilder private func actions(_ e: CaptureStack.Entry) -> some View {
         HStack(spacing: DS.Space.tight) {
             if e.needsFix != nil {
-                SecondaryButton("Redraw", icon: "pencil") { hud.delete(e.id); hud.closeTray(); hud.select(.mark) }
+                SecondaryButton("Redraw", icon: "pencil") { hud.delete(e.id); hud.closeTray(); hud.select(.stripOut) }
                 Spacer(minLength: 0)
             } else {
                 if e.kind == "reading" { SecondaryButton("Edit value", icon: "number") { hud.editReading(e.id) } }

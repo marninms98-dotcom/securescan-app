@@ -38,6 +38,12 @@ enum ScanWorld {
         return (walls, hull.count >= 3 ? WorldRoom(name: name, polygon: hull) : nil, floorY)
     }
 
+    /// Every wall, door, window, opening and object found so far (for the new-structure tick).
+    static func structureIds(_ room: CapturedRoom) -> [String] {
+        let surfaces = room.walls + room.doors + room.windows + room.openings
+        return surfaces.map { $0.identifier.uuidString } + room.objects.map { $0.identifier.uuidString }
+    }
+
     static func sectionLabels(_ room: CapturedRoom) -> [String] {
         room.sections.map { RoomPlanAdapter.label($0.label) }
     }
@@ -58,6 +64,14 @@ enum ScanWorld {
     static func projector(_ session: ARSession?, viewport: CGSize) -> Projector? {
         guard let frame = session?.currentFrame, viewport.width > 0 else { return nil }
         return ARCameraProjector(camera: frame.camera, viewport: viewport)
+    }
+
+    /// The 3D layer's camera: the same view and projection ARKit uses for this viewport.
+    static func camera3D(_ session: ARSession?, viewport: CGSize) -> Camera3D? {
+        guard let frame = session?.currentFrame, viewport.width > 0, viewport.height > 0 else { return nil }
+        let c = frame.camera
+        return Camera3D(view: c.viewMatrix(for: .portrait),
+                        projection: c.projectionMatrix(for: .portrait, viewportSize: viewport, zNear: 0.01, zFar: 60))
     }
 
     /// A tap: pose, raycast, and (optionally) the photo task.

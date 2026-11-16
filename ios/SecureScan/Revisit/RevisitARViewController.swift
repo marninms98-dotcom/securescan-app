@@ -94,6 +94,8 @@ final class RevisitARViewController: UIViewController, ARSCNViewDelegate {
 
     func projector(viewport: CGSize) -> Projector? { ScanWorld.projector(sceneView.session, viewport: viewport) }
 
+    func camera3D(viewport: CGSize) -> Camera3D? { ScanWorld.camera3D(sceneView.session, viewport: viewport) }
+
     func shot(photo: Bool) -> CaptureShot? { ScanWorld.shot(sceneView.session, prefix: "rv-", photo: photo) }
 
     // MARK: The alignment check: the saved walls on the floor

@@ -11,9 +11,9 @@ struct SecureScanApp: App {
         WindowGroup {
             // >>> UX2 Studio harness (DEBUG only): SECURESCAN_STUDIO=<scene> shows a capture-screen scene for CI screenshots.
             #if DEBUG
-            if let scene = StudioLaunch.scene { StudioView(scene: scene) } else { JobsListView() }
+            if let scene = StudioLaunch.scene { StudioView(scene: scene) } else { JobsListView().secureSuiteSync() }  // SecureSuite sync hook
             #else
-            JobsListView()
+            JobsListView().secureSuiteSync()  // SecureSuite sync hook (docs/SYNC.md)
             #endif
             // <<< UX2 Studio harness
         }

@@ -151,7 +151,7 @@ final class RevisitModel: ObservableObject, CaptureEngine {
         visit = r.visit
         let visits = (plan["markup"] as? [String: Any])?["visits"] as? [[String: Any]] ?? []
         visitNumber = visits.firstIndex { ($0["id"] as? String) == r.visit }.map { $0 + 1 } ?? 1
-        hud.tool = CaptureTool.rail(returnVisit: isReturnVisit, scopeOnSite: isScopeOnSite).first ?? .reading
+        hud.tool = CaptureTool.modes(returnVisit: isReturnVisit, scopeOnSite: isScopeOnSite).first ?? .moisture
         if purpose == .scope { hud.context = .scope }
         if r.started { return savePlan() }
         return true
@@ -315,16 +315,18 @@ final class RevisitModel: ObservableObject, CaptureEngine {
             return
         }
         let tool = hud.tool
-        if tool == .done || purpose == .scope {
+        // Equipment / Strip-out: aiming at a matching saved item offers its action (placed, removed, done).
+        if tool == .equipment || tool == .stripOut {
+            let wantEquipment = tool == .equipment
             let cands: [Revisit.Candidate]
             if purpose == .scope {
-                cands = scopeItems.map { it in
+                cands = scopeItems.filter { ($0.kind == .equipment) == wantEquipment }.map { it in
                     Revisit.Candidate(id: it.id, kind: it.kind.rawValue,
                                       world: Revisit.world(it.pos, height: it.kind == .floor ? 0.02 : it.height, alignment: a, floorY: floorY),
                                       radius: it.kind == .equipment ? 0.4 : (it.kind == .wall ? 0.6 : 0.8))
                 }
             } else {
-                cands = markers.filter { $0.kind == "equipment" || ($0.kind == "removal" && !$0.done) }.map {
+                cands = markers.filter { wantEquipment ? $0.kind == "equipment" : ($0.kind == "removal" && !$0.done) }.map {
                     Revisit.Candidate(id: $0.id, kind: $0.kind, world: Revisit.world($0.pos, height: $0.height, alignment: a, floorY: floorY), radius: 0.4)
                 }
             }
@@ -488,6 +490,7 @@ final class RevisitModel: ObservableObject, CaptureEngine {
     }
 
     func projector(viewport: CGSize) -> Projector? { controller?.projector(viewport: viewport) }
+    func camera3D(viewport: CGSize) -> Camera3D? { controller?.camera3D(viewport: viewport) }
 
     func overlayMarks() -> [OverlayMark] {
         guard phase == .measuring, let a = alignment else { return [] }
@@ -706,7 +709,7 @@ final class RevisitModel: ObservableObject, CaptureEngine {
         case .relocalizing: return EnginePrimary(title: "Finding the saved room…", enabled: false, action: {})
         case .corner(let i):
             let name = cornerNames[min(i, 2)]
-            return EnginePrimary(title: tracking.isNormal ? "Set corner \(name)" : "Move slowly…", enabled: tracking.isNormal && aim.hit != nil) { [weak self] in self?.setCorner() }
+            return EnginePrimary(title: tracking.isNormal ? "Set corner \(name)" : "Move slowly…", enabled: tracking.isNormal && aim.hit != nil, icon: "scope") { [weak self] in self?.setCorner() }
         case .check:
             return EnginePrimary(title: "Looks right", enabled: fitAcceptable) { [weak self] in self?.looksRight() }
         case .measuring:
@@ -715,17 +718,17 @@ final class RevisitModel: ObservableObject, CaptureEngine {
         switch tool {
         case .remeasure:
             guard let m = marker(target?.id) else {
-                return EnginePrimary(title: "Aim at a reading", enabled: false, action: {})
+                return EnginePrimary(title: "Aim at a reading", enabled: false, icon: "arrow.triangle.2.circlepath", action: {})
             }
-            return EnginePrimary(title: CaptureCopy.remeasure(tag(m))) { [weak self] in self?.beginRemeasure(m) }
-        case .done:
+            return EnginePrimary(title: CaptureCopy.remeasure(tag(m)), icon: "arrow.triangle.2.circlepath") { [weak self] in self?.beginRemeasure(m) }
+        case .equipment, .stripOut:
             if purpose == .scope {
-                guard let it = aimedScope else { return EnginePrimary(title: "Aim at a scoped item", enabled: false, action: {}) }
+                guard let it = aimedScope else { return nil }
                 if it.done { return EnginePrimary(title: "\(it.tag) is \(it.kind == .equipment ? "placed" : "done")", enabled: false, action: {}) }
                 return EnginePrimary(title: it.kind == .equipment ? "Mark placed · \(it.tag)" : "\(CaptureCopy.markDone) · \(it.tag)",
                                      tint: DS.Color.dry) { [weak self] in self?.markScope(it) }
             }
-            guard let m = marker(target?.id) else { return EnginePrimary(title: "Aim at a removal or equipment", enabled: false, action: {}) }
+            guard let m = marker(target?.id) else { return nil }
             if m.kind == "equipment" {
                 return EnginePrimary(title: "Mark removed · \(m.label)") { [weak self] in self?.markRemoved(m) }
             }

@@ -35,6 +35,7 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
     private var live = CaptureWorld.empty
     private var sections: [String] = []
     private(set) var coaching: String?
+    private var structure = StructureDiff()
     /// Set by shutdown(): a room that ends because the screen is going away is not reported.
     private var shutDown = false
 
@@ -57,6 +58,13 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
         sceneView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         sceneView.session = session
         sceneView.automaticallyUpdatesLighting = true
+        // A soft bloom on the white edges (RoomCaptureView's glow).
+        if let cam = sceneView.pointOfView?.camera {
+            cam.wantsHDR = true
+            cam.bloomIntensity = 1.4
+            cam.bloomThreshold = 0.75
+            cam.bloomBlurRadius = 6
+        }
         sceneView.scene.rootNode.addChildNode(roomNode)
         view.addSubview(sceneView)
         let c = RoomCaptureSession(arSession: session)
@@ -68,7 +76,8 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
         super.viewDidAppear(animated)
         guard !started else { return }
         started = true
-        startRoom()
+        // The camera runs first; RoomPlan's capture starts with "Start".
+        if model?.started == true { startRoom() } else { session.run(ARWorldTrackingConfiguration()) }
         stallTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkStall() }
         }
@@ -88,6 +97,7 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
         capture?.run(configuration: config)
         roomStartedAt = Date()
         sawWalls = false
+        structure.reset()
         live = .empty
         sections = []
         onStalled?(false)
@@ -111,7 +121,7 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
     }
 
     private func checkStall() {
-        guard let model, !sawWalls, model.phase == .scanning, Date().timeIntervalSince(roomStartedAt) > 25 else { return }
+        guard let model, model.started, !sawWalls, model.phase == .scanning, Date().timeIntervalSince(roomStartedAt) > 25 else { return }
         onStalled?(true)
     }
 
@@ -156,12 +166,15 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
         let r = ScanWorld.from(room, name: model?.roomName ?? "Room", idPrefix: "live\(model?.roomsDone ?? 0)-")
         live = CaptureWorld(floorY: r.floorY ?? live.floorY, walls: r.walls, rooms: r.room.map { [$0] } ?? [])
         sections = ScanWorld.sectionLabels(room)
+        if structure.add(ScanWorld.structureIds(room)) > 0 { DS.Haptic.structure() }
+        // RoomPlan's look: white edges with a soft bloom, faint fills, objects as translucent boxes.
         roomNode.childNodes.forEach { $0.removeFromParentNode() }
-        let edge = UIColor(white: 1, alpha: 0.9)
-        for w in room.walls { roomNode.addChildNode(Self.surfaceNode(w, fill: UIColor(white: 1, alpha: 0.10), edge: edge)) }
-        for d in room.doors { roomNode.addChildNode(Self.surfaceNode(d, fill: nil, edge: UIColor(white: 1, alpha: 0.5), inset: 0.01)) }
-        for w in room.windows { roomNode.addChildNode(Self.surfaceNode(w, fill: nil, edge: UIColor(white: 1, alpha: 0.5), inset: 0.01)) }
-        for o in room.openings { roomNode.addChildNode(Self.surfaceNode(o, fill: nil, edge: UIColor(white: 1, alpha: 0.35), inset: 0.01)) }
+        let edge = UIColor(white: 1, alpha: 1)
+        for w in room.walls { roomNode.addChildNode(Self.surfaceNode(w, fill: UIColor(white: 1, alpha: 0.08), edge: edge)) }
+        for d in room.doors { roomNode.addChildNode(Self.surfaceNode(d, fill: nil, edge: UIColor(white: 1, alpha: 0.75), inset: 0.01)) }
+        for w in room.windows { roomNode.addChildNode(Self.surfaceNode(w, fill: nil, edge: UIColor(white: 1, alpha: 0.75), inset: 0.01)) }
+        for o in room.openings { roomNode.addChildNode(Self.surfaceNode(o, fill: nil, edge: UIColor(white: 1, alpha: 0.5), inset: 0.01)) }
+        for o in room.objects { roomNode.addChildNode(Self.objectNode(o)) }
     }
 
     private func roomFinished(_ room: CapturedRoom) {
@@ -174,9 +187,37 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
         sections = ScanWorld.sectionLabels(room)
     }
 
+    /// An object (bed, cabinet...): a translucent white box with bright edges.
+    static func objectNode(_ o: CapturedRoom.Object) -> SCNNode {
+        let node = SCNNode()
+        node.simdTransform = o.transform
+        let d = o.dimensions
+        let box = SCNBox(width: CGFloat(d.x), height: CGFloat(d.y), length: CGFloat(d.z), chamferRadius: 0)
+        box.materials = [overlay(UIColor(white: 1, alpha: 0.16))]
+        node.addChildNode(SCNNode(geometry: box))
+        let h = d / 2
+        let c: [SIMD3<Float>] = [[-h.x, -h.y, -h.z], [h.x, -h.y, -h.z], [h.x, -h.y, h.z], [-h.x, -h.y, h.z],
+                                 [-h.x, h.y, -h.z], [h.x, h.y, -h.z], [h.x, h.y, h.z], [-h.x, h.y, h.z]]
+        let edges = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
+        let mat = overlay(UIColor(white: 1, alpha: 0.95))
+        for (i, j) in edges {
+            let a = c[i], b = c[j]
+            let len = simd_length(b - a)
+            guard len > 0.01 else { continue }
+            let cyl = SCNCylinder(radius: 0.004, height: CGFloat(len))
+            cyl.materials = [mat]
+            let n = SCNNode(geometry: cyl)
+            n.simdPosition = (a + b) / 2
+            n.simdOrientation = simd_quatf(from: SIMD3<Float>(0, 1, 0), to: simd_normalize(b - a))
+            node.addChildNode(n)
+        }
+        return node
+    }
+
     static func overlay(_ c: UIColor) -> SCNMaterial {
         let m = SCNMaterial()
         m.diffuse.contents = c
+        m.emission.contents = c
         m.lightingModel = .constant
         m.isDoubleSided = true
         m.writesToDepthBuffer = false

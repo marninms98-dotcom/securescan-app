@@ -210,6 +210,7 @@ final class JobViewModel: ObservableObject {
 
     /// The editor saved: keep the list metadata's address / job ref in step.
     func editorSaved(address: String?, jobRef: String?) {
+        SyncCenter.shared.jobChanged(jobID)  // SecureSuite sync hook
         guard var m = meta else { return }
         var changed = false
         if let a = address, a != m.address { m.address = a; changed = true }
@@ -434,6 +435,7 @@ struct JobView: View {
                         onClose: { vm.showRevisit = false; vm.revisitClosed() },
                         onPlanInstead: { vm.showRevisit = false; vm.remeasureOnPlan() })
         }
+        .secureSuiteJobScreen(vm.jobID)  // SecureSuite sync hook: open/closed + link picker
         // Leaving the job stops its "Record note" recording (and transcribes it).
         .onDisappear { if recorder.isRecordingJob(vm.folder) { vm.toggleRecordNote() } }
         .alert("Voice note", isPresented: Binding(get: { recorder.problem != nil }, set: { if !$0 { recorder.problem = nil } })) {
@@ -468,7 +470,7 @@ struct JobView: View {
         HStack(spacing: 12) {
             primary
             if vm.dockAction != .documentsOnly {
-                IconButton("doc.text", label: "Documents") { showDocuments = true }
+                IconButton("doc.text", label: "Documents", size: 48) { showDocuments = true }
                     .disabled(!vm.hasPlan || vm.makingDocument)
             }
             MicButton(recorder: recorder, folder: vm.folder, transcribing: vm.voiceStatus != nil) { vm.toggleRecordNote() }
@@ -515,6 +517,7 @@ struct JobView: View {
             }
             Button { showDocuments = true } label: { Label("Documents", systemImage: "doc.text") }
                 .disabled(!vm.hasPlan)
+            SyncMenuItems(jobID: vm.jobID)  // SecureSuite sync hook
             Divider()
             Button { tab = .items } label: { Label("All items", systemImage: "list.bullet") }
             Button { tab = .files } label: { Label("Job details", systemImage: "info.circle") }
@@ -560,13 +563,13 @@ struct MicButton: View {
                 .contentShape(Capsule())
             } else if transcribing {
                 ProgressView()
-                    .frame(width: DS.Size.icon, height: DS.Size.icon)
+                    .frame(width: 48, height: 48)
                     .background(Circle().fill(Color(.tertiarySystemFill)))
             } else {
                 Image(systemName: "mic")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color(.label))
-                    .frame(width: DS.Size.icon, height: DS.Size.icon)
+                    .frame(width: 48, height: 48)
                     .background(Circle().fill(Color(.tertiarySystemFill)))
                     .contentShape(Circle())
             }

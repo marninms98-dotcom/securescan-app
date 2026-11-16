@@ -35,6 +35,9 @@ final class ScanModel: ObservableObject, CaptureEngine {
     }
 
     @Published var phase: Phase = .scanning
+    /// The first room's scan waits for "Start" (the camera already runs, so the user can frame
+    /// the room first). Later rooms start with "Next room".
+    @Published private(set) var started = false
     @Published private(set) var roomsDone = 0
     @Published private(set) var totalCount = 0
     @Published var alert: String?
@@ -71,6 +74,15 @@ final class ScanModel: ObservableObject, CaptureEngine {
         self.nextSeq = (raw.map(\.seq).max() ?? 0) + 1
         recount()
         if !preview { ScanOpenMarker.mark(folder) }
+        started = preview
+    }
+
+    /// "Start": RoomPlan begins the first room.
+    func startScan() {
+        guard !started else { return }
+        started = true
+        DS.Haptic.save()
+        controller?.startRoom()
     }
 
     var currentRoomNumber: Int { roomsDone + 1 }
@@ -87,7 +99,7 @@ final class ScanModel: ObservableObject, CaptureEngine {
 
     var phaseText: String {
         switch phase {
-        case .scanning: return "Scanning"
+        case .scanning: return started ? "Scanning" : "Ready to scan"
         case .processingRoom: return "Saving room"
         case .roomFailed: return "Room didn't save"
         case .roomDone: return "Marking"
@@ -97,7 +109,7 @@ final class ScanModel: ObservableObject, CaptureEngine {
 
     var coaching: String? {
         switch phase {
-        case .scanning: return controller?.coaching
+        case .scanning: return started ? controller?.coaching : "Tap Start to begin scanning the room"
         case .roomFailed(let m): return m
         case .processingRoom: return "Hold still a moment"
         default: return nil
@@ -105,11 +117,14 @@ final class ScanModel: ObservableObject, CaptureEngine {
     }
 
     var quietActions: [QuietAction] {
+        let finish = QuietAction(id: "finish", title: "Finish", prominent: roomsDone > 0)
         switch phase {
-        case .scanning: return [QuietAction(id: "roomDone", title: "Room done"), QuietAction(id: "finish", title: "Finish")]
-        case .roomDone: return [QuietAction(id: "next", title: "Next room"), QuietAction(id: "finish", title: "Finish")]
-        case .roomFailed: return [QuietAction(id: "retry", title: "Scan again"), QuietAction(id: "finish", title: "Finish")]
-        case .processingRoom: return [QuietAction(id: "roomDone", title: "Room done", enabled: false), QuietAction(id: "finish", title: "Finish")]
+        case .scanning:
+            if !started { return roomsDone > 0 || !raw.isEmpty ? [finish] : [] }
+            return [QuietAction(id: "roomDone", title: "Room done"), finish]
+        case .roomDone: return [QuietAction(id: "next", title: "Next room"), finish]
+        case .roomFailed: return [QuietAction(id: "retry", title: "Scan again"), finish]
+        case .processingRoom: return [QuietAction(id: "roomDone", title: "Room done", enabled: false), finish]
         case .finishing: return []
         }
     }
@@ -185,6 +200,7 @@ final class ScanModel: ObservableObject, CaptureEngine {
     func aimSample() -> AimSample? { ScanWorld.aimSample(controller?.arSession) }
 
     func projector(viewport: CGSize) -> Projector? { ScanWorld.projector(controller?.arSession, viewport: viewport) }
+    func camera3D(viewport: CGSize) -> Camera3D? { ScanWorld.camera3D(controller?.arSession, viewport: viewport) }
 
     func overlayMarks() -> [OverlayMark] {
         let w = world
@@ -386,7 +402,10 @@ final class ScanModel: ObservableObject, CaptureEngine {
     }
 
     func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary? {
-        if case .processingRoom = phase, tool != .photo {
+        if phase == .scanning && !started {
+            return EnginePrimary(title: "Start scan", icon: "record.circle", start: true) { [weak self] in self?.startScan() }
+        }
+        if case .processingRoom = phase {
             return EnginePrimary(title: "Saving the room…", enabled: false, action: {})
         }
         return nil
@@ -410,6 +429,7 @@ final class ScanModel: ObservableObject, CaptureEngine {
     func finish(now: Bool = false) {
         switch phase {
         case .scanning:
+            if !started { finalize(); return }
             finishRequested = true
             finishNow = now
             phase = .processingRoom
@@ -463,6 +483,7 @@ final class ScanModel: ObservableObject, CaptureEngine {
             }
             roomsDone = rooms.count
             phase = .roomDone
+            DS.Haptic.roomDone()
             if finishNow { finalize(); return }
             VoiceRecorder.shared.ensureRunning()
             // Name it now (RoomPlan's sections pre-select); Finish continues after the name.
@@ -513,6 +534,7 @@ final class ScanModel: ObservableObject, CaptureEngine {
                 return
             }
             ScanOpenMarker.clear(folder)
+            DS.Haptic.success()
             self.onFinished(jobID)
         }
     }
