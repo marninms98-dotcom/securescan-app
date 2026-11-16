@@ -247,6 +247,36 @@ enum OverlayLayout {
                 below = true
             case .moisture:
                 if let last = m.points.last, let s = proj.project(last) { anchor = CGPoint(x: s.x, y: s.y - 8) }
+            case .moistureWash:
+                // Above the tide line's highest visible point.
+                let sp = m.points.compactMap { proj.project($0) }.filter { proj.onScreen($0) }
+                if let top = sp.min(by: { $0.y < $1.y }) { anchor = CGPoint(x: top.x, y: top.y - 10) }
+            case .cabinet, .hover(.box):
+                let sp = m.points.compactMap { proj.project($0) }
+                guard sp.count >= 4 else { continue }
+                let bb = bounds(sp.map(cg))
+                anchor = CGPoint(x: bb.midX, y: bb.minY - 6)
+            case .hover(.skirting):
+                guard m.points.count >= 2, let seg = proj.projectSegment(m.points[0], m.points[1]) else { continue }
+                let (a, b) = clipToScreen(cg(seg.0), cg(seg.1), vp)
+                guard hypot(b.x - a.x, b.y - a.y) >= minVisibleLine else { continue }
+                anchor = CGPoint(x: (a.x + b.x) / 2, y: min(a.y, b.y) - 8)
+            case .hover(.face), .hover(.faceBlue):
+                let sp = proj.projectPolygon(m.points).map(cg)
+                guard sp.count >= 3 else { continue }
+                let bb = bounds(sp).intersection(CGRect(origin: .zero, size: vp))
+                guard !bb.isNull, bb.width > 4 else { continue }
+                anchor = CGPoint(x: bb.midX, y: bb.minY - 6)
+            case .hover(.floor):
+                guard !m.points.isEmpty else { continue }
+                let c = m.points.reduce(WorldVec(0, 0, 0), +) / Double(m.points.count)
+                if let s = proj.project(c) { anchor = CGPoint(x: s.x, y: s.y); below = true }
+            case .hover(.ring):
+                if m.selected, let p = m.points.first, let s = proj.project(p) { anchor = CGPoint(x: s.x, y: s.y - 30) }
+            case .readout:
+                if let p = m.points.first, let s = proj.project(p) { anchor = CGPoint(x: s.x + 22, y: s.y + 2); leading = true; below = true }
+            case .airflowCone:
+                continue
             case .wetFloor, .liftFlooring, .areaDraft:
                 guard !m.points.isEmpty else { continue }
                 let c = m.points.reduce(WorldVec(0, 0, 0), +) / Double(m.points.count)

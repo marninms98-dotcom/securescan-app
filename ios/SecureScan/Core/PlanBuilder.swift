@@ -114,6 +114,8 @@ struct PBReading {
     var wholeRoom: Bool = false
     var floorType: String? = nil
     var underlay: Bool = false
+    /// kind "source": "suspected" | "confirmed" (docs/MARKING.md; nil = suspected).
+    var status: String? = nil
 }
 
 /// Camera pose and raycast hit of one tap.
@@ -243,6 +245,8 @@ struct PlanReading {
     var worldPoint: WorldVec?
     /// Camera position at capture, in plan coordinates ("cam" in plan.json).
     var cam: PlanVec? = nil
+    /// Sources: "suspected" | "confirmed" (optional; docs/MARKING.md).
+    var status: String? = nil
 }
 
 struct PlanGeometry {
@@ -731,7 +735,8 @@ enum PlanBuilder {
                            note: r.note, photo: r.photo, takenAt: r.takenAt,
                            height: height, wallId: wallId, wallT: wallT,
                            reference: r.reference, worldPoint: world,
-                           cam: (r.cameraPosition.x.isFinite && r.cameraPosition.z.isFinite) ? camPlan : nil)
+                           cam: (r.cameraPosition.x.isFinite && r.cameraPosition.z.isFinite) ? camPlan : nil,
+                           status: r.status)
     }
 
     /// Equipment stands on the floor: the floor point under the crosshair (the

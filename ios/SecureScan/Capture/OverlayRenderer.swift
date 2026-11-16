@@ -35,6 +35,20 @@ struct ARCameraProjector: Projector {
         return WorldVec(Double(c.x), Double(c.y), Double(-c.z))
     }
 
+    /// The finger's ray: the screen point back through ARKit's projection for this viewport.
+    func worldRay(_ s: ScreenVec) -> WorldVec? {
+        let vp = CGSize(width: viewport.x, height: viewport.y)
+        let proj = camera.projectionMatrix(for: .portrait, viewportSize: vp, zNear: 0.01, zFar: 100)
+        let ndc = SIMD4<Float>(Float(2 * s.x / viewport.x - 1), Float(1 - 2 * s.y / viewport.y), 1, 1)
+        var v = proj.inverse * ndc
+        guard abs(v.w) > 1e-9 else { return nil }
+        v /= v.w
+        let dirCam = SIMD4<Float>(v.x, v.y, v.z, 0)
+        let w = viewMatrix.inverse * dirCam
+        let d = WorldVec(Double(w.x), Double(w.y), Double(w.z))
+        return simd_length(d) > 1e-9 ? simd_normalize(d) : nil
+    }
+
     func screen(_ w: WorldVec) -> ScreenVec {
         let p = camera.projectPoint(SIMD3<Float>(Float(w.x), Float(w.y), Float(w.z)), orientation: .portrait,
                                     viewportSize: CGSize(width: viewport.x, height: viewport.y))
@@ -106,7 +120,9 @@ struct OverlayPainter {
 
     static func isUnder(_ m: OverlayMark) -> Bool {
         switch m.style {
-        case .wetFloor, .liftFlooring, .areaDraft, .lining, .skirting, .moisture, .lineDraft: return true
+        case .wetFloor, .liftFlooring, .areaDraft, .lining, .skirting, .moisture, .lineDraft,
+             .cabinet, .moistureWash, .airflowCone: return true
+        case .hover(let k): return k != .ring
         default: return false
         }
     }
@@ -115,7 +131,9 @@ struct OverlayPainter {
         let plan = OverlayLayout.plan(marks, projector: proj, reticleLabel: reticleLabel, measure: measure)
         let order: (OverlayMark) -> Int = { m in
             switch m.style {
-            case .wetFloor, .liftFlooring, .areaDraft: return 0
+            case .airflowCone: return -1
+            case .wetFloor, .liftFlooring, .areaDraft, .hover(.floor): return 0
+            case .moistureWash, .hover(.face), .hover(.faceBlue): return 1
             case .lining: return 1
             case .skirting, .moisture, .lineDraft: return 2
             case .equipment: return 3
@@ -149,7 +167,7 @@ struct OverlayPainter {
 
     func tagFill(_ m: OverlayMark) -> Color {
         switch m.style {
-        case .skirting, .lining, .liftFlooring: return DS.Color.remove.opacity(0.88)
+        case .skirting, .lining, .liftFlooring, .cabinet: return DS.Color.remove.opacity(0.88)
         case .moisture, .wetFloor, .source: return DS.Color.source.opacity(0.88)
         default: return Self.glass
         }
@@ -213,6 +231,16 @@ struct OverlayPainter {
             guard let r = plan.glyphs[m.id] else { return }
             let pt = CGPoint(x: r.midX, y: r.midY)
             let phase = (time.truncatingRemainder(dividingBy: 2)) / 2
+            if m.confirmed {
+                // Confirmed: a solid disc behind the drop, and the ripple.
+                c.fill(Circle().path(in: CGRect(x: pt.x - 24, y: pt.y - 24, width: 48, height: 48)), with: .color(DS.Color.source.opacity(0.35)))
+            } else {
+                // Suspected: outlined ripple rings.
+                for (rr, op) in [(20.0, 0.6), (30.0, 0.35)] {
+                    c.stroke(Circle().path(in: CGRect(x: pt.x - rr, y: pt.y - rr, width: rr * 2, height: rr * 2)),
+                             with: .color(DS.Color.source.opacity(op)), lineWidth: 2)
+                }
+            }
             let pr = 13 + 18 * phase
             c.stroke(Circle().path(in: CGRect(x: pt.x - pr, y: pt.y - pr, width: pr * 2, height: pr * 2)),
                      with: .color(DS.Color.source.opacity(0.9 * (1 - phase))), lineWidth: 2)
@@ -240,8 +268,9 @@ struct OverlayPainter {
             // 7 pt red with a dark casing; white end caps (the start ringed in red).
             c.stroke(line, with: .color(.black.opacity(0.35)), style: StrokeStyle(lineWidth: 12, lineCap: .round))
             c.stroke(line, with: .color(DS.Color.remove), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+            cutTicks(m.points[0] + WorldVec(0, 0.04, 0), m.points[1] + WorldVec(0, 0.04, 0), in: &c)
             if proj.depth(m.points[0]) > proj.near { endCap(a, ring: true, in: &c) }
-            if proj.depth(m.points[1]) > proj.near { endCap(b, ring: m.id != "draft-line", in: &c) }
+            if proj.depth(m.points[1]) > proj.near { endCap(b, ring: m.id != "draft-line" && m.id != "draft-run", in: &c) }
         case .lining:
             guard m.points.count >= 2 else { return }
             let top = m.top ?? 0.6
@@ -249,9 +278,26 @@ struct OverlayPainter {
             let sp = proj.projectPolygon([a, b, b + WorldVec(0, top, 0), a + WorldVec(0, top, 0)])
             guard sp.count >= 3 else { return }
             let shape = path(sp, closed: true)
-            c.fill(shape, with: .color(DS.Color.remove.opacity(0.28)))
-            hatch(shape, color: DS.Color.remove.opacity(0.55), in: &c)
+            // Strip-back (flood cut): red wash + white hatch, red outline, the cut line dashed white.
+            c.fill(shape, with: .color(DS.Color.remove.opacity(0.26)))
+            hatch(shape, color: .white.opacity(0.5), spacing: 9, in: &c)
             c.stroke(shape, with: .color(DS.Color.remove), style: StrokeStyle(lineWidth: m.selected ? 3 : 2, lineJoin: .round))
+            if let cut = proj.projectSegment(a + WorldVec(0, top, 0), b + WorldVec(0, top, 0)) {
+                var cl = Path(); cl.move(to: cg(cut.0)); cl.addLine(to: cg(cut.1))
+                c.stroke(cl, with: .color(.black.opacity(0.3)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+                c.stroke(cl, with: .color(.white), style: StrokeStyle(lineWidth: 2.5, lineCap: .butt, dash: [9, 6]))
+                if m.handle {
+                    let mid = CGPoint(x: (cut.0.x + cut.1.x) / 2, y: (cut.0.y + cut.1.y) / 2)
+                    let hr = CGRect(x: mid.x - 17, y: mid.y - 11, width: 34, height: 22)
+                    var sh = c
+                    sh.addFilter(.shadow(color: .black.opacity(0.3), radius: 4, y: 1))
+                    sh.fill(Capsule().path(in: hr), with: .color(.white))
+                    var ch = Path()
+                    ch.move(to: CGPoint(x: mid.x - 6, y: mid.y - 2)); ch.addLine(to: CGPoint(x: mid.x, y: mid.y - 7)); ch.addLine(to: CGPoint(x: mid.x + 6, y: mid.y - 2))
+                    ch.move(to: CGPoint(x: mid.x - 6, y: mid.y + 2)); ch.addLine(to: CGPoint(x: mid.x, y: mid.y + 7)); ch.addLine(to: CGPoint(x: mid.x + 6, y: mid.y + 2))
+                    c.stroke(ch, with: .color(DS.Color.ink), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                }
+            }
         case .moisture:
             for run in proj.projectPolyline(m.points) {
                 let p = path(run, closed: false)
@@ -265,9 +311,30 @@ struct OverlayPainter {
             let shape = path(sp, closed: true)
             let lift = m.style == .liftFlooring
             let col = lift ? DS.Color.remove : DS.Color.source
-            c.fill(shape, with: .color(col.opacity(lift ? 0.22 : 0.3)))
-            if lift { hatch(shape, color: col.opacity(0.5), spacing: 11, in: &c) }
+            c.fill(shape, with: .color(col.opacity(0.3)))
+            if lift { floorPattern(m.floorType, polygon: m.points, clip: shape, in: &c) }
             c.stroke(shape, with: .color(col), style: StrokeStyle(lineWidth: m.selected ? 3.5 : 2.5, lineJoin: .round))
+        case .cabinet:
+            cabinetBox(m.points, removal: true, in: &c)
+        case .hover(let k):
+            hover(k, m, in: &c)
+        case .moistureWash:
+            moistureWash(m, in: &c)
+        case .readout:
+            break
+        case .airflowCone:
+            guard let p = m.points.first, let d = m.airflow else { return }
+            let h = simd_length(WorldVec(d.x, 0, d.z)) > 1e-9 ? simd_normalize(WorldVec(d.x, 0, d.z)) : WorldVec(1, 0, 0)
+            let base = WorldVec(p.x, p.y + 0.005, p.z)
+            var poly = [base]
+            for k in 0...12 {
+                let a = (-30.0 + 5.0 * Double(k)) * .pi / 180
+                let r = WorldVec(h.x * cos(a) - h.z * sin(a), 0, h.x * sin(a) + h.z * cos(a))
+                poly.append(base + r * 2.5)
+            }
+            let sp = proj.projectPolygon(poly)
+            guard sp.count >= 3 else { return }
+            c.fill(path(sp, closed: true), with: .color(DS.Color.airflow.opacity(0.10)))
         case .lineDraft:
             guard m.points.count >= 2, let seg = proj.projectSegment(m.points[0], m.points[1]) else { return }
             let a = cg(seg.0), b = cg(seg.1)
@@ -342,6 +409,198 @@ struct OverlayPainter {
             c.fill(Capsule().path(in: tr), with: .color(DS.Color.ink.opacity(0.82)))
             c.stroke(Capsule().path(in: tr), with: .color(.white.opacity(0.35)), lineWidth: 1)
             c.draw(label, at: CGPoint(x: tr.midX, y: tr.midY), anchor: .center)
+        }
+    }
+
+    /// Skirting "cut" ticks: short white verticals every 0.5 m along the line.
+    func cutTicks(_ a: WorldVec, _ b: WorldVec, in c: inout GraphicsContext) {
+        let len = simd_distance(a, b)
+        guard len > 0.5 else { return }
+        var ticks = Path()
+        var s = 0.5
+        while s < len - 0.1 {
+            let p = a + (b - a) * (s / len)
+            if let q = proj.project(p) {
+                ticks.move(to: CGPoint(x: q.x, y: q.y - 4.5))
+                ticks.addLine(to: CGPoint(x: q.x, y: q.y + 4.5))
+            }
+            s += 0.5
+        }
+        c.stroke(ticks, with: .color(.white.opacity(0.9)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+    }
+
+    /// A box as a wireframe: removal red (25 % fill on its silhouette, an "×" badge) or the
+    /// white hover outline.
+    func cabinetBox(_ corners: [WorldVec], removal: Bool, in c: inout GraphicsContext) {
+        guard corners.count == 8 else { return }
+        let sp = corners.map { proj.project($0) }
+        let pts = sp.compactMap { $0 }.map(cg)
+        guard pts.count >= 4 else { return }
+        let hull = PlanBuilder.convexHull(pts.map { PlanVec(Double($0.x), Double($0.y)) }).map { CGPoint(x: $0.x, y: $0.y) }
+        var sil = Path()
+        if let f = hull.first { sil.move(to: f); for q in hull.dropFirst() { sil.addLine(to: q) }; sil.closeSubpath() }
+        let col: Color = removal ? DS.Color.remove : .white
+        c.fill(sil, with: .color(col.opacity(removal ? 0.25 : 0.10)))
+        var edges = Path()
+        for (i, j) in [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7)] {
+            guard let seg = proj.projectSegment(corners[i], corners[j]) else { continue }
+            edges.move(to: cg(seg.0)); edges.addLine(to: cg(seg.1))
+        }
+        if removal { c.stroke(edges, with: .color(.black.opacity(0.25)), style: StrokeStyle(lineWidth: 4, lineCap: .round)) }
+        c.stroke(edges, with: .color(removal ? col : col.opacity(0.9)), style: StrokeStyle(lineWidth: removal ? 2 : 1.5, lineCap: .round))
+        if removal, let q = sp[5] {
+            // The "x" badge at the top front corner.
+            let r = CGRect(x: q.x - 9, y: q.y - 9, width: 18, height: 18)
+            c.fill(Circle().path(in: r), with: .color(DS.Color.remove))
+            c.stroke(Circle().path(in: r), with: .color(.white), lineWidth: 1.5)
+            var x = Path()
+            x.move(to: CGPoint(x: q.x - 4, y: q.y - 4)); x.addLine(to: CGPoint(x: q.x + 4, y: q.y + 4))
+            x.move(to: CGPoint(x: q.x + 4, y: q.y - 4)); x.addLine(to: CGPoint(x: q.x - 4, y: q.y + 4))
+            c.stroke(x, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+        }
+    }
+
+    /// The hovered component, before any tap: a soft white highlight in the mode's style.
+    func hover(_ k: OverlayMark.HoverKind, _ m: OverlayMark, in c: inout GraphicsContext) {
+        switch k {
+        case .skirting:
+            guard m.points.count >= 2, let seg = proj.projectSegment(m.points[0] + WorldVec(0, 0.03, 0), m.points[1] + WorldVec(0, 0.03, 0)) else { return }
+            let a = cg(seg.0), b = cg(seg.1)
+            var line = Path(); line.move(to: a); line.addLine(to: b)
+            var glow = c
+            glow.addFilter(.blur(radius: 3))
+            glow.stroke(line, with: .color(.white.opacity(0.55)), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+            c.stroke(line, with: .color(.white.opacity(0.9)), style: StrokeStyle(lineWidth: 1.5, dash: [3, 5]))
+            for (p, w) in [(a, m.points[0]), (b, m.points[1])] where proj.depth(w) > proj.near {
+                c.stroke(Rectangle().path(in: CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)), with: .color(.white), lineWidth: 2)
+            }
+        case .face, .faceBlue:
+            let sp = proj.projectPolygon(m.points)
+            guard sp.count >= 3 else { return }
+            let col: Color = k == .faceBlue ? DS.Color.tide : .white
+            c.fill(path(sp, closed: true), with: .color(col.opacity(0.06)))
+            c.stroke(path(sp, closed: true), with: .color(col.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+        case .box:
+            cabinetBox(m.points, removal: false, in: &c)
+        case .floor:
+            let sp = proj.projectPolygon(m.points)
+            guard sp.count >= 3 else { return }
+            let outline = path(sp, closed: true)
+            var glow = c
+            glow.addFilter(.blur(radius: 3))
+            glow.stroke(outline, with: .color(.white.opacity(0.5)), style: StrokeStyle(lineWidth: 5, lineJoin: .round))
+            c.stroke(outline, with: .color(.white.opacity(0.8)), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+        case .ring:
+            guard let p = m.points.first, let s = proj.project(p) else { return }
+            let r = CGRect(x: s.x - 24, y: s.y - 24, width: 48, height: 48)
+            c.stroke(Circle().path(in: r), with: .color(.white.opacity(m.selected ? 0.9 : 0.55)), lineWidth: m.selected ? 2 : 1.5)
+            if m.selected { c.fill(Circle().path(in: r.insetBy(dx: 18, dy: 18)), with: .color(.white.opacity(0.9))) }
+        }
+    }
+
+    /// Moisture extent on a wall: a blue wash from the floor up to a soft wavy tide line.
+    func moistureWash(_ m: OverlayMark, in c: inout GraphicsContext) {
+        guard m.points.count >= 2 else { return }
+        let fy = m.floorLevel ?? (m.points.map(\.y).min() ?? 0)
+        let top = m.points.compactMap { proj.project($0) }
+        let base = m.points.map { WorldVec($0.x, fy, $0.z) }.compactMap { proj.project($0) }
+        guard top.count == m.points.count, base.count == m.points.count else { return }
+        // The wavy top: a gentle sine along the line (4 pt, 28 pt wavelength).
+        var wavy: [CGPoint] = []
+        var run = 0.0
+        for i in 1..<top.count {
+            let a = top[i - 1], b = top[i]
+            let d = b - a
+            let len = simd_length(d)
+            guard len > 0.5 else { continue }
+            let u = d / len, n = ScreenVec(-u.y, u.x)
+            var s = 0.0
+            while s < len {
+                let p = a + u * s + n * (4 * sin((run + s) / 28 * 2 * .pi))
+                wavy.append(cg(p))
+                s += 4
+            }
+            run += len
+        }
+        if let last = top.last { wavy.append(cg(last)) }
+        var wash = Path()
+        guard let f = wavy.first else { return }
+        wash.move(to: f)
+        for q in wavy.dropFirst() { wash.addLine(to: q) }
+        for q in base.reversed() { wash.addLine(to: cg(q)) }
+        wash.closeSubpath()
+        c.fill(wash, with: .color(DS.Color.source.opacity(0.32)))
+        var edge = Path()
+        edge.move(to: f)
+        for q in wavy.dropFirst() { edge.addLine(to: q) }
+        c.stroke(edge, with: .color(DS.Color.tide), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+    }
+
+    /// The flooring material's pattern, laid in the world on the floor (so it foreshortens like
+    /// the real thing), clipped to the area: carpet stipple, vinyl hatch, timber planks, tile grid.
+    func floorPattern(_ type: String?, polygon: [WorldVec], clip: Path, in c: inout GraphicsContext) {
+        guard polygon.count >= 3 else { return }
+        var g = c
+        g.clip(to: clip)
+        let y = polygon[0].y + 0.002
+        let xs = polygon.map(\.x), zs = polygon.map(\.z)
+        guard let x0 = xs.min(), let x1 = xs.max(), let z0 = zs.min(), let z1 = zs.max(), (x1 - x0) * (z1 - z0) < 80 else { return }
+        var lines = Path()
+        func seg(_ a: WorldVec, _ b: WorldVec) {
+            guard let s = proj.projectSegment(a, b) else { return }
+            lines.move(to: cg(s.0)); lines.addLine(to: cg(s.1))
+        }
+        switch type {
+        case "carpet"?:
+            var dots = Path()
+            var i = 0
+            var z = z0
+            while z <= z1 {
+                var x = x0 + (i % 2 == 0 ? 0 : 0.035)
+                while x <= x1 {
+                    if let s = proj.project(WorldVec(x, y, z)) {
+                        let r = (i + Int(x * 100)) % 3 == 0 ? 0.9 : 1.1
+                        dots.addEllipse(in: CGRect(x: s.x - r, y: s.y - r, width: r * 2, height: r * 2))
+                    }
+                    x += 0.07
+                }
+                z += 0.07
+                i += 1
+            }
+            g.fill(dots, with: .color(.white.opacity(0.5)))
+            return
+        case "timber"?:
+            // Planks along the longer side: 0.14 m boards, butt joints every 0.9 m, staggered.
+            let alongX = (x1 - x0) >= (z1 - z0)
+            var k = 0
+            var v = alongX ? z0 : x0
+            let vEnd = alongX ? z1 : x1
+            while v <= vEnd {
+                if alongX { seg(WorldVec(x0, y, v), WorldVec(x1, y, v)) } else { seg(WorldVec(v, y, z0), WorldVec(v, y, z1)) }
+                var u = (alongX ? x0 : z0) + (k % 2 == 0 ? 0.0 : 0.45)
+                while u <= (alongX ? x1 : z1) {
+                    if alongX { seg(WorldVec(u, y, v), WorldVec(u, y, v + 0.14)) } else { seg(WorldVec(v, y, u), WorldVec(v + 0.14, y, u)) }
+                    u += 0.9
+                }
+                v += 0.14
+                k += 1
+            }
+            g.stroke(lines, with: .color(.white.opacity(0.5)), lineWidth: 1.2)
+        case "tile"?:
+            var x = x0
+            while x <= x1 { seg(WorldVec(x, y, z0), WorldVec(x, y, z1)); x += 0.3 }
+            var z = z0
+            while z <= z1 { seg(WorldVec(x0, y, z), WorldVec(x1, y, z)); z += 0.3 }
+            g.stroke(lines, with: .color(.white.opacity(0.45)), lineWidth: 1)
+        default:
+            // Vinyl / LVP and anything else: a fine diagonal hatch.
+            let span = (x1 - x0) + (z1 - z0)
+            var s = -span
+            while s <= span {
+                seg(WorldVec(x0 + s, y, z0), WorldVec(x0 + s + (z1 - z0), y, z1))
+                s += 0.12
+            }
+            g.stroke(lines, with: .color(.white.opacity(0.5)), lineWidth: 1.4)
         }
     }
 

@@ -214,7 +214,7 @@ final class CaptureTests: XCTestCase {
         XCTAssertEqual(CaptureTool.modes(returnVisit: false, scopeOnSite: true), [.equipment, .stripOut])
         // Every mode has a first-use line (the Tips list) and the sub-pickers are as designed.
         XCTAssertEqual(CaptureCopy.tips(CaptureTool.modes(returnVisit: false)).count, 4)
-        XCTAssertEqual(CaptureCopy.subPicker(.stripOut).map(\.title), ["Skirting", "Wall lining", "Cabinets", "Floor"])
+        XCTAssertEqual(CaptureCopy.subPicker(.stripOut).map(\.title), ["Skirting", "Wall", "Cabinets", "Floor"])
         XCTAssertEqual(CaptureCopy.subPicker(.equipment).first?.key, "airMover")
         XCTAssertTrue(CaptureCopy.subPicker(.source).isEmpty)
         XCTAssertEqual(CaptureCopy.subtitle(phase: "Scanning", tool: .moisture, readings: 3, marks: 0, units: 0, fixed: false), "Scanning · 3 readings")

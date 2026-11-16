@@ -172,6 +172,9 @@ struct CaptureHUD: View {
             OverlayRenderer(hud: hud, pass: .under)
             EquipmentLayer(hud: hud).allowsHitTesting(false)
             OverlayRenderer(hud: hud, pass: .over)
+            // Fingers on the image: tap a component, scrub along it, drag the cut line or an
+            // airflow, two-finger tap to undo, twist an air mover.
+            TouchLayer(hud: hud)
             if hud.tray == nil && hud.display.showsTools && hud.display.busy == nil {
                 ReticleView(aim: hud.aim).allowsHitTesting(false)
             }
@@ -186,7 +189,7 @@ struct CaptureHUD: View {
                 VStack(spacing: 8) {
                     Spacer(minLength: 0)
                     photoCardRow
-                    chipsRow
+                    if let sg = hud.suggestion { suggestionChip(sg) } else { chipsRow }
                     subPicker
                 }
                 .padding(.bottom, 12)
@@ -195,11 +198,6 @@ struct CaptureHUD: View {
         }
         .frame(width: size.width, height: size.height)
         .clipped()
-        .contentShape(Rectangle())
-        .simultaneousGesture(RotationGesture()
-            .onChanged { a in hud.twistChanged(-a.radians) }
-            .onEnded { _ in hud.twistEnded() },
-            including: hud.twistTarget != nil ? .all : .subviews)
     }
 
     private var tipsCard: some View {
@@ -274,9 +272,15 @@ struct CaptureHUD: View {
     private var optionChips: [OptionChip] {
         var out: [OptionChip] = []
         guard hud.retakeFor == nil, hud.airflowFor == nil else { return out }
+        if hud.tool == .stripOut && hud.floorTypesShown && hud.stripFloorType == "carpet" {
+            out.append(OptionChip(id: "underlay", title: "Underlay", icon: hud.underlayOn ? "checkmark" : "plus") {
+                hud.underlayOn.toggle(); DS.Haptic.selection() })
+        }
         switch hud.tool {
         case .moisture, .stripOut:
-            if hud.markPoints.isEmpty {
+            if hud.hover != nil || hud.drafting {
+                // Marking by component: tap / scrub / the pills do it.
+            } else if hud.markPoints.isEmpty {
                 if hud.canWholeWall { out.append(OptionChip(id: "wall", title: "Whole wall", icon: "arrow.left.and.right") { hud.wholeWall() }) }
                 if hud.canWholeRoom { out.append(OptionChip(id: "room", title: "Whole room", icon: "square.dashed") { hud.wholeRoom() }) }
             } else if hud.markStartShape == .area {
@@ -392,7 +396,56 @@ struct CaptureHUD: View {
         .frame(height: 80)
     }
 
-    private func pillsRow(width: CGFloat) -> some View {
+    @ViewBuilder private func pillsRow(width: CGFloat) -> some View {
+        if hud.strip != nil { heightRow } else { quietPills(width: width) }
+    }
+
+    /// Strip-back: the cut height, 300 / 600 / 900 / 1200 / Full (replaces the pills).
+    private var heightRow: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(hud.heightChoices.enumerated()), id: \.offset) { i, c in
+                if i > 0 { Spacer(minLength: 6) }
+                let on = hud.strip?.heightMm == c.mm
+                Button { hud.setStripHeight(c.mm) } label: {
+                    Text(c.title).font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(on ? DS.Color.ink : .white)
+                        .padding(.horizontal, 14).frame(height: 34)
+                        .background { if on { Capsule().fill(Color.white) } }
+                        .overlay { if !on { Capsule().strokeBorder(DS.Color.outline, lineWidth: 1) } }
+                        .frame(minHeight: 44).contentShape(Capsule())
+                }
+                .buttonStyle(DSPressStyle())
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 34)
+    }
+
+    private func suggestionChip(_ s: Suggestion) -> some View {
+        HStack(spacing: 10) {
+            Text(s.text).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.85)
+            Button { hud.acceptSuggestion() } label: {
+                Text(s.action).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 11).frame(height: 26).background(Capsule().fill(DS.Color.accent))
+                    .frame(minHeight: 44).contentShape(Capsule())
+            }
+            .buttonStyle(DSPressStyle())
+            Button { hud.dismissSuggestion() } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 26, height: 26).frame(minWidth: 32, minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(DSPressStyle())
+            .accessibilityLabel("Dismiss suggestion")
+        }
+        .padding(.leading, 14).padding(.trailing, 4)
+        .frame(height: 40)
+        .dsCapsule()
+        .padding(.horizontal, 12)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private func quietPills(width: CGFloat) -> some View {
         let p = hud.pills
         return ZStack {
             HStack {
@@ -571,6 +624,74 @@ struct StackButton: View {
         case "source": return "mappin"
         case "done": return "checkmark"
         default: return "square.stack"
+        }
+    }
+}
+
+
+// MARK: - Fingers on the viewport
+
+/// A transparent UIKit layer over the camera image: one-finger tap and pan (scrub, cut line,
+/// airflow), two-finger tap (undo a scrub step), rotation (turn an air mover). UIKit, because
+/// SwiftUI has no two-finger tap and the pan must decide whether to begin from where it starts.
+struct TouchLayer: UIViewRepresentable {
+    let hud: CaptureHUDModel
+
+    func makeUIView(context: Context) -> TouchLayerView { TouchLayerView(hud: hud) }
+    func updateUIView(_ v: TouchLayerView, context: Context) { v.hud = hud }
+}
+
+final class TouchLayerView: UIView, UIGestureRecognizerDelegate {
+    weak var hud: CaptureHUDModel?
+    private let pan = UIPanGestureRecognizer()
+    private let tap = UITapGestureRecognizer()
+    private let twoTap = UITapGestureRecognizer()
+    private let rotate = UIRotationGestureRecognizer()
+
+    init(hud: CaptureHUDModel) {
+        self.hud = hud
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isMultipleTouchEnabled = true
+        pan.maximumNumberOfTouches = 1
+        pan.addTarget(self, action: #selector(onPan(_:)))
+        tap.addTarget(self, action: #selector(onTap(_:)))
+        twoTap.numberOfTouchesRequired = 2
+        twoTap.addTarget(self, action: #selector(onTwoTap))
+        rotate.addTarget(self, action: #selector(onRotate(_:)))
+        tap.require(toFail: twoTap)
+        for g in [pan, tap, twoTap, rotate] as [UIGestureRecognizer] {
+            g.delegate = self
+            addGestureRecognizer(g)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard let hud else { return false }
+        if g === pan { return hud.dragBegan(at: g.location(in: self), size: bounds.size) }
+        if g === rotate { return hud.twistTarget != nil }
+        return true
+    }
+
+    @objc private func onPan(_ g: UIPanGestureRecognizer) {
+        switch g.state {
+        case .changed: hud?.dragMoved(to: g.location(in: self), size: bounds.size)
+        case .ended, .cancelled, .failed: hud?.dragEnded()
+        default: break
+        }
+    }
+
+    @objc private func onTap(_ g: UITapGestureRecognizer) { hud?.tapAt(g.location(in: self), size: bounds.size) }
+
+    @objc private func onTwoTap() { hud?.undoScrub() }
+
+    @objc private func onRotate(_ g: UIRotationGestureRecognizer) {
+        switch g.state {
+        case .changed: hud?.twistChanged(-Double(g.rotation))
+        case .ended, .cancelled, .failed: hud?.twistEnded()
+        default: break
         }
     }
 }

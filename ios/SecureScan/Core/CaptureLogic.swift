@@ -42,6 +42,9 @@ struct CaptureWorld: Equatable {
     var floorY: Double?
     var walls: [WorldWall] = []
     var rooms: [WorldRoom] = []
+    /// Doors, windows and openings on the walls; RoomPlan's objects (docs/MARKING.md).
+    var openings: [WorldOpening] = []
+    var objects: [WorldObject] = []
 
     static let empty = CaptureWorld(floorY: nil)
 
@@ -369,6 +372,9 @@ enum CaptureTool: String, CaseIterable, Equatable {
 enum MarkFamily: Equatable { case moisture, stripOut }
 
 extension MarkIntent {
+    /// The removal note for the toe-kick choice (cabinetry).
+    static let kickBoardNote = "Kick board only"
+
     /// Strip-out: what the reticle's spot suggests (the sub-picker follows it until the user picks).
     static func stripKind(_ p: MarkPoint?, remembered: [String: MarkMeaning] = [:]) -> MarkMeaning {
         guard let p, p.surface != nil else { return .skirting }
@@ -501,6 +507,22 @@ enum CaptureCopy {
     }
 
     static let snappedEnd = "Snapped to wall end"
+    /// Floor materials on the strip-out floor sub-picker (keys as raw `floorType`).
+    static let floorMaterials: [(key: String, title: String)] = [("carpet", "Carpet"), ("vinyl", "Vinyl"), ("timber", "Timber"), ("tile", "Tile")]
+    static func floorName(_ key: String, underlay: Bool) -> String {
+        let n = floorMaterials.first { $0.key == key }?.title ?? "Flooring"
+        return key == "carpet" && underlay ? "\(n) + underlay" : n
+    }
+    /// The instruction card while marking by component.
+    static func markingCard(kind: Component.Kind, drafting: Bool, floorType: String?, moisture: Bool) -> String {
+        switch kind {
+        case .skirting: return drafting ? "Scrub along the skirting" : "Tap to take the whole run, or scrub along it"
+        case .wallFace: return moisture ? "Scrub along the wall, up to where it's wet" : (drafting ? "Drag the cut line to height" : "Tap the wall, or scrub over the part to strip")
+        case .cabinet: return drafting ? "Kick board only? Use the chip" : "Tap the cabinet to remove it"
+        case .floor: return moisture ? "Scrub over the wet floor" : "Scrub over the wet \(floorType.flatMap { k in floorMaterials.first { $0.key == k }?.title.lowercased() } ?? "floor")"
+        case .waterCandidate, .ceiling: return "Aim where the water comes in, then tap"
+        }
+    }
     static let aimAirflow = "Aim where the air should go"
     static let twistHint = "Twist with two fingers to turn it"
     static let wetLineStart = "Tap where the wet line starts"
@@ -509,8 +531,8 @@ enum CaptureCopy {
     /// The sub-picker under the viewport for each mode (empty = none).
     static func subPicker(_ t: CaptureTool) -> [(key: String, title: String)] {
         switch t {
-        case .moisture: return [("reading", "Reading"), ("line", "Line"), ("area", "Wet area")]
-        case .stripOut: return [("skirting", "Skirting"), ("wallLining", "Wall lining"), ("cabinetry", "Cabinets"), ("liftFlooring", "Floor")]
+        case .moisture: return [("reading", "Reading"), ("line", "Moisture line"), ("area", "Wet floor")]
+        case .stripOut: return [("skirting", "Skirting"), ("wallLining", "Wall"), ("cabinetry", "Cabinets"), ("liftFlooring", "Floor")]
         case .equipment: return [("airMover", "Air mover"), ("dehumidifier", "Dehumidifier"), ("airScrubber", "Scrubber"), ("heater", "Heater")]
         case .source, .remeasure: return []
         }

@@ -97,6 +97,7 @@ targets:
       - path: SecureScan/Core/OverlayLayout.swift
       - path: SecureScan/Core/StudioScenes.swift
       - path: SecureScan/Core/CaptureFrame.swift
+      - path: SecureScan/Core/Components.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.secureworkswa.securescan.tests

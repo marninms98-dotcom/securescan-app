@@ -78,12 +78,14 @@ struct MarkDraft {
     var wholeRoom: Bool
     var length: Double?
     var area: Double?
+    /// The removal note ("Kick board only").
+    var note = ""
 }
 
 enum CaptureDraft {
     case reading(CaptureShot, value: Double, material: String, reference: Bool)
     case photo(CaptureShot, caption: String)
-    case source(CaptureShot, cause: String, note: String)
+    case source(CaptureShot, cause: String, note: String, confirmed: Bool)
     case equipment(CaptureShot, type: String, asset: String)
     case mark(MarkDraft)
 }

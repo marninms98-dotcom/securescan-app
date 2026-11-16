@@ -43,7 +43,9 @@ enum DS {
         static let wet = SwiftUI.Color(hex: 0xFF453A)
         static let remove = SwiftUI.Color(hex: 0xFF453A)
         static let equip = SwiftUI.Color(hex: 0x12A594)
-        static let source = SwiftUI.Color(hex: 0x2F7CF6)
+        static let source = SwiftUI.Color(hex: 0x0A84FF)
+        /// The top edge of a moisture wash (docs/MARKING.md).
+        static let tide = SwiftUI.Color(hex: 0x64D2FF)
         /// The glass hairline: 0.5 pt white 22 %.
         static let hairline = SwiftUI.Color.white.opacity(0.22)
         /// The selected mode on the mode strip (system yellow, the Camera app's).

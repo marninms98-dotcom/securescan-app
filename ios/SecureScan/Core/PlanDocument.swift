@@ -71,6 +71,7 @@ enum PlanDocument {
             "reference": r.reference,
             "source": "ar",
         ]
+        if let s = r.status { d["status"] = s }
         applyGeometry(to: &d, from: r)
         return d
     }

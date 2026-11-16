@@ -242,9 +242,10 @@ final class ScanModel: ObservableObject, CaptureEngine {
             commit(r, photo: s.photo)
             let n = raw.filter { $0.kind == "photo" }.count
             return .success(SavedCapture(entry: entry(r, kind: "photo", title: CaptureCopy.photoTag(n), detail: caption.isEmpty ? room : caption, photo: true)))
-        case .source(let s, let cause, let note):
+        case .source(let s, let cause, let note, let confirmed):
             let label = note.trimmingCharacters(in: .whitespaces).isEmpty ? cause : "\(cause) — \(note)"
-            let r = record(s, kind: "source", material: "wall", note: label, roomIndex: roomIndex)
+            var r = record(s, kind: "source", material: "wall", note: label, roomIndex: roomIndex)
+            r.status = confirmed ? "confirmed" : "suspected"
             commit(r, photo: s.photo)
             return .success(SavedCapture(entry: entry(r, kind: "source", title: "Source", detail: cause, photo: true)))
         case .equipment(let s, let type, let asset):
@@ -293,7 +294,7 @@ final class ScanModel: ObservableObject, CaptureEngine {
             let t = "\(MarkIntent.floorTypes.first { $0.key == m.floorType }?.name ?? "Flooring")\(measure.map { " · \($0)" } ?? "")"
             return SavedCapture(entry: entry(r, kind: "mark", title: t, detail: room, photo: first.photo != nil))
         case .skirting, .wallLining, .cabinetry:
-            var r = record(first, kind: "removal", material: m.meaning.removalItem ?? "other", roomIndex: roomIndex)
+            var r = record(first, kind: "removal", material: m.meaning.removalItem ?? "other", note: m.note, roomIndex: roomIndex)
             if m.shots.count >= 2 {
                 let e = m.shots[m.shots.count - 1]
                 r.endCameraPosition = Self.arr(e.camera)
@@ -616,7 +617,14 @@ enum ScanMarks {
         var run: [WorldVec] = []
         var runId = ""
         func flushRun() {
-            if run.count >= 2 { out.append(OverlayMark(id: runId, style: .moisture, points: run, tag: "Moisture line")) }
+            if run.count >= 2 {
+                // The moisture extent: a wash from the floor to the line (docs/MARKING.md).
+                let base = fy ?? (run.map(\.y).min() ?? 0)
+                let mm = Int(((run.map(\.y).max() ?? base) - base) * 1000)
+                var mk = OverlayMark(id: runId, style: .moistureWash, points: run, tag: "Moisture to \(max(0, mm)) mm")
+                mk.floorLevel = base
+                out.append(mk)
+            }
             run = []
         }
         for r in raw.sorted(by: { $0.seq < $1.seq }) {
@@ -635,7 +643,10 @@ enum ScanMarks {
             case "source":
                 guard let p else { continue }
                 let cause = r.note.components(separatedBy: " — ").first ?? r.note
-                out.append(OverlayMark(id: r.id, style: .source, points: [p], tag: cause.isEmpty || cause == "Unknown" ? "Source" : "\(cause) leak"))
+                var mk = OverlayMark(id: r.id, style: .source, points: [p],
+                                     tag: "\(cause.isEmpty || cause == "Unknown" ? "Source" : cause) · \(r.status == "confirmed" ? "Confirmed" : "Suspected")")
+                mk.confirmed = r.status == "confirmed"
+                out.append(mk)
             case "equipment":
                 guard let p else { continue }
                 equipN[r.material, default: 0] += 1
@@ -660,10 +671,23 @@ enum ScanMarks {
                     }
                     guard poly.count >= 3 else { continue }
                     let type = MarkIntent.floorTypes.first { $0.key == r.floorType }?.name ?? "Flooring"
-                    out.append(OverlayMark(id: r.id, style: .liftFlooring, points: poly,
-                                           tag: "\(type) · \(CaptureCopy.area(FloorArea.area(poly.map { PlanVec($0.x, $0.z) })))"))
+                    let name = r.underlay == true ? "\(type) + underlay" : type
+                    var mk = OverlayMark(id: r.id, style: .liftFlooring, points: poly,
+                                         tag: "\(name) · \(CaptureCopy.area(FloorArea.area(poly.map { PlanVec($0.x, $0.z) })))")
+                    mk.floorType = r.floorType
+                    out.append(mk)
                 } else {
                     guard let a = p, let b = v(r.endHit) else { continue }
+                    if r.material == "cabinetry", let ob = cabinet(between: a, b, world: world) {
+                        // The cabinet itself, boxed in red (or its kick board only).
+                        let len = CaptureCopy.length(ob.size.x)
+                        let kick = r.note == MarkIntent.kickBoardNote
+                        var corners = ob.corners
+                        if kick { for i in 4..<8 { corners[i].y = corners[i - 4].y + 0.15 } }
+                        out.append(OverlayMark(id: r.id, style: .cabinet, points: corners,
+                                               tag: kick ? "Kick board · \(len)" : "Remove cabinetry · base \(len)"))
+                        continue
+                    }
                     let (wa, wb) = onWall(a, b, world: world)
                     let base = fy ?? min(a.y, b.y)
                     let len = simd_distance(PlanVec(wa.x, wa.y), PlanVec(wb.x, wb.y))
@@ -679,6 +703,13 @@ enum ScanMarks {
         }
         flushRun()
         return out
+    }
+
+    /// The removable box a cabinetry stretch was taken from (its front edge between the ends).
+    static func cabinet(between a: WorldVec, _ b: WorldVec, world: CaptureWorld) -> WorldObject? {
+        let mid = (a + b) / 2
+        return world.objects.filter(\.isRemovable).min { Suggest.distance(mid, $0) < Suggest.distance(mid, $1) }
+            .flatMap { Suggest.distance(mid, $0) < 0.5 ? $0 : nil }
     }
 
     /// The two ends of a wall stretch moved onto the nearest wall line (x, z).

@@ -44,6 +44,8 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
     var liveWorld: CaptureWorld {
         var w = finished
         w.walls += live.walls
+        w.openings += live.openings
+        w.objects += live.objects
         w.rooms += live.rooms
         w.floorY = live.floorY ?? finished.floorY
         return w
@@ -164,7 +166,8 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
         lastRoom = room
         if !room.walls.isEmpty { sawWalls = true; onStalled?(false) }
         let r = ScanWorld.from(room, name: model?.roomName ?? "Room", idPrefix: "live\(model?.roomsDone ?? 0)-")
-        live = CaptureWorld(floorY: r.floorY ?? live.floorY, walls: r.walls, rooms: r.room.map { [$0] } ?? [])
+        live = CaptureWorld(floorY: r.floorY ?? live.floorY, walls: r.walls, rooms: r.room.map { [$0] } ?? [],
+                            openings: r.openings, objects: r.objects)
         sections = ScanWorld.sectionLabels(room)
         if structure.add(ScanWorld.structureIds(room)) > 0 { DS.Haptic.structure() }
         // RoomPlan's look: white edges with a soft bloom, faint fills, objects as translucent boxes.
@@ -181,6 +184,8 @@ final class LiveScanViewController: UIViewController, ScanCaptureControlling, Ro
         let n = model?.roomsDone ?? 0
         let r = ScanWorld.from(room, name: model?.roomName ?? "Room", idPrefix: "room\(n)-")
         finished.walls += r.walls
+        finished.openings += r.openings
+        finished.objects += r.objects
         if let rr = r.room { finished.rooms.append(rr) }
         finished.floorY = r.floorY ?? finished.floorY
         live = .empty

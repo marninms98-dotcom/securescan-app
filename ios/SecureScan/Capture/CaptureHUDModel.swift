@@ -109,6 +109,37 @@ final class CaptureHUDModel: ObservableObject {
     /// Strip-out: the kind fixed when the first point went down.
     @Published private(set) var stripAtStart: MarkMeaning?
 
+    // Marking by component (docs/MARKING.md; logic in Marking.swift)
+    /// The component under the reticle, highlighted before any tap.
+    @Published var hover: Component?
+    /// Drafts: a skirting run, a wall strip-back, a cabinet, a painted (or whole) floor, a tide line.
+    @Published var run: WallRun?
+    @Published var strip: StripBack?
+    @Published var cabinetPick: String?
+    @Published var kickOnly = false
+    @Published var floorPaint: FloorPaint?
+    @Published var floorWhole: [PlanVec]?
+    @Published var tide: TideLine?
+    /// Strip-out floor: the material (its pattern) and the underlay toggle (carpet).
+    @Published var stripFloorType = "carpet"
+    @Published var underlayOn = true
+    /// The floor materials are on the sub-picker (after picking Floor).
+    @Published var floorTypesShown = false
+    /// A glass readout at a world point ("0.6 m to wall end", "600 mm").
+    @Published var readout: (point: WorldVec, text: String)?
+    /// The one suggestion chip.
+    @Published var suggestion: Suggestion?
+    var dismissedSuggestions: Set<String> = []
+    /// The last wet floor area (for "Lift carpet + underlay in this area").
+    var lastWetPolygon: [PlanVec]?
+    /// Source tray: suspected / confirmed.
+    @Published var sourceConfirmed = false
+    /// A finger dragging an air mover's airflow.
+    @Published var airflowDrag: (id: String, dir: WorldVec)?
+    /// Undo for scrub steps (two-finger tap / Undo pill).
+    var markUndo: [MarkSnapshot] = []
+    var dragMode: DragMode?
+
     /// The 3D equipment layer is on screen (the overlay then draws tags only).
     @Published var models3D = false
     /// Two-finger twist on a unit: the yaw added while the fingers are down (radians).
@@ -155,12 +186,15 @@ final class CaptureHUDModel: ObservableObject {
             lastLockKey = key
             aim = a
         }
+        updateHover()
     }
 
     /// The reticle's readout, or nil when the primary button already names the target
     /// (or a tray is open). Drawn by the overlay so it takes part in the label layout.
     var reticleText: String? {
         guard tray == nil, display.showsTools, display.busy == nil, airflowFor == nil, retakeFor == nil else { return nil }
+        // A highlighted component carries its own label.
+        if hover != nil || drafting { return nil }
         switch tool {
         case .remeasure, .equipment: return nil
         case .stripOut, .moisture:
@@ -184,12 +218,18 @@ final class CaptureHUDModel: ObservableObject {
         drawArmed = nil
         tray = nil
         tipsOpen = false
+        clearMarkingDrafts()
+        hover = nil
+        floorTypesShown = false
         tool = t
     }
 
     // MARK: The sub-picker (moisture kinds, strip-out kinds, equipment types)
 
-    var subPicker: [(key: String, title: String)] { CaptureCopy.subPicker(tool) }
+    var subPicker: [(key: String, title: String)] {
+        if tool == .stripOut && floorTypesShown { return [(key: "back", title: "‹")] + CaptureCopy.floorMaterials }
+        return CaptureCopy.subPicker(tool)
+    }
 
     /// The strip-out kind the reticle suggests now.
     var stripAuto: MarkMeaning { MarkIntent.stripKind(aim.hit == nil ? nil : MarkPoint(aim: aim), remembered: remembered) }
@@ -200,7 +240,7 @@ final class CaptureHUDModel: ObservableObject {
     var subSelection: String? {
         switch tool {
         case .moisture: return drawArmed == .line ? "line" : drawArmed == .area ? "area" : "reading"
-        case .stripOut: return stripKind.rawValue
+        case .stripOut: return floorTypesShown ? stripFloorType : stripKind.rawValue
         case .equipment: return equipmentType
         default: return nil
         }
@@ -214,8 +254,12 @@ final class CaptureHUDModel: ObservableObject {
             guard markPoints.isEmpty else { return }
             drawArmed = key == "line" ? .line : key == "area" ? .area : nil
         case .stripOut:
+            if key == "back" { floorTypesShown = false; return }
+            if floorTypesShown { stripFloorType = key; return }
             guard let m = MarkMeaning(rawValue: key) else { return }
+            clearMarkingDrafts()
             stripPick = m
+            if m == .liftFlooring { floorTypesShown = true }
             if !markPoints.isEmpty {
                 stripAtStart = m
                 markStartShape = m.isArea ? .area : (markPoints.count <= 2 ? .line : markStartShape)
@@ -238,6 +282,7 @@ final class CaptureHUDModel: ObservableObject {
         guard tray == nil else { return nil }
         if airflowFor != nil { return CaptureCopy.aimAirflow }
         if !markPoints.isEmpty && aim.snapped { return CaptureCopy.snappedEnd }
+        if let mc = markingCard { return mc }
         if tool == .moisture && markPoints.isEmpty {
             if drawArmed == .line { return CaptureCopy.wetLineStart }
             if drawArmed == .area { return CaptureCopy.wetAreaStart }
@@ -276,13 +321,15 @@ final class CaptureHUDModel: ObservableObject {
         if retakeFor != nil { return (nil, "Retake photo", Pill(id: "cancelRetake", title: "Cancel")) }
         if airflowFor != nil { return (nil, p.title, Pill(id: "skipAirflow", title: "Skip")) }
         if !markPoints.isEmpty { return (Pill(id: "undoPoint", title: "Undo"), p.title, Pill(id: "cancelMark", title: "Cancel")) }
+        if let mp = markingPills { return mp }
         let q = display.quiet.map { Pill(id: "quiet:" + $0.id, title: $0.title, enabled: $0.enabled, prominent: $0.prominent) }
-        let contextual = !p.enabled || engine.primaryOverride(tool: tool, aim: aim) != nil || existingUnit != nil
+        let contextual = !p.enabled || engine.primaryOverride(tool: tool, aim: aim) != nil || existingUnit != nil || hover != nil
             || (tool == .moisture && drawArmed != nil) || q.isEmpty
         return (q.first, contextual ? p.title : nil, q.count > 1 ? q.last : nil)
     }
 
     func tapPill(_ id: String) {
+        if tapMarkingPill(id) { return }
         switch id {
         case "cancelRetake": cancelRetake()
         case "skipAirflow": skipAirflow()
@@ -310,6 +357,7 @@ final class CaptureHUDModel: ObservableObject {
         // One primary colour everywhere: meaning colours live on chips and world marks.
         if let o = engine.primaryOverride(tool: tool, aim: aim) { return Primary(title: o.title, enabled: o.enabled) }
         if airflowFor != nil { return Primary(title: CaptureCopy.setAirflow, enabled: aim.blocked != CaptureCopy.findingRoom) }
+        if let m = markingPrimary { return m }
         if let why = aim.blocked { return Primary(title: why, enabled: false) }
         switch tool {
         case .moisture: return Primary(title: drawing ? markTitle : CaptureCopy.addReading, enabled: true)
@@ -326,6 +374,8 @@ final class CaptureHUDModel: ObservableObject {
     var primaryIcon: String {
         if let o = engine.primaryOverride(tool: tool, aim: aim) { return o.icon }
         if airflowFor != nil { return "arrow.turn.up.right" }
+        if drafting { return "checkmark" }
+        if let h = hover, h.kind != .waterCandidate, h.kind != .ceiling { return "plus" }
         if aim.blocked != nil { return "scope" }
         switch tool {
         case .moisture: return drawing ? markIcon : "drop.fill"
@@ -404,6 +454,11 @@ final class CaptureHUDModel: ObservableObject {
         if let t = tray { saveTray(t); return }
         if let o = engine.primaryOverride(tool: tool, aim: aim) { o.action(); return }
         if let id = airflowFor { setAirflow(id); return }
+        if drafting { commitMarking(); return }
+        if let h = hover {
+            if h.kind == .waterCandidate || h.kind == .ceiling { beginSource(at: h.point) } else { selectWhole(h) }
+            return
+        }
         switch tool {
         case .moisture: if drawing { markTap() } else { beginReading() }
         case .source: beginSource()
@@ -559,11 +614,14 @@ final class CaptureHUDModel: ObservableObject {
 
     // MARK: Source
 
-    private func beginSource() {
-        guard let s = takeShot(photo: true) else { return }
+    /// The source tray; `at` snaps the pin onto a water-entry candidate (sink, toilet, sill...).
+    func beginSource(at p: WorldVec? = nil) {
+        guard var s = takeShot(photo: true) else { return }
+        if let p { s = s.aimed(at: p) }
         pendingShot = s
         sourceCause = nil
         sourceNote = ""
+        sourceConfirmed = false
         open(.source)
     }
 
@@ -761,7 +819,7 @@ final class CaptureHUDModel: ObservableObject {
 
     // MARK: Trays
 
-    private func open(_ t: CaptureTray) {
+    func open(_ t: CaptureTray) {
         withAnimation(DS.Motion.tray) { tray = t }
     }
 
@@ -814,7 +872,7 @@ final class CaptureHUDModel: ObservableObject {
             guard let c = sourceCause, let s = pendingShot else { return }
             pendingShot = nil
             tray = nil
-            persist(.source(s, cause: c, note: sourceNote))
+            persist(.source(s, cause: c, note: sourceNote, confirmed: sourceConfirmed))
         case .roomName:
             let name = roomTyping ? roomOther.trimmingCharacters(in: .whitespaces) : (roomChoice ?? "")
             guard !name.isEmpty else { return }
@@ -841,7 +899,7 @@ final class CaptureHUDModel: ObservableObject {
 
     // MARK: Saving
 
-    private func takeShot(photo: Bool) -> CaptureShot? {
+    func takeShot(photo: Bool) -> CaptureShot? {
         guard var s = engine.shot(photo: photo) else {
             showToast("Camera not ready — try again")
             DS.Haptic.warning()
@@ -853,10 +911,10 @@ final class CaptureHUDModel: ObservableObject {
         return s
     }
 
-    private func persist(_ d: CaptureDraft) {
+    func persist(_ d: CaptureDraft) {
         let photoTask: Task<CapturedPhoto?, Never>? = {
             switch d {
-            case .reading(let s, _, _, _), .photo(let s, _), .source(let s, _, _), .equipment(let s, _, _): return s.photo
+            case .reading(let s, _, _, _), .photo(let s, _), .source(let s, _, _, _), .equipment(let s, _, _): return s.photo
             case .mark(let m): return m.shots.first?.photo
             }
         }()
@@ -865,6 +923,7 @@ final class CaptureHUDModel: ObservableObject {
             switch await engine.save(d) {
             case .success(let saved):
                 UserDefaults.standard.set(true, forKey: "coach." + tool.rawValue)
+                suggestAfter(d)
                 stack.add(saved.entry)
                 saveTick &+= 1
                 DS.Haptic.save()
@@ -1012,7 +1071,7 @@ final class CaptureHUDModel: ObservableObject {
         if let a = airflowPreview {
             out.append(OverlayMark(id: "draft-airflow", style: .equipment(type: "airMover", planned: false), points: [a.from], airflow: a.dir, tag: "Airflow"))
         }
-        return out
+        return out + markingMarks()
     }
 
     private func finishedMarkPreview(shape: MarkShape, pts: [WorldVec]) -> OverlayMark {
@@ -1080,6 +1139,7 @@ final class CaptureHUDModel: ObservableObject {
             var flow = m.airflow != nil && type == "airMover"
             if airflowFor == m.id, let a = airflowPreview { yaw = EquipmentModelState.yaw(for: a.dir); flow = true }
             if let t = twist, t.id == m.id { yaw += Float(t.angle); flow = type == "airMover" }
+            if let a = airflowDrag, a.id == m.id { yaw = EquipmentModelState.yaw(for: a.dir); flow = true }
             out.append(EquipmentModelState(id: m.id, type: type, position: SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)),
                                            yaw: yaw, planned: planned, flow: flow))
         }

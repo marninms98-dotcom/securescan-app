@@ -225,6 +225,11 @@ struct SourceTray: View {
                     }
                     Chip(hud.sourceNote.isEmpty ? "Add note" : "Note added", icon: hud.sourceNote.isEmpty ? "plus" : "checkmark") { writing = true }
                 }
+                // Suspected (outlined ripple) or confirmed (solid) - docs/MARKING.md.
+                HStack(spacing: DS.Space.tight) {
+                    Chip("Suspected", selected: !hud.sourceConfirmed) { hud.sourceConfirmed = false; DS.Haptic.selection() }
+                    Chip("Confirmed", selected: hud.sourceConfirmed) { hud.sourceConfirmed = true; DS.Haptic.selection() }
+                }
             }
         }
     }
