@@ -297,6 +297,31 @@ struct EquipmentModelState: Equatable {
     static func yaw(for dir: WorldVec) -> Float { Float(atan2(dir.x, dir.z)) }
 }
 
+// MARK: - For other screens (the job's 3D tab)
+
+/// A drying unit as its 3D model, for any SceneKit scene: real-world metres, origin at the
+/// centre of its floor contact, y up, +X = the airflow / outlet direction (rotate about +y to
+/// aim it). `type` is the plan's equipment type; both spellings are accepted ("airMover" /
+/// "airmover", "airScrubber" / "scrubber", "dehumidifier", "heater"). `planned` = translucent.
+func equipmentNode(type: String, planned: Bool) -> SCNNode {
+    let key: String
+    switch type.lowercased() {
+    case "airmover", "air mover", "air_mover": key = "airMover"
+    case "airscrubber", "scrubber", "air scrubber": key = "airScrubber"
+    case "dehumidifier", "dehu", "lgr": key = "dehumidifier"
+    case "heater": key = "heater"
+    default: key = "airMover"
+    }
+    let wrapper = SCNNode()
+    wrapper.name = "equipment-\(key)"
+    let model = EquipmentModels.model(key)
+    // The models are built with the outlet towards +Z; turn them so it faces +X.
+    model.simdEulerAngles = [0, .pi / 2, 0]
+    wrapper.addChildNode(model)
+    wrapper.opacity = planned ? 0.6 : 1
+    return wrapper
+}
+
 // MARK: - The layer
 
 /// The equipment models over the camera: a transparent SCNView whose camera follows the
