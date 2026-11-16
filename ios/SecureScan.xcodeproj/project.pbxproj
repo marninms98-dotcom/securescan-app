@@ -7,10 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		043324CFD573CDDFFA1C2C01 /* MoistureModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D267174DEF41AB2F40D592 /* MoistureModelTests.swift */; };
 		046AE6D70F2912CC555D4988 /* SimulatedScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6234205DEE44BA2EC3B5AFA /* SimulatedScan.swift */; };
 		04B4C21D2E603E1394BD007C /* SyncRecords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8395CAE9C6B3076071EACE60 /* SyncRecords.swift */; };
 		06AC51EEE7DBC30021BB32E9 /* SyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5DFCE9C23CC177BA047DE2F /* SyncTests.swift */; };
 		070AAFD04D24BB2444753F03 /* Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4230E52A33B203C95F30D77F /* Timeline.swift */; };
+		0749F008B02C808BEF2BFE7B /* MoistureFixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6856E1ADC4D84C8E216376D6 /* MoistureFixtureTests.swift */; };
 		0854FE57A486A6EB6EF29A2C /* JobPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65B25CAE287771CCB010EEA0 /* JobPickerView.swift */; };
 		0856DD40078E1D7D1D41E665 /* Modes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 082D373B3599A42D55CD3CA3 /* Modes.swift */; };
 		08D99F4247F5DEA3F0193BE4 /* HTMLPDFRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED404D61185CC99DFC5F222E /* HTMLPDFRenderer.swift */; };
@@ -39,25 +41,32 @@
 		41B4F8BDDC2888DCE58F2349 /* LiveScanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B593F6274E4F5530AD79F206 /* LiveScanView.swift */; };
 		4347987B9C95B4C56FE78EF1 /* SyncStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B979C430FCDDE2AF494DFAD7 /* SyncStatus.swift */; };
 		43D45716877A29B93487C894 /* AddressFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6444B598ACF59F319295A4B6 /* AddressFormatter.swift */; };
+		459BE75CE31B436489ABA381 /* MoistureShapes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E76ED63964EDF9C592F0D72 /* MoistureShapes.swift */; };
 		4665FB2CDA3C941A8DB45502 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4A39E44A6EFDCAE2909018 /* Components.swift */; };
 		46EED28FF0C7E3EE1720AB36 /* SyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E87138586044611E3590B0A /* SyncStore.swift */; };
 		4CC0010FC4910DEDE22C3E2F /* ReportLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C7F81CDFDB8AA74346BF55 /* ReportLayout.swift */; };
 		4D094F223AA7817634F76FCC /* Scope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82EC14652724466B54E9EEDB /* Scope.swift */; };
 		4D097ADBD31C44621FA1C141 /* CaptureFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = F331A5AE316D909F6AF50934 /* CaptureFrame.swift */; };
 		4DB0A097DFF888488BD4BF33 /* OverlayRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43BBFEDEDB818E33C7455CF /* OverlayRenderer.swift */; };
+		4EDE036FF488C0394C43DB57 /* MoistureTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD076EE277F964CA3534A91 /* MoistureTypes.swift */; };
+		502527A9FFB718D0842636B5 /* MoistureDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D4EE451007CED31635070D /* MoistureDebug.swift */; };
 		506A2EAB1E8834E0EA22CFA1 /* PackNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99AEF8B1F5F07A956A653E96 /* PackNames.swift */; };
 		514A3BFFA0E0C4C69EDC72C2 /* PlanDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2197DC1A6B584C593A2AB /* PlanDocument.swift */; };
+		516C0611FC4FF58C2560E3BE /* MoistureSolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58BB67000ECF80C15BF5B69A /* MoistureSolver.swift */; };
 		5822434270B721D82F3F145E /* ScanCaptureControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = B803BF23EB1DC217D36928D7 /* ScanCaptureControlling.swift */; };
 		58A10F3AF03542C865386310 /* Transcriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08CE772598FA17DF6889C540 /* Transcriber.swift */; };
+		5BE5F537BEF5D99FF164CC4C /* MoistureTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD076EE277F964CA3534A91 /* MoistureTypes.swift */; };
 		5EAA2653024AF1DF95639276 /* SyncConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0D066C924631CAB9878132B /* SyncConfig.swift */; };
 		5F0A20A1C85B81DD1875808E /* JobSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74742F8CAD4F433EFCA5048E /* JobSummary.swift */; };
 		64BE8A2C828B85926A9DA42C /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B4A39E44A6EFDCAE2909018 /* Components.swift */; };
 		6559D1214D32BC2BD54F7271 /* Alignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53937D90BD3DA994D9C9436D /* Alignment.swift */; };
 		66F420C36C97DB285FA30C3E /* CaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5AAAF6F633E234F77624BC /* CaptureTests.swift */; };
+		677F6C01D0104FC91DC9F909 /* MoistureMaterials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37909C65AC744DC7078072E8 /* MoistureMaterials.swift */; };
 		6AD82A2155E0574FD5E23168 /* Revisit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6650B690EFD1F269235B4F2A /* Revisit.swift */; };
 		6DDE4A4A1A1EF47E25E8524E /* LiveScanViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2F7D2AAD3D810BECB8986A /* LiveScanViewController.swift */; };
 		6E42D67244D7DC0FFC0B4E0A /* JobPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DCB75420E3736447CB1521E /* JobPack.swift */; };
 		6E63B1C90FCA94553D7B7CEA /* Projection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3071F280AE263694C58F2FE /* Projection.swift */; };
+		7016BA68FEC7EBAF7F877325 /* MoistureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BEE030ED17422506FDB9BB /* MoistureEngine.swift */; };
 		7109A95E03EF1DDE3D03CBCD /* PhotoCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53B45A9E5D9AC939DA70DAEB /* PhotoCapture.swift */; };
 		71E45AD01800549076AD90EA /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E1391DF96BE52BBA8B018B /* SignInView.swift */; };
 		7229EB0B535A2740962F675B /* ComponentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FA37CE90CC1E3377A4D1BF /* ComponentTests.swift */; };
@@ -66,9 +75,12 @@
 		744A2548BD3C02E55737141E /* SecureScanApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44BA0EBB05E4AC51CA697313 /* SecureScanApp.swift */; };
 		76D708F1901A261AA350A143 /* PackNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99AEF8B1F5F07A956A653E96 /* PackNames.swift */; };
 		793DCA99FA5C52947822A59A /* SyncStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B979C430FCDDE2AF494DFAD7 /* SyncStatus.swift */; };
+		7CA0EB6B2557A96614DCF856 /* MoistureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BEE030ED17422506FDB9BB /* MoistureEngine.swift */; };
+		7D02E93053D933CDB9D7A1F9 /* MoistureShapes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E76ED63964EDF9C592F0D72 /* MoistureShapes.swift */; };
 		7E6D96EF71F0FB21194091A9 /* FakeCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1CBFEB948FF0E098CE29617 /* FakeCloud.swift */; };
 		7FEC28C6F80CA2043808D5D5 /* MarkupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AC59C4B9C256AB0D12255E4 /* MarkupTests.swift */; };
 		80AFB5339DDB1EB60CD83171 /* RevisitModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22626A246EB4723EB7A4EBE4 /* RevisitModel.swift */; };
+		80D8A95CAF18C07F7D9A17EF /* MoistureSolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58BB67000ECF80C15BF5B69A /* MoistureSolver.swift */; };
 		825FA6FA510718B2C161B740 /* Torch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47DB9C74270293AAFB7188FE /* Torch.swift */; };
 		8383972B15E1FFA489BDDEEA /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ABDB05C165E2EC2E4FFC7A2 /* AppSettings.swift */; };
 		8437104B57A623989E8B7893 /* DollhouseMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2325D271426FFDF8458D098 /* DollhouseMarks.swift */; };
@@ -92,6 +104,7 @@
 		9FB76C54AD51C7B45BAE7F9C /* PlanDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2197DC1A6B584C593A2AB /* PlanDocument.swift */; };
 		A1205C0362BBAE3F507D028F /* SyncSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14312EE6E338176A4B8DEAE /* SyncSession.swift */; };
 		A43EB9E8F939E022AA9658DD /* ReportLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C7F81CDFDB8AA74346BF55 /* ReportLayout.swift */; };
+		A69BE5EB59D04D657933239D /* MoistureDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D4EE451007CED31635070D /* MoistureDebug.swift */; };
 		A76652FE195BA5BA96CC679F /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ABDB05C165E2EC2E4FFC7A2 /* AppSettings.swift */; };
 		A8647400287AE69B99CE95DC /* Trays.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39C20CADF6502F316B25D3D7 /* Trays.swift */; };
 		AA507A30515412529339898A /* Alignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53937D90BD3DA994D9C9436D /* Alignment.swift */; };
@@ -107,8 +120,10 @@
 		B2A5844FFCFA2946A4996913 /* CaptureLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10EB0FFC1E7F9BEEB8A6E54A /* CaptureLogic.swift */; };
 		B2C2339FAC8F256B1CA48159 /* InputGapsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19F0787594C6FDA46F3F2F84 /* InputGapsTests.swift */; };
 		B90CB9B40C9B478F6226FF55 /* SyncCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216FF7C8E8E5B7A2AE317F41 /* SyncCenter.swift */; };
+		B983F8A8540A38AB595DD026 /* SideConventionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCA22BBE913164F35CF599CD /* SideConventionTests.swift */; };
 		BF4B45375E8B541A4E0A80AC /* SyncConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0D066C924631CAB9878132B /* SyncConfig.swift */; };
 		C07EC60F336BE6ACB1FCA04A /* PlanBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F1DC83DFE5F5BC26F5BF31 /* PlanBuilder.swift */; };
+		C23D029E08337C5B98D1644D /* MoistureMaterials.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37909C65AC744DC7078072E8 /* MoistureMaterials.swift */; };
 		C2E4637B11DFE3D608FEFC9C /* ModesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F69575822ECB508760CDC2F2 /* ModesTests.swift */; };
 		C3E56A193382E815ED672168 /* PlanMerge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D5FA49899F060EED33034B /* PlanMerge.swift */; };
 		C3ED2F041721987BA24F007C /* PlanBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23CFA44C764579C40ABD046D /* PlanBuilderTests.swift */; };
@@ -132,14 +147,18 @@
 		E7DD13A3F547AB871DB05452 /* SyncViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F51742705F6813F3EC90CD /* SyncViews.swift */; };
 		E8FB7BB1D511F112D4C83661 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ABE9FB9301A9E92B954140 /* SettingsView.swift */; };
 		EA3C2EE65856013716C5285D /* EditorNamesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB09B78C73572450CFC63953 /* EditorNamesStore.swift */; };
+		EB09D4C96637682F006A7012 /* MoistureGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA1F11BCBD639C074A48068 /* MoistureGrid.swift */; };
 		EB4938BD3B4A46A3CEE8715B /* SimulatedScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6234205DEE44BA2EC3B5AFA /* SimulatedScan.swift */; };
+		EE2D633590955676C2AF062A /* MoisturePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C21F0D002F321EDAF35883C /* MoisturePlan.swift */; };
 		EFA68A72A6DD0E1CC152B27D /* ScanViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAAE56E02E65BDCAC4C7118F /* ScanViewController.swift */; };
 		F73E721DDD770AF259786E18 /* StudioScenes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29A940501A83F3AB5372893C /* StudioScenes.swift */; };
 		F7E5199DE20A6E8943A1CE54 /* JobProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C494151986E37147B8A62358 /* JobProcessor.swift */; };
 		F7F01A38763029EE3057C13C /* Timeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4230E52A33B203C95F30D77F /* Timeline.swift */; };
+		F997DDEDB869CBDE6EBCD15D /* MoisturePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C21F0D002F321EDAF35883C /* MoisturePlan.swift */; };
 		FCA2A0B59947DEC943BC6EE1 /* OverlayModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE55844FCB0D65267AB81647 /* OverlayModel.swift */; };
 		FD17FDA3BF99BE743F41D704 /* RoomPlanAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88FF35B54BC4E21440340EB7 /* RoomPlanAdapter.swift */; };
 		FE9B1162ABFDE5D03AB8FDF5 /* MarkupGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FED7702BA69074CDCF1E9E0 /* MarkupGeometry.swift */; };
+		FED8F5DB2B907F9E0EB07D89 /* MoistureGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AA1F11BCBD639C074A48068 /* MoistureGrid.swift */; };
 		FF1295693A4D07049E91C2B7 /* VoiceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4206361AB479AE829D1CA3B9 /* VoiceRecorder.swift */; };
 /* End PBXBuildFile section */
 
@@ -154,7 +173,9 @@
 		10EB0FFC1E7F9BEEB8A6E54A /* CaptureLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureLogic.swift; sourceTree = "<group>"; };
 		11D5FA49899F060EED33034B /* PlanMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanMerge.swift; sourceTree = "<group>"; };
 		13959156A026C0CFE9BE624A /* ScanOpenMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanOpenMarker.swift; sourceTree = "<group>"; };
+		15BEE030ED17422506FDB9BB /* MoistureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureEngine.swift; sourceTree = "<group>"; };
 		16612738B9304308FC4DC1C4 /* CaptureHUDModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureHUDModel.swift; sourceTree = "<group>"; };
+		16D4EE451007CED31635070D /* MoistureDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureDebug.swift; sourceTree = "<group>"; };
 		175BEBD42C4A2501409992C2 /* VoiceProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceProcessor.swift; sourceTree = "<group>"; };
 		19F0787594C6FDA46F3F2F84 /* InputGapsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputGapsTests.swift; sourceTree = "<group>"; };
 		1E87138586044611E3590B0A /* SyncStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncStore.swift; sourceTree = "<group>"; };
@@ -164,11 +185,13 @@
 		280CA172C1062162C99E85CD /* RevisitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevisitView.swift; sourceTree = "<group>"; };
 		29A940501A83F3AB5372893C /* StudioScenes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioScenes.swift; sourceTree = "<group>"; };
 		2B6AF0FC89F477DE670A015E /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
+		2E76ED63964EDF9C592F0D72 /* MoistureShapes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureShapes.swift; sourceTree = "<group>"; };
 		31B269C5F9F876B39DCED60A /* Sweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sweep.swift; sourceTree = "<group>"; };
 		32ECF4547052B48F86E69D1E /* JobStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobStore.swift; sourceTree = "<group>"; };
 		334EFEC82FBEB0E2E0F896B7 /* SyncManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncManifest.swift; sourceTree = "<group>"; };
 		3353FA7789929D4921F6528E /* Dollhouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Dollhouse.swift; sourceTree = "<group>"; };
 		373447E547FD794C6A8418AE /* ScanModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanModel.swift; sourceTree = "<group>"; };
+		37909C65AC744DC7078072E8 /* MoistureMaterials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureMaterials.swift; sourceTree = "<group>"; };
 		38E2197DC1A6B584C593A2AB /* PlanDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanDocument.swift; sourceTree = "<group>"; };
 		39C20CADF6502F316B25D3D7 /* Trays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trays.swift; sourceTree = "<group>"; };
 		3ABDB05C165E2EC2E4FFC7A2 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
@@ -190,12 +213,14 @@
 		53937D90BD3DA994D9C9436D /* Alignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Alignment.swift; sourceTree = "<group>"; };
 		53B45A9E5D9AC939DA70DAEB /* PhotoCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoCapture.swift; sourceTree = "<group>"; };
 		5400DDEE925593DF18AF3B58 /* VoiceNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNotes.swift; sourceTree = "<group>"; };
+		58BB67000ECF80C15BF5B69A /* MoistureSolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureSolver.swift; sourceTree = "<group>"; };
 		59F2B5831B4A8109CEB00A86 /* EquipmentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentModels.swift; sourceTree = "<group>"; };
 		5E5AAAF6F633E234F77624BC /* CaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureTests.swift; sourceTree = "<group>"; };
 		6444B598ACF59F319295A4B6 /* AddressFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressFormatter.swift; sourceTree = "<group>"; };
 		64D060E3711EC9903573E664 /* DS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DS.swift; sourceTree = "<group>"; };
 		65B25CAE287771CCB010EEA0 /* JobPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPickerView.swift; sourceTree = "<group>"; };
 		6650B690EFD1F269235B4F2A /* Revisit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Revisit.swift; sourceTree = "<group>"; };
+		6856E1ADC4D84C8E216376D6 /* MoistureFixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureFixtureTests.swift; sourceTree = "<group>"; };
 		72349662F88DFF0DAD368B42 /* NewJobFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewJobFlow.swift; sourceTree = "<group>"; };
 		74742F8CAD4F433EFCA5048E /* JobSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobSummary.swift; sourceTree = "<group>"; };
 		75160D182A87CDD7718FCFBF /* EditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewController.swift; sourceTree = "<group>"; };
@@ -214,7 +239,10 @@
 		94F1DC83DFE5F5BC26F5BF31 /* PlanBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanBuilder.swift; sourceTree = "<group>"; };
 		96E11FBFFF26ED1A5296D33F /* JobView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobView.swift; sourceTree = "<group>"; };
 		99AEF8B1F5F07A956A653E96 /* PackNames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PackNames.swift; sourceTree = "<group>"; };
+		9AA1F11BCBD639C074A48068 /* MoistureGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureGrid.swift; sourceTree = "<group>"; };
 		9B4A39E44A6EFDCAE2909018 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		9C21F0D002F321EDAF35883C /* MoisturePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoisturePlan.swift; sourceTree = "<group>"; };
+		ACD076EE277F964CA3534A91 /* MoistureTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureTypes.swift; sourceTree = "<group>"; };
 		B03974756DAB880BC304AA5E /* FilesTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilesTab.swift; sourceTree = "<group>"; };
 		B2325D271426FFDF8458D098 /* DollhouseMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DollhouseMarks.swift; sourceTree = "<group>"; };
 		B48460F1BCD54098E255F57A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -231,9 +259,11 @@
 		C3A512759B5FF6ED14D263B5 /* InputFeelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFeelTests.swift; sourceTree = "<group>"; };
 		C494151986E37147B8A62358 /* JobProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobProcessor.swift; sourceTree = "<group>"; };
 		CAAE56E02E65BDCAC4C7118F /* ScanViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanViewController.swift; sourceTree = "<group>"; };
+		CCA22BBE913164F35CF599CD /* SideConventionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SideConventionTests.swift; sourceTree = "<group>"; };
 		CEF6AB57C10DA8E9CBE723E8 /* Marking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Marking.swift; sourceTree = "<group>"; };
 		D0C7F81CDFDB8AA74346BF55 /* ReportLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportLayout.swift; sourceTree = "<group>"; };
 		D14312EE6E338176A4B8DEAE /* SyncSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncSession.swift; sourceTree = "<group>"; };
+		D1D267174DEF41AB2F40D592 /* MoistureModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureModelTests.swift; sourceTree = "<group>"; };
 		D4732AE235C1D0D88B76E337 /* ScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeTests.swift; sourceTree = "<group>"; };
 		DF265C2BB1B102842A2CAE66 /* ScanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanView.swift; sourceTree = "<group>"; };
 		E0D066C924631CAB9878132B /* SyncConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncConfig.swift; sourceTree = "<group>"; };
@@ -254,6 +284,21 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		215190DBDACF93BB5480D694 /* Moisture */ = {
+			isa = PBXGroup;
+			children = (
+				16D4EE451007CED31635070D /* MoistureDebug.swift */,
+				15BEE030ED17422506FDB9BB /* MoistureEngine.swift */,
+				9AA1F11BCBD639C074A48068 /* MoistureGrid.swift */,
+				37909C65AC744DC7078072E8 /* MoistureMaterials.swift */,
+				9C21F0D002F321EDAF35883C /* MoisturePlan.swift */,
+				2E76ED63964EDF9C592F0D72 /* MoistureShapes.swift */,
+				58BB67000ECF80C15BF5B69A /* MoistureSolver.swift */,
+				ACD076EE277F964CA3534A91 /* MoistureTypes.swift */,
+			);
+			path = Moisture;
+			sourceTree = "<group>";
+		};
 		2C80FD7D1805C933BC96E1C3 /* Job */ = {
 			isa = PBXGroup;
 			children = (
@@ -297,9 +342,12 @@
 				19F0787594C6FDA46F3F2F84 /* InputGapsTests.swift */,
 				0AC59C4B9C256AB0D12255E4 /* MarkupTests.swift */,
 				F69575822ECB508760CDC2F2 /* ModesTests.swift */,
+				6856E1ADC4D84C8E216376D6 /* MoistureFixtureTests.swift */,
+				D1D267174DEF41AB2F40D592 /* MoistureModelTests.swift */,
 				23CFA44C764579C40ABD046D /* PlanBuilderTests.swift */,
 				78C7E9C8FDD3AF64698DBA8D /* RevisitTests.swift */,
 				D4732AE235C1D0D88B76E337 /* ScopeTests.swift */,
+				CCA22BBE913164F35CF599CD /* SideConventionTests.swift */,
 				B5DFCE9C23CC177BA047DE2F /* SyncTests.swift */,
 				416EBB8C432BFA58D02F29ED /* VoiceAndPackTests.swift */,
 			);
@@ -416,6 +464,7 @@
 				31B269C5F9F876B39DCED60A /* Sweep.swift */,
 				4230E52A33B203C95F30D77F /* Timeline.swift */,
 				5400DDEE925593DF18AF3B58 /* VoiceNotes.swift */,
+				215190DBDACF93BB5480D694 /* Moisture */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -613,6 +662,16 @@
 				7FEC28C6F80CA2043808D5D5 /* MarkupTests.swift in Sources */,
 				CA89FC760193E0ED385D2A59 /* Modes.swift in Sources */,
 				C2E4637B11DFE3D608FEFC9C /* ModesTests.swift in Sources */,
+				502527A9FFB718D0842636B5 /* MoistureDebug.swift in Sources */,
+				7016BA68FEC7EBAF7F877325 /* MoistureEngine.swift in Sources */,
+				0749F008B02C808BEF2BFE7B /* MoistureFixtureTests.swift in Sources */,
+				FED8F5DB2B907F9E0EB07D89 /* MoistureGrid.swift in Sources */,
+				677F6C01D0104FC91DC9F909 /* MoistureMaterials.swift in Sources */,
+				043324CFD573CDDFFA1C2C01 /* MoistureModelTests.swift in Sources */,
+				EE2D633590955676C2AF062A /* MoisturePlan.swift in Sources */,
+				7D02E93053D933CDB9D7A1F9 /* MoistureShapes.swift in Sources */,
+				80D8A95CAF18C07F7D9A17EF /* MoistureSolver.swift in Sources */,
+				4EDE036FF488C0394C43DB57 /* MoistureTypes.swift in Sources */,
 				D7C02BAB270942A154C2FC2B /* OverlayLayout.swift in Sources */,
 				AAE9D789F5A4C693D02822DC /* OverlayModel.swift in Sources */,
 				506A2EAB1E8834E0EA22CFA1 /* PackNames.swift in Sources */,
@@ -626,6 +685,7 @@
 				9041D9CA1E1496094112D6BD /* RevisitTests.swift in Sources */,
 				4D094F223AA7817634F76FCC /* Scope.swift in Sources */,
 				92116773746725798560554B /* ScopeTests.swift in Sources */,
+				B983F8A8540A38AB595DD026 /* SideConventionTests.swift in Sources */,
 				EB4938BD3B4A46A3CEE8715B /* SimulatedScan.swift in Sources */,
 				C4DC0253D7354A17FF149B74 /* StudioScenes.swift in Sources */,
 				2C88FAC9B218758A324749F9 /* Sweep.swift in Sources */,
@@ -683,6 +743,14 @@
 				FE9B1162ABFDE5D03AB8FDF5 /* MarkupGeometry.swift in Sources */,
 				73E81F2D7D06F3D2AD2C6569 /* ModelTab.swift in Sources */,
 				0856DD40078E1D7D1D41E665 /* Modes.swift in Sources */,
+				A69BE5EB59D04D657933239D /* MoistureDebug.swift in Sources */,
+				7CA0EB6B2557A96614DCF856 /* MoistureEngine.swift in Sources */,
+				EB09D4C96637682F006A7012 /* MoistureGrid.swift in Sources */,
+				C23D029E08337C5B98D1644D /* MoistureMaterials.swift in Sources */,
+				F997DDEDB869CBDE6EBCD15D /* MoisturePlan.swift in Sources */,
+				459BE75CE31B436489ABA381 /* MoistureShapes.swift in Sources */,
+				516C0611FC4FF58C2560E3BE /* MoistureSolver.swift in Sources */,
+				5BE5F537BEF5D99FF164CC4C /* MoistureTypes.swift in Sources */,
 				1B7274541637A4AD1F9C2DA3 /* NewJobFlow.swift in Sources */,
 				9CD01FAB99446E8FB8E95F74 /* OverlayLayout.swift in Sources */,
 				FCA2A0B59947DEC943BC6EE1 /* OverlayModel.swift in Sources */,
