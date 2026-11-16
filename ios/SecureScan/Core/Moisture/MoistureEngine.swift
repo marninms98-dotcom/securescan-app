@@ -255,12 +255,18 @@ enum MoistModel {
                     out.append(MoistConstraint(loc: loc, lo: 0, hi: wd - 0.03, target: nil, origin: .reading(i)))
                 }
             case .boundary:
+                // A moisture-line mark: damp up to here, dry above.
                 guard loc.surface != .floor else { continue }
-                out.append(MoistConstraint(loc: loc, lo: wd - 0.05, hi: wd + 0.05, target: wd, tol: 0.05, weight: 0.7, origin: .boundary(i)))
+                out.append(MoistConstraint(loc: loc, lo: wd, hi: wd + 0.1, target: wd + 0.03, tol: 0.03, weight: 2, origin: .boundary(i)))
+                var below = loc
+                below.height = loc.height - 0.12
+                if below.height >= 0.05 {
+                    out.append(MoistConstraint(loc: below, lo: wd + 0.02, hi: 1, target: nil, weight: 1, origin: .boundary(i)))
+                }
                 var above = loc
                 above.height = loc.height + 0.15
                 if above.height < input.options.maxWallHeight {
-                    out.append(MoistConstraint(loc: above, lo: 0, hi: wd - 0.03, target: nil, weight: 0.5, origin: .boundary(i)))
+                    out.append(MoistConstraint(loc: above, lo: 0, hi: wd - 0.03, target: nil, weight: 1, origin: .boundary(i)))
                 }
             }
         }
@@ -417,7 +423,10 @@ enum MoistModel {
             names.append("vol:" + s.source.id); theta.append(l); theta0.append(l); sigma.append(1.5)
             lower.append(l - log(10)); upper.append(l + log(10))
         }
-        for n in ["floor", "rise", "lining"] {
+        // A multiplier is only fitted when some evidence can see it.
+        let onFloor = cons.contains { $0.useInFit && $0.loc.surface == .floor }
+        let onWall = cons.contains { $0.useInFit && $0.loc.surface != .floor }
+        for n in ["floor", "rise", "lining"] where (n == "floor" ? onFloor || onWall : onWall) {
             names.append(n); theta.append(0); theta0.append(0); sigma.append(n == "lining" ? 0.8 : 0.5)
             lower.append(log(MoistParams.bounds.min)); upper.append(log(MoistParams.bounds.max))
         }
@@ -451,9 +460,9 @@ enum MoistModel {
         let before = best.objective
         var evals = 1
         let fitWanted = opt.fit && !sources.isEmpty && cons.contains(where: { $0.useInFit })
-        if fitWanted && best.misfit > 1e-6 {
-            for step in [0.8, 0.4, 0.2, 0.1] {
-                for _ in 0..<2 {
+        if fitWanted && best.misfit > 1e-4 {
+            for (si, step) in [0.8, 0.4, 0.2].enumerated() {
+                for _ in 0..<(si < 2 ? 2 : 1) {
                     var improved = false
                     for k in 0..<theta.count {
                         for dir in [1.0, -1.0] {
@@ -466,9 +475,9 @@ enum MoistModel {
                             if e.objective < best.objective - 1e-7 { theta = t; best = e; improved = true; break }
                         }
                     }
-                    if !improved || best.misfit < 1e-6 { break }
+                    if !improved || best.misfit < 1e-4 { break }
                 }
-                if best.misfit < 1e-6 { break }
+                if best.misfit < 1e-4 { break }
             }
             (params, vols) = decode(theta)
         }
@@ -520,7 +529,7 @@ enum MoistModel {
         else { initial = best.w }
         let act = MoistSolver.active(g, seeds: seeds, reach: opt.reach)
         let solved = MoistSolver.solve(g, kF, pin: pin, lo: lo, hi: hi, initial: initial, active: act,
-                                       maxIterations: opt.maxIterations, tolerance: 2e-4)
+                                       maxIterations: opt.maxIterations, tolerance: 5e-4)
         var w = solved.w
 
         // Pull cells near each reading into agreement with it, and mark them measured.

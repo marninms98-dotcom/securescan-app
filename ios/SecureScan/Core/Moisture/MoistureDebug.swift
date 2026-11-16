@@ -99,6 +99,7 @@ enum MoistDebug {
             if let f = x.from, let t = x.to { s += String(format: " %.2f-%.2f m", f, t) }
             if let c = x.cutHeightMm { s += " cut \(c) mm" }
             if x.area > 0 { s += String(format: " %.2f m²", x.area) }
+            if let c = x.confidence { s += " (confidence \(c.level.rawValue))" }
             s += "\n"
         }
         s += "  timings ms: " + r.timings.keys.sorted().map { String(format: "%@ %.1f", $0, r.timings[$0] ?? 0) }.joined(separator: ", ") + "\n"

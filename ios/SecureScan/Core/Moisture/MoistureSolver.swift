@@ -28,11 +28,15 @@ struct MoistConductance {
     var inFrom: [Int]       // CSR (grid.inStart) position -> sending cell
     var inK: [Double]       // CSR position -> conductance into the cell
     var denom: [Double]     // per cell: total outflow + drying + 1/hours
+    var omega: [Double]     // per cell over-relaxation
 }
 
 enum MoistSolver {
 
-    static let omega = 1.5
+    /// Over-relaxation per surface. Floors and faces are symmetric diffusion and
+    /// take strong over-relaxation; the cavity's gravity links make it one-sided,
+    /// where anything much above 1 oscillates.
+    static func omega(_ s: MoistSurface) -> Double { s == .floor ? 1.85 : s == .face ? 1.6 : 1.1 }
 
     static func conductance(_ g: MoistGrid, params: MoistParams, hours: Double) -> MoistConductance {
         let n = g.count
@@ -52,8 +56,9 @@ enum MoistSolver {
         }
         let s = hours > 0 ? 1 / hours : 0
         var denom = Array(repeating: 1.0, count: n)
-        for i in 0..<n { denom[i] = out[i] + g.cells[i].dryRate + s }
-        return MoistConductance(inFrom: inFrom, inK: inK, denom: denom)
+        var om = Array(repeating: 1.0, count: n)
+        for i in 0..<n { denom[i] = out[i] + g.cells[i].dryRate + s; om[i] = omega(g.cells[i].surface) }
+        return MoistConductance(inFrom: inFrom, inK: inK, denom: denom, omega: om)
     }
 
     // MARK: Free water
@@ -135,11 +140,11 @@ enum MoistSolver {
             }
         }
         var iterations = 0
-        let om = omega
         w.withUnsafeMutableBufferPointer { W in
             k.inK.withUnsafeBufferPointer { K in
                 k.inFrom.withUnsafeBufferPointer { F in
                     k.denom.withUnsafeBufferPointer { D in
+                      k.omega.withUnsafeBufferPointer { OM in
                         g.inStart.withUnsafeBufferPointer { S in
                             lo.withUnsafeBufferPointer { LO in
                                 hi.withUnsafeBufferPointer { HI in
@@ -152,7 +157,7 @@ enum MoistSolver {
                                                 let end = S[i + 1]
                                                 while p < end { acc += K[p] * W[F[p]]; p += 1 }
                                                 let old = W[i]
-                                                var v = old + om * (acc / D[i] - old)
+                                                var v = old + OM[i] * (acc / D[i] - old)
                                                 if v < LO[i] { v = LO[i] }
                                                 if v > HI[i] { v = HI[i] }
                                                 let d = abs(v - old)
@@ -166,6 +171,7 @@ enum MoistSolver {
                                 }
                             }
                         }
+                      }
                     }
                 }
             }

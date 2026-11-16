@@ -107,6 +107,7 @@ struct MoistSuggestion: Equatable {
     var area: Double = 0             // m²
     var length: Double = 0           // m
     var note: String = ""
+    var confidence: MoistConfidence? = nil   // of the area it comes from
 }
 
 struct MoistReport: Equatable {
@@ -286,6 +287,7 @@ extension MoistResult {
             let w = input.walls[L.wall]
             let setup = g.setups[L.wall]
             for (k, side) in [MoistSide.a, MoistSide.b].enumerated() {
+                let firstSuggestion = suggestions.count
                 var wetCells: [Int] = []
                 var area = MoistSplit(), soaked = MoistSplit(), skirt = MoistSplit()
                 var tops: [Double?] = Array(repeating: nil, count: L.cols)
@@ -354,11 +356,12 @@ extension MoistResult {
                 }
                 let ev = evidence { $0.surface == .face && $0.wall == L.wall && $0.side == side }
                 let roomIdx = L.faceRoom[k].first { $0 >= 0 } ?? -1
+                let conf = confidence(cells: wetCells, evidence: ev.locs, explained: ev.explained)
+                for s in firstSuggestion..<suggestions.count { suggestions[s].confidence = conf }
                 faces.append(MoistFaceReport(wallId: w.id, side: side, roomId: roomId(roomIdx), lining: setup.lining(side).name,
                                              length: MoistNum.r3(w.length), wetArea: area.rounded, soakedArea: soaked.rounded,
                                              skirting: skirt.rounded, tideLine: segments, maxHeight: MoistNum.r3(maxH),
-                                             reachesModelTop: reachesTop,
-                                             confidence: confidence(cells: wetCells, evidence: ev.locs, explained: ev.explained)))
+                                             reachesModelTop: reachesTop, confidence: conf))
                 lining = lining + area
                 skirting = skirting + skirt
             }
@@ -383,14 +386,16 @@ extension MoistResult {
                 let len = rs.reduce(0) { $0 + ($1.y - $1.x) }
                 cavityLength += len
                 let ev = evidence { $0.wall == L.wall && $0.surface != .floor }
+                let conf = confidence(cells: cavCells, evidence: ev.locs, explained: ev.explained, reachFactor: 0.6)
                 cavities.append(MoistCavityReport(wallId: w.id, runs: rs, wetLength: MoistNum.r2(len), maxHeight: MoistNum.r2(maxH),
-                                                  confidence: confidence(cells: cavCells, evidence: ev.locs, explained: ev.explained, reachFactor: 0.6)))
+                                                  confidence: conf))
                 let facesSuggested = suggestions.contains { $0.wallId == w.id && $0.kind == .stripLining }
                 if !facesSuggested {
                     for r in rs {
                         suggestions.append(MoistSuggestion(kind: .inspectCavity, wallId: w.id, side: .cavity, from: r.x, to: r.y,
                                                            length: MoistNum.r2(r.y - r.x),
-                                                           note: "Estimated wet inside the wall: check with an inspection hole or readings on both faces."))
+                                                           note: "Estimated wet inside the wall: check with an inspection hole or readings on both faces.",
+                                                           confidence: conf))
                     }
                 }
             }
@@ -422,11 +427,13 @@ extension MoistResult {
             for c in MoistCovering.allCases { if let s = cov[c] { byCov[c] = (byCov[c] ?? MoistSplit()) + s } }
             floorTotal = floorTotal + area
             let ev = evidence { $0.surface == .floor && $0.room == ri }
+            let conf = confidence(cells: wetCells, evidence: ev.locs, explained: ev.explained)
             floors.append(MoistFloorReport(roomId: room.id, name: room.name, polygons: loops, wetArea: area.rounded, soakedArea: soaked.rounded,
-                                           byCovering: covs, confidence: confidence(cells: wetCells, evidence: ev.locs, explained: ev.explained)))
+                                           byCovering: covs, confidence: conf))
             for ca in covs where ca.covering == .carpet {
                 suggestions.append(MoistSuggestion(kind: .liftFlooring, roomId: room.id, covering: .carpet, polygons: loops,
-                                                   area: ca.area.total, note: "Lift carpet and underlay over the wet area to dry the floor beneath."))
+                                                   area: ca.area.total, note: "Lift carpet and underlay over the wet area to dry the floor beneath.",
+                                                   confidence: conf))
             }
         }
         let totals = MoistTotals(wallLining: lining.rounded, floor: floorTotal.rounded,

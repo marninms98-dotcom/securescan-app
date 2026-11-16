@@ -40,7 +40,8 @@ struct MoistCore: Equatable {
     var fallSpeed: Double     // m/h, gravity inside the wall
     var capacity: Double      // L/m² above the base
     var plateCapacity: Double // L/m² at the base row
-    var wetLevel: Double
+    var wetLevel: Double      // at the base, where free water collects
+    var trickleLevel: Double  // above the base, where free water only runs down past
     var freePlate: Bool       // free water runs along the base and out under the skirting
 }
 
@@ -78,10 +79,10 @@ enum MoistMaterials {
 
     /// Framed (stud) wall: an air gap with a timber bottom plate.
     static let stud = MoistCore(wickAlong: 0.25, wickPlate: 0.8, wickUp: 0.15, dryHours: 120, fallSpeed: 0.5,
-                                capacity: 0.2, plateCapacity: 1.0, wetLevel: 1.0, freePlate: true)
+                                capacity: 0.2, plateCapacity: 1.0, wetLevel: 1.0, trickleLevel: 0.5, freePlate: true)
     /// Solid masonry (single brick): the "cavity" layer is the brick core.
     static let masonry = MoistCore(wickAlong: 0.40, wickPlate: 0.40, wickUp: 0.50, dryHours: 168, fallSpeed: 0.05,
-                                   capacity: 3.0, plateCapacity: 3.0, wetLevel: 0.9, freePlate: false)
+                                   capacity: 3.0, plateCapacity: 3.0, wetLevel: 0.9, trickleLevel: 0.9, freePlate: false)
 
     /// Floor-to-floor factor for a threshold type (1 = no hindrance, 0 = blocked).
     static func thresholdFactor(_ type: String) -> Double {

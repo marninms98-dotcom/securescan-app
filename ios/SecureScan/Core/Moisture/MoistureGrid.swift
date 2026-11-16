@@ -243,7 +243,7 @@ final class MoistGrid {
                     let k = MoistGrid.harmonic(floorD(c), floorD(n)) / (h * h) * factor
                     links.append(Link(from: c, to: n, k0: k, kg: 0, cls: .floor))
                     links.append(Link(from: n, to: c, k0: k, kg: 0, cls: .floor))
-                    let cost = h + (1 / factor - 1) * 1.0
+                    let cost = h + (1 / factor - 1) * MoistGrid.thresholdPenalty
                     flows.append((c, n, cost)); flows.append((n, c, cost))
                 }
                 // Free water also runs diagonally (round puddles, not diamonds).
@@ -262,7 +262,7 @@ final class MoistGrid {
                     if f == nil && x.doorway { f = MoistMaterials.doorwayFactor(cells[c].covering ?? .other, cells[n].covering ?? .other) }
                     let factor = f ?? 1
                     guard factor > 0 else { continue }
-                    let cost = h * 2.0.squareRoot() + (1 / factor - 1) * 1.0
+                    let cost = h * 2.0.squareRoot() + (1 / factor - 1) * MoistGrid.thresholdPenalty
                     flows.append((c, n, cost)); flows.append((n, c, cost))
                 }
             }
@@ -275,6 +275,13 @@ final class MoistGrid {
     }
 
     static func harmonic(_ a: Double, _ b: Double) -> Double { a + b > 0 ? 2 * a * b / (a + b) : 0 }
+
+    /// Free water crossing a threshold of factor f costs (1/f - 1) x this many metres
+    /// (strip 0.35 -> 0.9 m, step 0.1 -> 4.5 m, sealed 0.02 -> 25 m).
+    static let thresholdPenalty = 0.5
+    /// Getting under a wall from the floor is harder than coming out of it.
+    static let underWallIn = 3.0
+    static let underWallOut = 1.0
 
     func floorCell(at p: MoistVec) -> Int? {
         guard nx > 0 else { return nil }
@@ -345,7 +352,7 @@ final class MoistGrid {
                             cell.dryRate = 1 / lin.dryHours
                         } else {
                             cell.capacity = (r == 0 ? setup.core.plateCapacity : setup.core.capacity) * cw * h
-                            cell.wetLevel = setup.core.wetLevel
+                            cell.wetLevel = r == 0 ? setup.core.wetLevel : setup.core.trickleLevel
                             cell.dryRate = 1 / setup.core.dryHours
                         }
                         layout.index[(k * cols + c) * rows + r] = cells.count
@@ -435,8 +442,8 @@ final class MoistGrid {
                         links.append(Link(from: v, to: fl, k0: kc, kg: 0, cls: .cavityFloor))
                         links.append(Link(from: fl, to: v, k0: kc, kg: 0, cls: .cavityFloor))
                         if setup.core.freePlate && lin.underSkirting > 0 {
-                            flows.append((v, fl, h + (1 / lin.underSkirting - 1) * 0.5))   // out under the skirting
-                            flows.append((fl, v, h + (1 / lin.underSkirting - 1) * 1.0))   // in under the skirting
+                            flows.append((v, fl, h + (1 / lin.underSkirting - 1) * MoistGrid.underWallOut))   // out under the skirting
+                            flows.append((fl, v, h + (1 / lin.underSkirting - 1) * MoistGrid.underWallIn))    // in under it
                         }
                     }
                 }

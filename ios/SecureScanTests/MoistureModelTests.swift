@@ -263,7 +263,7 @@ final class MoistureModelTests: XCTestCase {
         XCTAssertEqual(s.wetness(20), MoistScale.wetLevel, accuracy: 1e-9)
         XCTAssertEqual(s.wetness(8), 0)
         XCTAssertEqual(s.wetness(60), 1)
-        for v in stride(from: 9.0, to: 40, by: 0.5) {
+        for v in stride(from: 10.5, to: 40, by: 0.5) {        // above the dry baseline (10 % at 15 / 20)
             XCTAssertLessThanOrEqual(s.wetness(v), s.wetness(v + 0.5))
             XCTAssertEqual(s.value(s.wetness(v)), v, accuracy: 1e-6)
         }

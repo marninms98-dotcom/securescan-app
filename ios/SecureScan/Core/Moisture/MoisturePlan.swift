@@ -228,6 +228,7 @@ enum MoisturePlan {
             if s.area > 0 { d["m2"] = s.area }
             if s.length > 0 { d["lm"] = s.length }
             if !s.note.isEmpty { d["note"] = s.note }
+            if let c = s.confidence { d["confidence"] = conf(c) }
             return d
         }
         m["solved"] = solved

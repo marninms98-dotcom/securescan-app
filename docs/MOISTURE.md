@@ -75,10 +75,11 @@ Two kinds, built once per grid:
 
 **Free-water edges** (where liquid water can run, with a cost in metres):
 down every face and cavity column (cost 0 — water falls), along the bottom
-plate (cost = column width), out under the skirting (`h + (1/underSkirting − 1) x 0.5`),
-back in under it (x 1.0), off a face onto the floor (`h`), across the floor
-including diagonals (`h` or `h√2`, plus `(1/threshold − 1) x 1.0 m` at a
-threshold). Water never runs up.
+plate (cost = column width), out under the skirting (`h + (1/underSkirting − 1) x 1 m`),
+back in under it from a floor (`x 3 m` — getting under a wall is much harder
+than coming out of one), off a face onto the floor (`h`), across the floor
+including diagonals (`h` or `h√2`, plus `(1/threshold − 1) x 0.5 m` at a
+threshold: strip 0.9 m, step 4.5 m, sealed 25 m). Water never runs up.
 
 ## Physics
 
@@ -88,7 +89,8 @@ Two steps, both simple, stable and explainable.
    the free-water edges: water goes the cheapest way first and every cell it
    reaches holds its capacity (litres/m²) before water runs on, until the
    source's volume is used. Cells at the same cost fill together (no side is
-   favoured). A cavity leak therefore falls straight to the plate, runs along it,
+   favoured). Inside a stud wall the cells water only trickles past on its way
+   down are wet to 0.5; the plate it collects on, to 1. A cavity leak therefore falls straight to the plate, runs along it,
    and comes out under the skirting into **both** rooms — less on a side whose
    lining is waterproofed. A threshold holds water back until the near side is
    full; a barrier stops it. Flooded cells are fixed at their material's
@@ -98,8 +100,9 @@ Two steps, both simple, stable and explainable.
 
    `Σ_j k_ji w_j − (Σ_j k_ij + 1/dryHours_i + 1/hours) w_i = 0`
 
-   is solved by projected SOR (ω 1.5, cells in index order, fixed caps and
-   tolerances), wetness `w` kept in `[lo_i, hi_i] ⊂ [0, 1]`. The `1/hours` term
+   is solved by projected SOR (ω 1.85 on floors, 1.6 on faces, 1.1 in cavities —
+   gravity makes the cavity one-sided and higher ω oscillates there; cells in
+   index order, fixed caps and tolerances), wetness `w` kept in `[lo_i, hi_i] ⊂ [0, 1]`. The `1/hours` term
    is the Laplace-transform form of "only `hours` have passed since the event":
    at `s = 1/t` a diffusion that started t hours ago has the same reach as a
    steady state with extra loss `s`, so a fresh flexi-hose burst has not wicked as
@@ -171,7 +174,7 @@ plan.
 |----------|-----------|
 | wet / damp reading | target = its wetness ± 0.06; interval = its state's band ∩ (target ± 0.05) |
 | dry reading (incl. reference) | wetness ≤ 0.17 — dry readings carve the boundary |
-| moisture-line mark (`kind: "boundary"`) | wetness 0.2 ± 0.05 at the mark, ≤ 0.17 0.15 m above |
+| moisture-line mark (`kind: "boundary"`) | 0.2–0.3 at the mark, ≥ 0.22 0.12 m below, ≤ 0.17 0.15 m above |
 | scoper brush | wet ≥ 0.55 / damp 0.22–0.38 / dry ≤ 0.05 over the brush radius (hard) |
 | scoper tide line | ≥ 0.22 below the line, ≤ 0.18 above, sampled every 0.2 m (hard) |
 | scoper floor outline | ≥ 0.22 inside, ≤ 0.18 in a 0.4 m band outside (hard) |
@@ -190,10 +193,13 @@ On the 0.20 m grid, a bounded coordinate descent on log-parameters:
   multiplier), both 0.4…2.5, σ 0.5;
 - `lining` (face ↔ cavity permeability multiplier) 0.4…2.5, σ 0.8.
 
+A multiplier is fitted only when some evidence can see it (`rise` and `lining`
+need a wall reading or mark).
+
 Objective: Σ weight x violation² over readings and scoper marks (physics alone,
-no projection) + 0.005 x Σ((θ − θ₀)/σ)². Steps 0.8, 0.4, 0.2, 0.1 (ln units),
-up to two passes each, first improvement accepted, stop when every constraint is
-met. Warm-started, fixed iteration caps: deterministic. Typically 10–40 solves.
+no projection) + 0.005 x Σ((θ − θ₀)/σ)². Steps 0.8, 0.4 (two passes) and 0.2
+(one pass) in ln units, first improvement accepted, stop when every constraint
+is met. Warm-started, fixed iteration caps: deterministic. Typically 10–35 solves.
 
 ### "Second source likely"
 
@@ -235,7 +241,8 @@ is pulled into the reading's interval with a smoothstep falloff (1 at the readin
   (extended 300 mm each side, cut = tide line + 300 mm rounded up to
   600 / 900 / 1200; above that the note says to measure higher), `removeSkirting`
   runs, `liftFlooring` (carpet + underlay over the wet outline), `inspectCavity`
-  (tiled faces, or wet inside a wall with no face suggested);
+  (tiled faces, or wet inside a wall with no face suggested). Each suggestion
+  carries the confidence of the area it comes from;
 - **confidence** per area: `0.6 x coverage + 0.4 x agreement`, where coverage is
   the mean over the area's wet cells of `exp(−distance to nearest reading / 1 m)`
   (scoper cells count as covered; readings on either face count for the cavity
