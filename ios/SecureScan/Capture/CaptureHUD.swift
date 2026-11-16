@@ -49,9 +49,27 @@ struct CaptureHUD: View {
     @State private var torchOn = false
 
     var body: some View {
+        // The outer reader sees the safe area (the island, the home indicator); the inner one
+        // lays the screen out edge to edge.
+        GeometryReader { outer in
+            ZStack {
+                content(insets: outer.safeAreaInsets)
+                if let busy = hud.display.busy { busyOverlay(busy) }
+                if let start = hud.viewerStart {
+                    PhotoViewer(hud: hud, startId: start).transition(.opacity)
+                }
+                if hud.handoffShot != nil {
+                    UltraWideCaptureView { hud.finishHandoff($0) }.transition(.opacity)
+                }
+            }
+        }
+        .ignoresSafeArea(.keyboard)
+    }
+
+    private func content(insets: EdgeInsets) -> some View {
         GeometryReader { geo in
             let f = CaptureFrame.layout(width: geo.size.width, height: geo.size.height,
-                                        safeTop: geo.safeAreaInsets.top, safeBottom: geo.safeAreaInsets.bottom)
+                                        safeTop: insets.top, safeBottom: insets.bottom)
             let vp = CGSize(width: geo.size.width, height: f.viewport)
             ZStack(alignment: .top) {
                 Color.black
@@ -65,20 +83,12 @@ struct CaptureHUD: View {
                         .frame(height: f.bottom, alignment: .top)
                 }
                 flyingToken(CGPoint(x: vp.width / 2, y: f.top + vp.height / 2))
-                if hud.display.busy == nil { trays(geo, frame: f) }
-                if let busy = hud.display.busy { busyOverlay(busy) }
-                if let start = hud.viewerStart {
-                    PhotoViewer(hud: hud, startId: start).transition(.opacity)
-                }
-                if hud.handoffShot != nil {
-                    UltraWideCaptureView { hud.finishHandoff($0) }.transition(.opacity)
-                }
+                if hud.display.busy == nil { trays(height: geo.size.height, bottomInset: insets.bottom) }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .coordinateSpace(name: "hud")
         }
         .ignoresSafeArea()
-        .ignoresSafeArea(.keyboard)
         .animation(DS.Motion.tray, value: hud.tray)
         .animation(.easeInOut(duration: 0.2), value: hud.viewerStart)
         .animation(.easeInOut(duration: 0.2), value: hud.cardText)
@@ -158,8 +168,9 @@ struct CaptureHUD: View {
     private func viewport(_ size: CGSize) -> some View {
         ZStack {
             camera
+            OverlayRenderer(hud: hud, pass: .under)
             EquipmentLayer(hud: hud).allowsHitTesting(false)
-            OverlayRenderer(hud: hud)
+            OverlayRenderer(hud: hud, pass: .over)
             if hud.tray == nil && hud.display.showsTools && hud.display.busy == nil {
                 ReticleView(aim: hud.aim).allowsHitTesting(false)
             }
@@ -340,17 +351,21 @@ struct CaptureHUD: View {
 
     @ViewBuilder private func bottomPanel(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            if hud.display.showsTools {
+            if hud.tray != nil || hud.engine.customTray() != nil {
+                // A tray sits over the panel: nothing peeks out above it.
+                EmptyView()
+            } else if hud.display.showsTools {
                 ModeStrip(modes: hud.tools, selected: hud.tool) { t in withAnimation(DS.Motion.tray) { hud.select(t) } }
                     .frame(height: 28)
                     .padding(.top, 8)
                 controlsRow.padding(.top, 4)
+                pillsRow(width: width).padding(.top, 10)
             } else if hud.engine.customTray() == nil {
                 PrimaryButton(hud.primary.title, enabled: hud.primary.enabled) { hud.tapPrimary() }
                     .padding(.horizontal, DS.Space.margin)
                     .padding(.top, 20)
+                pillsRow(width: width).padding(.top, 10)
             }
-            pillsRow(width: width).padding(.top, 10)
         }
     }
 
@@ -404,15 +419,15 @@ struct CaptureHUD: View {
 
     // MARK: Trays
 
-    @ViewBuilder private func trays(_ geo: GeometryProxy, frame f: CaptureFrame) -> some View {
-        let maxH = geo.size.height * 0.42 + geo.safeAreaInsets.bottom
+    @ViewBuilder private func trays(height: CGFloat, bottomInset: CGFloat) -> some View {
+        let maxH = height * 0.42 + bottomInset
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             if let t = hud.tray {
                 Tray {
                     TrayContent(hud: hud, tray: t)
                     PrimaryButton(hud.primary.title, enabled: hud.primary.enabled, tint: hud.primary.tint) { hud.tapPrimary() }
-                    Color.clear.frame(height: max(0, geo.safeAreaInsets.bottom - 8))
+                    Color.clear.frame(height: max(0, bottomInset - 8))
                 }
                 .frame(maxHeight: maxH, alignment: .bottom)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -420,7 +435,7 @@ struct CaptureHUD: View {
                 Tray {
                     custom
                     PrimaryButton(hud.primary.title, enabled: hud.primary.enabled, tint: hud.primary.tint) { hud.tapPrimary() }
-                    Color.clear.frame(height: max(0, geo.safeAreaInsets.bottom - 8))
+                    Color.clear.frame(height: max(0, bottomInset - 8))
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -453,7 +468,7 @@ struct CaptureHUD: View {
 
     private func busyOverlay(_ text: String) -> some View {
         ZStack {
-            Color.black.opacity(0.55)
+            Color.black.opacity(0.55).ignoresSafeArea()
             VStack(spacing: 14) {
                 ProgressView().controlSize(.large).tint(.white)
                 Text(text).font(DS.Font.headline).foregroundStyle(.white)
@@ -495,7 +510,7 @@ struct ReticleView: View {
     var body: some View {
         let locked = aim.hit != nil
         ZStack {
-            Circle().stroke(Color.black.opacity(0.28), lineWidth: 1).frame(width: 36, height: 36)
+            Circle().stroke(Color.black.opacity(0.4), lineWidth: 1.5).frame(width: 36, height: 36)
             Circle()
                 .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: locked ? [] : [4, 4]))
                 .frame(width: 32, height: 32)

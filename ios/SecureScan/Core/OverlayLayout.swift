@@ -116,6 +116,8 @@ enum OverlayLayout {
         let centre = CGPoint(x: vp.width / 2, y: vp.height / 2)
         plan.reticle = CGRect(x: centre.x - 18, y: centre.y - 18, width: 36, height: 36)
         obstacles.append(plan.reticle)
+        // The torch and 0.5x at the right edge, mid-height: labels keep clear of them.
+        obstacles.append(edgeControls(vp))
 
         // 1. Glyphs and equipment boxes (fixed to their point), arrows' bounds.
         for m in marks {
@@ -249,6 +251,11 @@ enum OverlayLayout {
             obstacles.append(r)
         }
         return plan
+    }
+
+    /// Where the viewport's edge controls (torch, 0.5x) sit.
+    static func edgeControls(_ vp: CGSize) -> CGRect {
+        CGRect(x: vp.width - 66, y: vp.height / 2 - 84, width: 66, height: 168)
     }
 
     /// The nearest free spot for a label: as asked, then stepping up / down, then sideways; inside the screen.

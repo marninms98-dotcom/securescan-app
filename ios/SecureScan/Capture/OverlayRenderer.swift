@@ -43,8 +43,13 @@ struct ARCameraProjector: Projector {
 }
 
 /// The overlay: marks from the HUD model, projected with the engine's camera.
+/// The overlay is drawn in two passes around the 3D equipment layer: lines and areas under
+/// the models (they lie on the floor and walls), pins, glyphs and every label over them.
+enum OverlayPass { case under, over }
+
 struct OverlayRenderer: View {
     @ObservedObject var hud: CaptureHUDModel
+    var pass: OverlayPass = .over
 
     var body: some View {
         GeometryReader { geo in
@@ -52,7 +57,7 @@ struct OverlayRenderer: View {
                 Canvas(rendersAsynchronously: false) { ctx, size in
                     guard let proj = hud.engine.projector(viewport: size) else { return }
                     let t = timeline.date.timeIntervalSinceReferenceDate
-                    OverlayPainter(ctx: ctx, proj: proj, size: size, time: t).draw(hud.allMarks(), reticleLabel: hud.reticleText)
+                    OverlayPainter(ctx: ctx, proj: proj, size: size, time: t).draw(hud.allMarks(), reticleLabel: hud.reticleText, pass: pass)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -99,7 +104,14 @@ struct OverlayPainter {
                                      reticle: { let s = m($0); return CGSize(width: s.width + 24, height: max(28, s.height + 12)) })
     }
 
-    func draw(_ marks: [OverlayMark], reticleLabel: String?) {
+    static func isUnder(_ m: OverlayMark) -> Bool {
+        switch m.style {
+        case .wetFloor, .liftFlooring, .areaDraft, .lining, .skirting, .moisture, .lineDraft: return true
+        default: return false
+        }
+    }
+
+    func draw(_ marks: [OverlayMark], reticleLabel: String?, pass: OverlayPass = .over) {
         let plan = OverlayLayout.plan(marks, projector: proj, reticleLabel: reticleLabel, measure: measure)
         let order: (OverlayMark) -> Int = { m in
             switch m.style {
@@ -112,11 +124,12 @@ struct OverlayPainter {
         }
         let sorted = marks.sorted { order($0) < order($1) }
         // Shapes and symbols.
-        for m in sorted {
+        for m in sorted where Self.isUnder(m) == (pass == .under) {
             var c = ctx
             if m.faded { c.opacity = 0.5 }
             shape(m, plan: plan, in: &c)
         }
+        guard pass == .over else { return }
         // Labels on top of every shape.
         for m in sorted {
             guard let r = plan.labels[m.id], let t = OverlayLayout.displayTag(m) else { continue }
@@ -267,7 +280,7 @@ struct OverlayPainter {
             guard pts.count >= 2 else { return }
             let corners = Array(pts.dropLast())          // the last point is the reticle
             let sp = proj.projectPolygon(pts)
-            if sp.count >= 3 { c.fill(path(sp, closed: true), with: .color(DS.Color.accent.opacity(0.22))) }
+            if sp.count >= 3 { c.fill(path(sp, closed: true), with: .color((m.removal ? DS.Color.remove : DS.Color.accent).opacity(0.22))) }
             for run in proj.projectPolyline(corners) {
                 let pth = path(run, closed: false)
                 c.stroke(pth, with: .color(DS.Color.ink.opacity(0.5)), style: StrokeStyle(lineWidth: 5.5, lineCap: .round, lineJoin: .round))
@@ -286,7 +299,7 @@ struct OverlayPainter {
                 guard let s = proj.project(q) else { continue }
                 let r: CGFloat = i == 0 ? 6 : 4.5
                 let rect = CGRect(x: s.x - r, y: s.y - r, width: r * 2, height: r * 2)
-                c.fill(Circle().path(in: rect), with: .color(i == 0 ? DS.Color.accent : .white))
+                c.fill(Circle().path(in: rect), with: .color(i == 0 ? (m.removal ? DS.Color.remove : DS.Color.accent) : .white))
                 c.stroke(Circle().path(in: rect), with: .color(.white), lineWidth: 2)
             }
         }

@@ -70,10 +70,10 @@ enum StudioScenes {
         switch name {
         case "mode-moisture":
             return StudioSceneData(name: name, camera: WorldVec(2.9, 1.45, 2.0), target: WorldVec(1.45, 0.24, 0.0), marks: [
-                pin("r1", WorldVec(0.55, 0.62, 0.0), 12, 1), pin("r2", WorldVec(2.45, 0.32, 0.0), 19, 2), pin("r3", WorldVec(1.95, 0.08, 0.0), 31, 3),
+                pin("r1", WorldVec(0.55, 0.62, 0.0), 12, 1), pin("r2", WorldVec(2.05, 0.42, 0.0), 19, 2), pin("r3", WorldVec(1.95, 0.08, 0.0), 31, 3),
             ], reticle: "Wall · 0.24 m up")
         case "mode-stripout":
-            return StudioSceneData(name: name, camera: WorldVec(1.7, 1.4, 2.3), target: WorldVec(3.45, 0.05, 0.0), marks: [
+            return StudioSceneData(name: name, camera: WorldVec(1.7, 1.4, 2.3), target: WorldVec(3.38, 0.05, 0.0), marks: [
                 OverlayMark(id: "draft-line", style: .skirting, points: [WorldVec(1.1, 0, 0.0), WorldVec(3.45, 0, 0.0)], tag: "Skirting · 2.35 m"),
             ])
         case "mode-equipment":
@@ -88,10 +88,10 @@ enum StudioScenes {
         case "equipment-model-preview":
             return StudioSceneData(name: name, camera: WorldVec(2.9, 1.45, 2.6), target: WorldVec(1.45, 0, 1.0))
         case "equipment-model-placed":
-            return StudioSceneData(name: name, camera: WorldVec(2.9, 1.5, 2.6), target: WorldVec(1.3, 0.25, 0.55), marks: [
-                OverlayMark(id: "a1", style: .equipment(type: "airMover", planned: false), points: [WorldVec(0.85, 0, 1.0)],
-                            airflow: simd_normalize(WorldVec(-0.6, 0, -1)), tag: "AM-01"),
-                OverlayMark(id: "d1", style: .equipment(type: "dehumidifier", planned: false), points: [WorldVec(2.35, 0, 0.55)], tag: "DH-01"),
+            return StudioSceneData(name: name, camera: WorldVec(3.25, 1.55, 2.7), target: WorldVec(1.32, 0.45, 0.0), marks: [
+                OverlayMark(id: "a1", style: .equipment(type: "airMover", planned: false), points: [WorldVec(1.55, 0, 1.2)],
+                            airflow: simd_normalize(WorldVec(-0.7, 0, -1)), tag: "AM-01"),
+                OverlayMark(id: "d1", style: .equipment(type: "dehumidifier", planned: false), points: [WorldVec(2.3, 0, 0.4)], tag: "DH-01"),
             ])
         case "aim-wall", "aim-wall-bright", "photo-zoom-toggle":
             return StudioSceneData(name: name, camera: wallSide, target: WorldVec(1.55, 0.32, 0),
@@ -103,7 +103,7 @@ enum StudioScenes {
         case "reading-tray":
             return StudioSceneData(name: name, camera: WorldVec(2.6, 1.5, 2.4), target: WorldVec(1.5, 0.1, 0.6))
         case "reading-saved":
-            return StudioSceneData(name: name, camera: WorldVec(3.3, 1.5, 0.5), target: WorldVec(0.8, 0.35, 0.2),
+            return StudioSceneData(name: name, camera: WorldVec(3.3, 1.5, 0.5), target: WorldVec(1.5, 0, 0.75),
                                    marks: [pin("r1", onSkirting, 10, 1), pin("r2", onWall, 18, 2), pin("r3", onSideWall, 26, 3)], reticle: "Floor")
         case "line-progress":
             return StudioSceneData(name: name, camera: WorldVec(3.3, 1.5, 0.5), target: WorldVec(1.9, 0.05, 0), reticle: "Skirting")

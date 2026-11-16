@@ -217,8 +217,8 @@ enum StudioScript {
         case "equipment-model-placed":
             e.quietActions = finishLit
             hud.tool = .equipment
-            e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(0.85, 1.0), hasAirflow: true, tag: "AM-01"),
-                       EquipmentGuard.Unit(id: "d1", type: "dehumidifier", pos: PlanVec(2.35, 0.55), hasAirflow: false, tag: "DH-01")]
+            e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(1.55, 1.2), hasAirflow: true, tag: "AM-01"),
+                       EquipmentGuard.Unit(id: "d1", type: "dehumidifier", pos: PlanVec(2.3, 0.4), hasAirflow: false, tag: "DH-01")]
             fill(8)
         case "aim-wall", "aim-wall-bright":
             e.recordingSince = Date().addingTimeInterval(-42)

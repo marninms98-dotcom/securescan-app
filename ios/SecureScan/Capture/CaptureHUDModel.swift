@@ -1003,8 +1003,10 @@ final class CaptureHUDModel: ObservableObject {
                 var poly = pts.map { WorldVec($0.x, fy + 0.005, $0.z) }
                 if let h = aim.hit { poly.append(WorldVec(h.x, fy + 0.005, h.z)) }
                 let a = poly.count >= 3 ? FloorArea.area(poly.map { PlanVec($0.x, $0.z) }) : nil
-                out.append(OverlayMark(id: "draft-area", style: .areaDraft, points: poly,
-                                       tag: a.map(CaptureCopy.area) ?? CaptureCopy.length(poly.count >= 2 ? simd_distance(PlanVec(poly[0].x, poly[0].z), PlanVec(poly[1].x, poly[1].z)) : 0)))
+                var draft = OverlayMark(id: "draft-area", style: .areaDraft, points: poly,
+                                        tag: a.map(CaptureCopy.area) ?? CaptureCopy.length(poly.count >= 2 ? simd_distance(PlanVec(poly[0].x, poly[0].z), PlanVec(poly[1].x, poly[1].z)) : 0))
+                draft.removal = tool == .stripOut
+                out.append(draft)
             }
         }
         if let a = airflowPreview {
