@@ -30,6 +30,8 @@ struct MarkerInfo {
     var priority: Int = 0
     /// Where the screen label points (default: the marker itself).
     var labelAnchor: SIMD3<Float>? = nil
+    /// Sources: confirmed (solid disc) rather than suspected (outlined rings).
+    var confirmed = false
 }
 
 /// A label drawn over the 3D view (screen space).
@@ -57,6 +59,8 @@ struct SceneContent {
     var floorAreas: [(poly: [PlanVec], done: Bool)] = []
     /// Drying equipment as 3D models (EquipmentModels): type, floor point, yaw (0 = +Z), airflow arrow.
     var equipment: [(type: String, position: SIMD3<Float>, yaw: Float, flow: Bool)] = []
+    /// Marks drawn by DollhouseMarks (removals, moisture washes), by layer.
+    var extra: [(layer: ModelLayer, node: SCNNode)] = []
     var error: String?
 }
 
@@ -147,17 +151,20 @@ final class ModelViewModel: ObservableObject {
         for line in content.lines { layers[.lines]!.addChildNode(Self.lineNode(line, scale: scale)) }
         for b in content.wallBands { layers[.removals]!.addChildNode(Self.wallBandNode(b.a, b.b, top: b.top, done: b.done)) }
         for f in content.floorAreas { if let n = Self.floorAreaNode(f.poly, done: f.done) { layers[.removals]!.addChildNode(n) } }
+        for e in content.extra { layers[e.layer]!.addChildNode(e.node) }
         anchors = []
         for (i, m) in content.markers.enumerated() {
             let layer: ModelLayer
             switch m.kind {
             case "equipment": layer = .equipment
             case "photo", "source": layer = .photos
-            case "boundary": layer = .lines
+            case "boundary", "wash": layer = .lines
+            case "removal": layer = .removals
             default: layer = .readings
             }
-            // Equipment is drawn as its 3D model (below); the marker only carries the label.
-            if m.kind != "equipment" { layers[layer]!.addChildNode(Self.markerNode(m, scale: scale)) }
+            // Equipment is drawn as its 3D model (below), removals and washes by DollhouseMarks;
+            // their markers only carry the label.
+            if !["equipment", "removal", "wash"].contains(m.kind) { layers[layer]!.addChildNode(Self.markerNode(m, scale: scale)) }
             if let text = m.label {
                 anchors.append(Anchor(id: "m\(i)", point: m.labelAnchor ?? m.position, layer: layer, text: text, color: m.color,
                                       priority: m.priority, onlyWhenSelected: m.kind == "equipment", size: Self.labelSize(text)))
@@ -451,8 +458,11 @@ final class ModelViewModel: ObservableObject {
     nonisolated static var lineBlue: UIColor { UIColor(DS.Color.source) }
 
     nonisolated static func buildContent(folder: JobFolder) -> SceneContent {
-        let plan = (try? Data(contentsOf: folder.planURL)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        var plan = (try? Data(contentsOf: folder.planURL)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         guard !plan.isEmpty else { return SceneContent(error: "This job has no plan yet. Scan it to see it in 3D.") }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SECURESCAN_3D_MARKS"] == "1" { plan = DollhouseMarks.withDemoMarks(plan) }
+        #endif
         guard let built = Dollhouse.build(plan: plan) else { return SceneContent(error: "This plan has no rooms to show in 3D.") }
         var content = SceneContent(built: built)
         let markup = plan["markup"] as? [String: Any] ?? [:]
@@ -466,18 +476,30 @@ final class ModelViewModel: ObservableObject {
             return SIMD3<Float>(Float(p.x), min(h, cut), Float(p.y))
         }
 
+        let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        /// On its own face of its wall (or inside the wall for cavity marks), per docs/MARKING.md H.
+        func sided(_ d: [String: Any], _ pos: SIMD3<Float>, out: Double) -> SIMD3<Float> {
+            guard let side = d["side"] as? String, let wid = d["wallId"] as? String, let w = walls[wid],
+                  let t = PlanDocument.number(d["wallT"]) else { return pos }
+            return DollhouseMarks.facePosition(w, t: t, height: Double(pos.y), side: side, out: out)
+        }
         var byId: [String: SIMD3<Float>] = [:]
         var marks: [MoistureLines.Mark] = []
+        var wallMarks: [String: (t: Double, h: Double, side: String?)] = [:]
         for d in markup["readings"] as? [[String: Any]] ?? [] {
-            guard let pos = place(d) else { continue }
+            guard let pos0 = place(d) else { continue }
+            let pos = sided(d, pos0, out: 0.08)
             let kind = (d["kind"] as? String) ?? "reading"
             let n = PlanDocument.number(d["n"]).map { Int($0) }
             switch kind {
             case "boundary":
                 content.markers.append(MarkerInfo(kind: kind, label: nil, color: lineBlue, position: pos))
                 if let id = d["id"] as? String {
-                    byId[id] = pos
+                    byId[id] = pos0
                     marks.append(MoistureLines.Mark(id: id, wallId: d["wallId"] as? String, wallT: PlanDocument.number(d["wallT"])))
+                    if let t = PlanDocument.number(d["wallT"]) {
+                        wallMarks[id] = (t, PlanDocument.number(d["height"]) ?? Double(pos0.y), d["side"] as? String)
+                    }
                 }
             case "photo":
                 content.markers.append(MarkerInfo(kind: kind, label: n.map { "P\($0)" } ?? "P", color: .systemGray, position: pos))
@@ -491,9 +513,15 @@ final class ModelViewModel: ObservableObject {
             }
         }
         for d in markup["sources"] as? [[String: Any]] ?? [] {
-            guard let pos = place(d) else { continue }
+            guard let pos0 = place(d) else { continue }
+            let pos = sided(d, pos0, out: 0.1)
             let text = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
-            content.markers.append(MarkerInfo(kind: "source", label: text.isEmpty ? "Source" : text, color: lineBlue, position: pos, priority: 25))
+            let confirmed = (d["status"] as? String) == "confirmed"
+            let cavity = (d["side"] as? String) == "cavity"
+            let detail = cavity ? "inside wall" : (confirmed ? "Confirmed" : "Suspected")
+            var m = MarkerInfo(kind: "source", label: "\(text.isEmpty ? (cavity ? "Leak" : "Source") : text) · \(detail)", color: lineBlue, position: pos, priority: 25)
+            m.confirmed = confirmed
+            content.markers.append(m)
         }
         for d in markup["equipment"] as? [[String: Any]] ?? [] {
             if let removed = d["removed"], !(removed is NSNull), (removed as? String)?.isEmpty != true { continue }
@@ -510,20 +538,19 @@ final class ModelViewModel: ObservableObject {
             content.markers.append(MarkerInfo(kind: "equipment", label: label.isEmpty ? name : "\(label) · \(name)",
                                               color: UIColor(DS.Color.equip), position: SIMD3(Float(p.x), top, Float(p.y)), priority: 0))
         }
-        let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for x in markup["removals"] as? [[String: Any]] ?? [] {
-            let done = (x["status"] as? String) == "done"
-            if let wid = x["wallId"] as? String, let w = walls[wid] {
-                let t0 = PlanDocument.number(x["t0"]) ?? 0, t1 = PlanDocument.number(x["t1"]) ?? 1
-                let item = (x["item"] as? String) ?? "other"
-                let mm = PlanDocument.number(x["heightMm"]) ?? (item == "skirting" ? 100 : 600)
-                let top = min(max(mm / 1000, 0.08), Dollhouse.cutHeight)
-                content.wallBands.append((w.a + (w.b - w.a) * t0, w.a + (w.b - w.a) * t1, top, done))
-            } else if let area = (x["area"] as? [Any])?.compactMap(ScopeList.pt), area.count >= 3 {
-                content.floorAreas.append((area, done))
-            }
-        }
+        // Removals and wet floors in the AR view's language (docs/MARKING.md D, H).
+        let drawn = DollhouseMarks.build(markup: markup, walls: walls, objects: plan["objects"] as? [[String: Any]] ?? [])
+        content.extra += drawn.removals.map { (layer: ModelLayer.removals, node: $0) } + drawn.moisture.map { (layer: ModelLayer.lines, node: $0) }
+        content.markers += drawn.labels
         for ids in MoistureLines.lines(marks) {
+            // On its wall's face: the blue wash to the tide line.
+            let wm = ids.compactMap { wallMarks[$0] }
+            if wm.count == ids.count, let wid = marks.first(where: { $0.id == ids[0] })?.wallId, let w = walls[wid],
+               let wash = DollhouseMarks.moistureWash(w, points: wm.map { (t: $0.t, h: $0.h) }.sorted { $0.t < $1.t }, side: wm[0].side) {
+                content.extra += wash.nodes.map { (layer: ModelLayer.lines, node: $0) }
+                content.markers.append(wash.label)
+                continue
+            }
             let pts = ids.compactMap { byId[$0] }
             guard pts.count >= 2 else { continue }
             content.lines.append(MoistureLine3D(points: pts, floorY: pts.map { _ in 0 }))
@@ -561,6 +588,27 @@ final class ModelViewModel: ObservableObject {
         let dot = SCNNode(geometry: geometry)
         dot.renderingOrder = 200
         node.addChildNode(dot)
+        if m.kind == "source" {
+            // Confirmed: a solid disc behind the drop; suspected: an outlined outer ring.
+            let facing = SCNNode()
+            facing.constraints = [SCNBillboardConstraint()]
+            if m.confirmed {
+                let disc = SCNPlane(width: r * 5.2, height: r * 5.2)
+                disc.cornerRadius = r * 2.6
+                disc.materials = [overlayMaterial(lineBlue.withAlphaComponent(0.35))]
+                let dn = SCNNode(geometry: disc)
+                dn.renderingOrder = 199
+                facing.addChildNode(dn)
+            } else {
+                let outer = SCNTorus(ringRadius: r * 2.7, pipeRadius: r * 0.12)
+                outer.materials = [overlayMaterial(lineBlue.withAlphaComponent(0.6))]
+                let on = SCNNode(geometry: outer)
+                on.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
+                on.renderingOrder = 199
+                facing.addChildNode(on)
+            }
+            node.addChildNode(facing)
+        }
         if m.kind == "reading" || m.kind == "source" {
             // White ring round the head reads as a pin, from any angle.
             let ring = SCNTorus(ringRadius: r * (m.kind == "source" ? 1.9 : 1.25), pipeRadius: r * 0.22)

@@ -220,7 +220,7 @@ enum OverlayLayout {
             switch m.style {
             case .reading, .readingDraft: continue
             case .photo: if m.selected, let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - 2) }
-            case .source: if let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - 3) }
+            case .source: if let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - (m.side == WallSide.cavity ? 17 : 3)) }
             case .equipment:
                 if let g = plan.glyphs[m.id] {
                     if m.modelHeight != nil { anchor = CGPoint(x: g.midX, y: g.minY - 6) }
@@ -242,11 +242,42 @@ enum OverlayLayout {
                 guard sp.count >= 3 else { continue }
                 let bb = bounds(sp).intersection(CGRect(origin: .zero, size: vp))
                 guard !bb.isNull, bb.width > 4 else { continue }
-                anchor = CGPoint(x: bb.minX + 8, y: bb.minY + 8)
+                // Above the band's top (the cut line), not over the hatch.
+                anchor = CGPoint(x: bb.minX + 8, y: bb.minY - 6)
                 leading = true
-                below = true
             case .moisture:
                 if let last = m.points.last, let s = proj.project(last) { anchor = CGPoint(x: s.x, y: s.y - 8) }
+            case .moistureWash:
+                // Above the tide line's highest visible point.
+                let sp = m.points.compactMap { proj.project($0) }.filter { proj.onScreen($0) }
+                if let top = sp.min(by: { $0.y < $1.y }) { anchor = CGPoint(x: top.x, y: top.y - 10) }
+            case .cabinet, .hover(.box):
+                let sp = m.points.compactMap { proj.project($0) }
+                guard sp.count >= 4 else { continue }
+                let bb = bounds(sp.map(cg))
+                anchor = CGPoint(x: bb.midX, y: bb.minY - 6)
+            case .hover(.skirting):
+                guard m.points.count >= 2, let seg = proj.projectSegment(m.points[0], m.points[1]) else { continue }
+                let (a, b) = clipToScreen(cg(seg.0), cg(seg.1), vp)
+                guard hypot(b.x - a.x, b.y - a.y) >= minVisibleLine else { continue }
+                anchor = CGPoint(x: (a.x + b.x) / 2, y: min(a.y, b.y) - 8)
+            case .hover(.face), .hover(.faceBlue):
+                let sp = proj.projectPolygon(m.points).map(cg)
+                guard sp.count >= 3 else { continue }
+                let bb = bounds(sp).intersection(CGRect(origin: .zero, size: vp))
+                guard !bb.isNull, bb.width > 4 else { continue }
+                anchor = CGPoint(x: bb.midX, y: bb.minY - 6)
+            case .hover(.floor):
+                guard !m.points.isEmpty else { continue }
+                let c = m.points.reduce(WorldVec(0, 0, 0), +) / Double(m.points.count)
+                if let s = proj.project(c) { anchor = CGPoint(x: s.x, y: s.y); below = true }
+            case .hover(.ring):
+                if m.selected, let p = m.points.first, let s = proj.project(p) { anchor = CGPoint(x: s.x, y: s.y - 30) }
+            case .readout:
+                // Beside the point, clear of the reticle ring, vertically centred on it.
+                if let p = m.points.first, let s = proj.project(p) { anchor = CGPoint(x: s.x + 26, y: s.y + 12); leading = true }
+            case .airflowCone:
+                continue
             case .wetFloor, .liftFlooring, .areaDraft:
                 guard !m.points.isEmpty else { continue }
                 let c = m.points.reduce(WorldVec(0, 0, 0), +) / Double(m.points.count)
@@ -257,6 +288,8 @@ enum OverlayLayout {
             if !leading && (a.x < margin || a.x > vp.width - margin) { continue }
             let sz = measure.tag(text)
             let r0 = CGRect(x: leading ? a.x : a.x - sz.width / 2, y: below ? a.y : a.y - sz.height, width: sz.width, height: sz.height)
+            // A hover label only shows where it fits as asked: it never stacks against saved labels.
+            if case .hover = m.style, obstacles.contains(where: { $0.insetBy(dx: -2, dy: -2).intersects(r0) }) { continue }
             let r = free(r0, obstacles: obstacles, viewport: vp)
             plan.labels[m.id] = r
             obstacles.append(r)

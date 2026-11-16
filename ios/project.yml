@@ -106,6 +106,7 @@ targets:
       - path: SecureScan/Core/StudioScenes.swift
       - path: SecureScan/Sync/Logic
       - path: SecureScan/Core/CaptureFrame.swift
+      - path: SecureScan/Core/Components.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.secureworkswa.securescan.tests

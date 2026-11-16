@@ -31,18 +31,24 @@ enum StudioLaunch {
 /// The synthetic room (world: floor y = 0, x right, z = plan y; metres).
 enum StudioRoom {
     static let width = 3.45, depth = 2.80, height = SimulatedScan.wallHeight
-    static let walls: [WorldWall] = [
-        WorldWall(id: "w1", a: PlanVec(0, 0), b: PlanVec(width, 0), height: height),
-        WorldWall(id: "w2", a: PlanVec(width, 0), b: PlanVec(width, depth), height: height),
-        WorldWall(id: "w3", a: PlanVec(width, depth), b: PlanVec(0, depth), height: height),
-        WorldWall(id: "w4", a: PlanVec(0, depth), b: PlanVec(0, 0), height: height),
-    ]
-    static let world = CaptureWorld(floorY: 0, walls: walls,
-                                    rooms: [WorldRoom(name: "Bedroom", polygon: [PlanVec(0, 0), PlanVec(width, 0), PlanVec(width, depth), PlanVec(0, depth)])])
+    static let walls = StudioScenes.walls
+    static let world = StudioScenes.world
     /// Drawers against w3 (x 2.30...3.15, z 2.35...2.80, 0.80 high).
     static let drawers = (x0: 2.30, x1: 3.15, z0: 2.35, z1: 2.80, h: 0.80)
     /// The doorway in w4 (z 1.75...2.57, 2.04 high): open, dark beyond.
     static let door = (z0: 1.75, z1: 2.57, h: 2.04)
+
+    /// Axis-aligned boxes in the room: the drawers, the kitchen run (with its benchtop), the vanity.
+    static var boxes: [(x0: Double, x1: Double, z0: Double, z1: Double, y0: Double, y1: Double)] {
+        var out = [(x0: drawers.x0, x1: drawers.x1, z0: drawers.z0, z1: drawers.z1, y0: 0.0, y1: drawers.h)]
+        for ob in StudioScenes.objects {
+            let c = ob.corners
+            let xs = c.map(\.x), zs = c.map(\.z)
+            out.append((xs.min()!, xs.max()!, zs.min()!, zs.max()!, 0, ob.size.y))
+        }
+        out.append((x0: 2.85, x1: width, z0: 0.33, z1: 2.17, y0: 0.87, y1: 0.91))    // kitchen benchtop
+        return out
+    }
 
     /// The nearest surface along a ray, with its normal; nil through the doorway or outside.
     static func raycast(origin o: WorldVec, dir d: WorldVec) -> (WorldVec, WorldVec)? {
@@ -52,22 +58,31 @@ enum StudioRoom {
             let p = o + d * t
             if ok(p) { best = (t, n) }
         }
+        for b in boxes {
+            let e = 1e-6
+            if abs(d.y) > 1e-9 { consider((b.y1 - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= b.x0 - e && $0.x <= b.x1 + e && $0.z >= b.z0 - e && $0.z <= b.z1 + e } }
+            if abs(d.x) > 1e-9 {
+                consider((b.x0 - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= b.z0 - e && $0.z <= b.z1 + e && $0.y >= b.y0 && $0.y <= b.y1 }
+                consider((b.x1 - o.x) / d.x, WorldVec(1, 0, 0)) { $0.z >= b.z0 - e && $0.z <= b.z1 + e && $0.y >= b.y0 && $0.y <= b.y1 }
+            }
+            if abs(d.z) > 1e-9 {
+                consider((b.z0 - o.z) / d.z, WorldVec(0, 0, -1)) { $0.x >= b.x0 - e && $0.x <= b.x1 + e && $0.y >= b.y0 && $0.y <= b.y1 }
+                consider((b.z1 - o.z) / d.z, WorldVec(0, 0, 1)) { $0.x >= b.x0 - e && $0.x <= b.x1 + e && $0.y >= b.y0 && $0.y <= b.y1 }
+            }
+        }
         if abs(d.y) > 1e-9 {
             consider((0 - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= 0 && $0.x <= width && $0.z >= 0 && $0.z <= depth }
             consider((height - o.y) / d.y, WorldVec(0, -1, 0)) { $0.x >= 0 && $0.x <= width && $0.z >= 0 && $0.z <= depth }
-            consider((drawers.h - o.y) / d.y, WorldVec(0, 1, 0)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.z >= drawers.z0 && $0.z <= drawers.z1 }
         }
         if abs(d.z) > 1e-9 {
             consider((0 - o.z) / d.z, WorldVec(0, 0, 1)) { $0.x >= 0 && $0.x <= width && $0.y >= 0 && $0.y <= height }
             consider((depth - o.z) / d.z, WorldVec(0, 0, -1)) { $0.x >= 0 && $0.x <= width && $0.y >= 0 && $0.y <= height }
-            consider((drawers.z0 - o.z) / d.z, WorldVec(0, 0, -1)) { $0.x >= drawers.x0 && $0.x <= drawers.x1 && $0.y <= drawers.h && $0.y >= 0 }
         }
         if abs(d.x) > 1e-9 {
             consider((0 - o.x) / d.x, WorldVec(1, 0, 0)) {
                 $0.z >= 0 && $0.z <= depth && $0.y >= 0 && $0.y <= height && !($0.z > door.z0 && $0.z < door.z1 && $0.y < door.h)
             }
             consider((width - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= 0 && $0.z <= depth && $0.y >= 0 && $0.y <= height }
-            consider((drawers.x0 - o.x) / d.x, WorldVec(-1, 0, 0)) { $0.z >= drawers.z0 && $0.z <= drawers.z1 && $0.y >= 0 && $0.y <= drawers.h }
         }
         guard let b = best else { return nil }
         return (o + d * b.0, b.1)
@@ -179,7 +194,95 @@ enum StudioScript {
             JobPhoto(id: "p\(n)", title: "Photo \(n)", place: n % 2 == 0 ? "Bedroom · floor" : "Bedroom · wall \(String(format: "%.1f", 0.3 + Double(n) * 0.25)) m up",
                      caption: n == 2 ? "Damage" : "", load: { shot(n, CGSize(width: 900, height: 1200)) })
         }
+        let w = StudioRoom.world
         switch scene {
+        // Walls have two sides (docs/MARKING.md H).
+        case "through-wall-hidden":
+            hud.tool = .moisture
+            fill(4)
+        case "cavity-leak-side-a", "cavity-leak-side-b":
+            e.phaseText = "Inspecting"
+            e.roomName = scene.hasSuffix("b") ? "Hallway" : "Bedroom"
+            hud.tool = .source
+            fill(4)
+        case "strip-out-other-side-hidden":
+            e.phaseText = "Marking"
+            e.roomName = "Hallway"
+            hud.tool = .stripOut
+            hud.stripPick = .skirting
+            fill(4)
+        // Marking by component (docs/MARKING.md).
+        case "hover-skirting":
+            e.phaseText = "Marking"
+            hud.tool = .stripOut
+            hud.stripPick = .skirting
+            fill(4)
+        case "scrub-skirting":
+            e.phaseText = "Marking"
+            hud.tool = .stripOut
+            hud.stripPick = .skirting
+            fill(4)
+            hud.run = WallRun(pieces: [WallPiece(wallId: "w1", tA: 0.02, tB: 1.6 / StudioRoom.width)])
+            hud.readout = (WorldVec(1.6, 0.05, 0.0), "\(CaptureCopy.length(StudioRoom.width - 1.6)) to wall end")
+        case "strip-back-dragging":
+            e.phaseText = "Marking"
+            hud.tool = .stripOut
+            hud.stripPick = .wallLining
+            fill(5)
+            hud.strip = StripBack(wallId: "w1", t0: 0.0, t1: 1.0, heightMm: 600)
+            hud.readout = (WorldVec(2.3, 0.6, 0.0), "600 mm")
+            hud.suggestion = Suggest.afterTide(maxMm: 450, wallId: "w1")
+        case "cabinet-hover":
+            e.phaseText = "Marking"
+            hud.tool = .stripOut
+            hud.stripPick = .cabinetry
+            fill(5)
+        case "cabinet-selected":
+            e.phaseText = "Marking"
+            hud.tool = .stripOut
+            hud.stripPick = .cabinetry
+            fill(5)
+            hud.cabinetPick = "k2"
+        case "floor-carpet", "floor-vinyl", "floor-timber", "floor-tile":
+            e.phaseText = "Marking"
+            hud.tool = .stripOut
+            hud.stripPick = .liftFlooring
+            hud.floorTypesShown = true
+            hud.stripFloorType = String(scene.dropFirst("floor-".count))
+            fill(6)
+            var paint = FloorPaint(room: w.rooms[0].polygon)
+            for k in 0...24 {
+                let a = Double(k) / 24 * 2 * .pi
+                for r in stride(from: 0.0, through: 0.55, by: 0.15) {
+                    paint.paint(PlanVec(1.9 + cos(a) * r * 1.3, 1.2 + sin(a) * r))
+                }
+            }
+            hud.floorPaint = paint
+        case "moisture-tideline":
+            e.phaseText = "Inspecting"
+            hud.tool = .moisture
+            hud.drawArmed = .line
+            fill(9)
+            var t = TideLine(wallId: "w1")
+            for k in 0...28 {
+                let x = 0.15 + Double(k) * 0.1
+                t.add(t: x / StudioRoom.width, height: 0.40 + 0.05 * sin(Double(k) * 0.9), wallLength: StudioRoom.width)
+            }
+            hud.tide = t
+        case "source-suspected", "source-confirmed":
+            e.phaseText = "Inspecting"
+            hud.tool = .source
+            fill(9)
+            if scene == "source-suspected" { hud.suggestion = Suggest.afterSource(at: WorldVec(0.05, 1.02, 0.65), objects: w.objects) }
+        case "airflow-drag":
+            hud.tool = .equipment
+            e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(1.6, 1.3), hasAirflow: true, tag: "AM-01")]
+            fill(6)
+            hud.airflowDrag = ("a1", simd_normalize(WorldVec(-1, 0, -1.1)))
+        case "suggestion-chip":
+            hud.tool = .moisture
+            fill(3)
+            hud.suggestion = Suggest.afterReading(value: 28, height: 0.08, wallId: "w1", wallsWithSkirting: [])
         case "mode-moisture":
             hud.hintsEnabled = true
             e.recordingSince = Date().addingTimeInterval(-102)
@@ -527,6 +630,8 @@ enum StudioSceneBuilder {
         floorM.diffuse.wrapT = .repeat
         floorM.diffuse.contentsTransform = SCNMatrix4MakeScale(4, 4, 1)
         root.addChildNode(box(W + 0.2, 0.02, D + 0.2, at: WorldVec(W / 2, -0.01, D / 2), floorM))
+        // The next room's floor (beyond w1 and the door), so the far side reads as a room.
+        root.addChildNode(box(14, 0.02, 14, at: WorldVec(W / 2, -0.03, D / 2), mat(0x4A4744)))
         root.addChildNode(box(W + 0.2, 0.02, D + 0.2, at: WorldVec(W / 2, H + 0.01, D / 2), mat(0xE6E3DD)))
         let t = 0.06
         root.addChildNode(box(W, H, t, at: WorldVec(W / 2, H / 2, -t / 2), wall))                          // w1
@@ -565,6 +670,47 @@ enum StudioSceneBuilder {
         for k in 0..<3 {
             root.addChildNode(box(0.12, 0.018, 0.02, at: WorldVec((dr.x0 + dr.x1) / 2, 0.16 + Double(k) * 0.24, dr.z0 - 0.01), mat(0xD9D4CC, rough: 0.3)))
         }
+        // The kitchen run (w2) and the vanity (w4): carcasses, doors, benchtop, sink, oven front.
+        let carcass = mat(bright ? 0xF2EFEA : 0xE3DED5, rough: 0.5)
+        let gap = mat(0x5A564F, rough: 0.6)
+        let bench = mat(0x3E3D3B, rough: 0.4)
+        for ob in StudioScenes.objects {
+            let c = ob.corners
+            let xs = c.map(\.x), zs = c.map(\.z)
+            let x0 = xs.min()!, x1 = xs.max()!, z0 = zs.min()!, z1 = zs.max()!
+            root.addChildNode(box(x1 - x0, ob.size.y - 0.1, z1 - z0, at: WorldVec((x0 + x1) / 2, 0.1 + (ob.size.y - 0.1) / 2, (z0 + z1) / 2), carcass))
+            // Kick board, recessed.
+            let front = ob.axisZ
+            let fc = ob.center + front * (ob.size.z / 2 - 0.05)
+            root.addChildNode(box(abs(front.x) > 0.5 ? 0.02 : ob.size.x, 0.1, abs(front.x) > 0.5 ? ob.size.x : 0.02,
+                                  at: WorldVec(fc.x, 0.05, fc.z), gap))
+            // Door split and handles on the front face.
+            let ff = ob.center + front * (ob.size.z / 2 + 0.004)
+            let along = ob.axisX
+            if ob.category == "oven" {
+                let ovenFront = mat(0x1C1C1E, rough: 0.2)
+                root.addChildNode(box(abs(front.x) > 0.5 ? 0.012 : ob.size.x - 0.06, 0.5, abs(front.x) > 0.5 ? ob.size.x - 0.06 : 0.012,
+                                      at: WorldVec(ff.x, 0.52, ff.z), ovenFront))
+                root.addChildNode(box(abs(front.x) > 0.5 ? 0.02 : 0.4, 0.02, abs(front.x) > 0.5 ? 0.4 : 0.02,
+                                      at: WorldVec(ff.x + front.x * 0.02, 0.8, ff.z + front.z * 0.02), mat(0xC9CCCF, rough: 0.2)))
+            } else {
+                root.addChildNode(box(abs(front.x) > 0.5 ? 0.008 : 0.008, ob.size.y - 0.14, abs(front.x) > 0.5 ? 0.008 : 0.008,
+                                      at: WorldVec(ff.x, 0.1 + (ob.size.y - 0.1) / 2, ff.z), gap))
+                for sgn in [-1.0, 1.0] {
+                    let h = ff + along * (0.06 * sgn) + front * 0.012
+                    root.addChildNode(box(0.012, 0.12, 0.012, at: WorldVec(h.x, ob.size.y - 0.18, h.z), mat(0xB8B8B4, rough: 0.3)))
+                }
+            }
+            if ob.id == "v1" {
+                // Vanity top with a basin.
+                root.addChildNode(box(0.48, 0.03, ob.size.x + 0.02, at: WorldVec(ob.center.x - 0.01, ob.size.y + 0.015, ob.center.z), mat(0xF4F3EF, rough: 0.3)))
+                root.addChildNode(box(0.32, 0.012, 0.42, at: WorldVec(ob.center.x, ob.size.y + 0.031, ob.center.z), mat(0xD8DADC, rough: 0.2)))
+            }
+            if ob.id == "k2" {
+                root.addChildNode(box(0.42, 0.012, 0.5, at: WorldVec(ob.center.x, 0.915, ob.center.z), mat(0xA9AEB2, rough: 0.2)))
+            }
+        }
+        root.addChildNode(box(0.6, 0.04, 2.17 - 0.33, at: WorldVec(3.15, 0.89, (0.33 + 2.17) / 2), bench))
         // Light: soft ambient + a ceiling light + window fill.
         let amb = SCNNode(); amb.light = SCNLight(); amb.light?.type = .ambient; amb.light?.intensity = bright ? 900 : 430
         amb.light?.color = UIColor(white: 1, alpha: 1)

@@ -90,10 +90,16 @@ enum EquipmentModels {
 
     static func voluteRadius(_ t: Double) -> Double { 0.15 + 0.03 * t }
 
+    /// The housing's flat back and flat top (so it never reads as a drum from behind).
+    static let voluteBack = -0.15
+    static let voluteTop = 0.365
+
     static func volutePoint(_ t: Double, inset: Double = 0) -> CGPoint {
         let a = voluteStart + 2 * .pi * t
         let r = voluteRadius(t) - inset
-        return CGPoint(x: voluteCentre.x + r * cos(a), y: voluteCentre.y + r * sin(a))
+        let x = max(voluteCentre.x + r * cos(a), voluteBack + inset)
+        let y = min(voluteCentre.y + r * sin(a), voluteTop - inset)
+        return CGPoint(x: x, y: y)
     }
 
     static func voluteProfile() -> UIBezierPath {
@@ -152,25 +158,35 @@ enum EquipmentModels {
             body.addChildNode(node(SCNBox(width: 0.23, height: 0.005, length: 0.012, chamferRadius: 0.002), steel,
                                    at: [0, 0.07 + Float(k) * 0.022, 0.206]))
         }
+        // The outlet lip: a teal flange proud of the body on both sides, so the unit never reads
+        // as a drum from behind; teal runners along the duct's lower edges lead to it.
+        body.addChildNode(node(SCNBox(width: W + 0.03, height: 0.115, length: 0.03, chamferRadius: 0.01), accent, at: [0, 0.098, 0.19]))
+        for side: Float in [-1, 1] {
+            body.addChildNode(node(SCNBox(width: 0.012, height: 0.018, length: 0.2, chamferRadius: 0.005), accent,
+                                   at: [side * Float(W / 2 + 0.004), 0.05, 0.09]))
+        }
+        // A flat top deck across the volute (with the handle), breaking the round silhouette.
+        body.addChildNode(node(SCNBox(width: W - 0.04, height: 0.02, length: 0.2, chamferRadius: 0.008), tealDark,
+                               at: [0, Float(voluteTop) - 0.012, -0.04]))
         let c = SIMD3<Float>(0, Float(voluteCentre.y), Float(voluteCentre.x))
         for side: Float in [-1, 1] {
             let x = side * Float(W / 2)
             // Teal rim along the volute on each flat side.
             body.addChildNode(sideShape(voluteRim(), depth: 0.006, chamfer: 0, accent, x: x + side * 0.003))
             // Intake: a dark disc with steel rings and a hub.
-            body.addChildNode(node(SCNCylinder(radius: 0.125, height: 0.006), charcoal, at: [x + side * 0.004, c.y, c.z], euler: [0, 0, .pi / 2]))
-            for rr in [0.112, 0.088, 0.064, 0.04] {
+            body.addChildNode(node(SCNCylinder(radius: 0.11, height: 0.006), charcoal, at: [x + side * 0.004, c.y, c.z], euler: [0, 0, .pi / 2]))
+            for rr in [0.1, 0.08, 0.06, 0.038] {
                 body.addChildNode(node(SCNTorus(ringRadius: CGFloat(rr), pipeRadius: 0.0035), steel,
                                        at: [x + side * 0.008, c.y, c.z], euler: [0, 0, .pi / 2]))
             }
             for a in stride(from: 0.0, to: Double.pi, by: Double.pi / 4) {
-                body.addChildNode(node(SCNBox(width: 0.004, height: 0.24, length: 0.004, chamferRadius: 0), steel,
+                body.addChildNode(node(SCNBox(width: 0.004, height: 0.21, length: 0.004, chamferRadius: 0), steel,
                                        at: [x + side * 0.008, c.y, c.z], euler: [Float(a), 0, 0]))
             }
             body.addChildNode(node(SCNCylinder(radius: 0.022, height: 0.012), steel, at: [x + side * 0.01, c.y, c.z], euler: [0, 0, .pi / 2]))
         }
         // Integrated carry handle moulded into the top of the volute.
-        let top = Float(voluteCentre.y + voluteRadius(0.43))
+        let top = Float(voluteTop)
         for z: Float in [-0.12, 0.04] {
             body.addChildNode(node(SCNBox(width: 0.05, height: 0.04, length: 0.035, chamferRadius: 0.012), teal, at: [0, top + 0.002, z]))
         }
@@ -413,6 +429,10 @@ final class EquipmentLayerView: SCNView {
     private var link: CADisplayLink?
     private let cameraNode = SCNNode()
     private var nodes: [String: (state: EquipmentModelState, node: SCNNode)] = [:]
+    /// The scanned walls as invisible depth-only geometry: a unit in the next room is hidden
+    /// behind the wall (docs/MARKING.md H). Doors, openings and windows are left open.
+    private let occluders = SCNNode()
+    private var occluderKey = ""
 
     init(hud: CaptureHUDModel) {
         self.hud = hud
@@ -441,6 +461,7 @@ final class EquipmentLayerView: SCNView {
         amb.light?.type = .ambient
         amb.light?.intensity = 280
         s.rootNode.addChildNode(amb)
+        s.rootNode.addChildNode(occluders)
         scene = s
         pointOfView = cameraNode
         let l = CADisplayLink(target: self, selector: #selector(step))
@@ -466,6 +487,7 @@ final class EquipmentLayerView: SCNView {
         if !hud.models3D { hud.models3D = true }
         cameraNode.simdTransform = cam.view.inverse
         cameraNode.camera?.projectionTransform = SCNMatrix4(cam.projection)
+        updateOccluders(hud.engine.world)
         let states = hud.equipmentModels()
         let ids = Set(states.map(\.id))
         for (id, e) in nodes where !ids.contains(id) { e.node.removeFromParentNode(); nodes[id] = nil }
@@ -484,6 +506,40 @@ final class EquipmentLayerView: SCNView {
             n.simdEulerAngles = [0, st.yaw, 0]
             scene?.rootNode.addChildNode(n)
             nodes[st.id] = (st, n)
+        }
+    }
+
+    private func updateOccluders(_ w: CaptureWorld) {
+        let key = "\(w.walls.count)|\(w.openings.count)|\(Int(((w.floorY ?? 0) * 100).rounded()))|" +
+            w.walls.map { "\(Int(($0.a.x + $0.b.y) * 100))" }.joined(separator: ",")
+        guard key != occluderKey else { return }
+        occluderKey = key
+        occluders.childNodes.forEach { $0.removeFromParentNode() }
+        let fy = w.floorY ?? 0
+        let m = SCNMaterial()
+        m.colorBufferWriteMask = []
+        m.writesToDepthBuffer = true
+        m.readsFromDepthBuffer = true
+        m.isDoubleSided = true
+        func piece(_ wall: WorldWall, _ t0: Double, _ t1: Double, _ y0: Double, _ y1: Double) {
+            let len = wall.length * (t1 - t0)
+            guard len > 0.02, y1 - y0 > 0.02 else { return }
+            let plane = SCNPlane(width: CGFloat(len), height: CGFloat(y1 - y0))
+            plane.materials = [m]
+            let n = SCNNode(geometry: plane)
+            let mid = wall.a + (wall.b - wall.a) * ((t0 + t1) / 2)
+            let d = wall.b - wall.a
+            n.simdPosition = SIMD3<Float>(Float(mid.x), Float(fy + (y0 + y1) / 2), Float(mid.y))
+            n.simdEulerAngles = [0, Float(atan2(-d.y, d.x)), 0]
+            n.renderingOrder = -100
+            occluders.addChildNode(n)
+        }
+        for wall in w.walls {
+            for seg in ComponentIndex.segments(wall, openings: w.openings, floorOnly: false) { piece(wall, seg.0, seg.1, 0, wall.height) }
+            for o in w.openings where o.wallId == wall.id {
+                piece(wall, o.t0, o.t1, min(o.top, wall.height), wall.height)        // above it
+                if o.bottom > 0.02 { piece(wall, o.t0, o.t1, 0, o.bottom) }        // below a window
+            }
         }
     }
 

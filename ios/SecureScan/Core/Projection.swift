@@ -29,9 +29,13 @@ protocol Projector {
     func view(_ w: WorldVec) -> WorldVec
     /// Screen point of a world point that is in front of the camera.
     func screen(_ w: WorldVec) -> ScreenVec
+    /// The unit world direction from the camera through a screen point (a finger), nil if unknown.
+    func worldRay(_ s: ScreenVec) -> WorldVec?
 }
 
 extension Projector {
+    func worldRay(_ s: ScreenVec) -> WorldVec? { nil }
+
     /// Near plane (metres): anything closer is clipped away.
     var near: Double { 0.05 }
 
@@ -110,6 +114,8 @@ struct PinholeProjector: Projector {
         let z = max(c.z, 1e-9)
         return ScreenVec(viewport.x / 2 + c.x / z * focal, viewport.y / 2 - c.y / z * focal)
     }
+
+    func worldRay(_ s: ScreenVec) -> WorldVec? { ray(through: s) }
 
     /// The world ray through a screen point (for the Studio's synthetic raycast).
     func ray(through s: ScreenVec) -> WorldVec {

@@ -64,6 +64,10 @@ struct RawReading: Codable, Identifiable {
     var wholeRoom: Bool? = nil
     var floorType: String? = nil
     var underlay: Bool? = nil
+    /// Water source: "suspected" | "confirmed" (docs/MARKING.md; absent = suspected).
+    var status: String? = nil
+    /// Wall-attached items: "a" | "b" (the camera's side of the wall, by its normal) | "cavity".
+    var side: String? = nil
 }
 
 /// The plan transform of the last build, so plan items (including ones added

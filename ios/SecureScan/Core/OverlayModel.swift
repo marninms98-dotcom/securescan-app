@@ -36,6 +36,30 @@ struct OverlayMark: Identifiable, Equatable {
         case areaDraft
         /// The reading being typed (frozen at the captured point).
         case readingDraft
+        /// Cabinetry to remove: a box (points = its 8 corners, bottom 4 then top 4).
+        case cabinet
+        /// The component under the reticle before any tap (docs/MARKING.md B).
+        case hover(HoverKind)
+        /// Moisture extent on a wall: blue wash from the floor (`floorLevel`) up to the tide line
+        /// (points = the tide line, wall order) with a wavy top edge.
+        case moistureWash
+        /// A small glass readout at a point ("0.6 m to wall end", "600 mm").
+        case readout
+        /// An air mover's coverage on the floor (points = [unit], airflow = direction).
+        case airflowCone
+    }
+
+    enum HoverKind: Equatable {
+        /// A wall's base edge (points = the two ends at floor level).
+        case skirting
+        /// A wall face (points = the quad), white; `faceBlue` in moisture's colour.
+        case face, faceBlue
+        /// An object's box (8 corners).
+        case box
+        /// A room's floor (outline).
+        case floor
+        /// A water-entry candidate (points = [the point]); `selected` = the one hovered.
+        case ring
     }
 
     var id: String
@@ -59,6 +83,18 @@ struct OverlayMark: Identifiable, Equatable {
     var modelHeight: Double? = nil
     /// A draft drawn in strip-out red instead of the accent.
     var removal = false
+    /// Flooring: "carpet" | "vinyl" | "timber" | "tile" (the pattern); nil = plain.
+    var floorType: String? = nil
+    /// Moisture wash: the floor's height (world y).
+    var floorLevel: Double? = nil
+    /// Water source: confirmed (solid) rather than suspected (outlined ripple).
+    var confirmed = false
+    /// Strip-back: the cut line's handle is shown (it can be dragged).
+    var handle = false
+    /// Wall-attached marks: the wall and the side they are on ("a" / "b" by the wall's normal,
+    /// "cavity" = inside the wall, shown on whichever face you look at). docs/MARKING.md H.
+    var wallId: String? = nil
+    var side: String? = nil
 }
 
 enum OverlayBuild {

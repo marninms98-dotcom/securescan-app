@@ -90,6 +90,8 @@ enum JobProcessor {
             pb.end = PBPose(cameraPosition: ec, cameraForward: ef, hit: v(r.endHit))
         }
         pb.heightMm = r.heightMm
+        pb.status = r.status
+        pb.side = r.side
         pb.corners = (r.corners ?? []).compactMap { c -> PBPose? in
             guard c.count >= 6 else { return nil }
             return PBPose(cameraPosition: WorldVec(c[0], c[1], c[2]), cameraForward: WorldVec(c[3], c[4], c[5]),

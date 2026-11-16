@@ -82,6 +82,8 @@ final class ScanViewController: UIViewController, RoomCaptureViewDelegate, RoomC
     var liveWorld: CaptureWorld {
         var w = finished
         w.walls += live.walls
+        w.openings += live.openings
+        w.objects += live.objects
         w.rooms += live.rooms
         w.floorY = live.floorY ?? finished.floorY
         return w
@@ -149,7 +151,8 @@ final class ScanViewController: UIViewController, RoomCaptureViewDelegate, RoomC
     private func roomUpdated(_ room: CapturedRoom) {
         let name = model?.roomName ?? "Room"
         let r = ScanWorld.from(room, name: name, idPrefix: "live\(model?.roomsDone ?? 0)-")
-        live = CaptureWorld(floorY: r.floorY ?? live.floorY, walls: r.walls, rooms: r.room.map { [$0] } ?? [])
+        live = CaptureWorld(floorY: r.floorY ?? live.floorY, walls: r.walls, rooms: r.room.map { [$0] } ?? [],
+                            openings: r.openings, objects: r.objects)
         sections = ScanWorld.sectionLabels(room)
         if structure.add(ScanWorld.structureIds(room)) > 0 { DS.Haptic.structure() }
     }
@@ -158,6 +161,8 @@ final class ScanViewController: UIViewController, RoomCaptureViewDelegate, RoomC
         let n = model?.roomsDone ?? 0
         let r = ScanWorld.from(room, name: model?.roomName ?? "Room", idPrefix: "room\(n)-")
         finished.walls += r.walls
+        finished.openings += r.openings
+        finished.objects += r.objects
         if let rr = r.room { finished.rooms.append(rr) }
         finished.floorY = r.floorY ?? finished.floorY
         live = .empty
