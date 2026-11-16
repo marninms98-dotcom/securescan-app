@@ -17,7 +17,8 @@ jobs:
   build-and-test:
     # macos-26 ships Xcode 26.x (Xcode 27 is a separate "xcode-27" image).
     runs-on: macos-26
-    timeout-minutes: 40
+    # Every Studio scene, the app shell, sync and the 3D tab: about 45 minutes.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
