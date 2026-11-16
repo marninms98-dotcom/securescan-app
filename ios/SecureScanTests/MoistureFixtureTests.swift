@@ -100,7 +100,7 @@ enum MoistFixtures {
         return input
     }
 
-    static func floorSource(_ id: String = "s1", _ p: MoistVec, _ type: MoistSourceType = .flexiHose, intensity: Double? = nil) -> MoistSource {
+    static func floorSource(_ p: MoistVec, type: MoistSourceType = .flexiHose, id: String = "s1", intensity: Double? = nil) -> MoistSource {
         var s = MoistSource(id: id, label: type.rawValue, type: type, pos: p)
         if let i = intensity { s.intensity = i; s.intensityFixed = true }
         return s
@@ -140,7 +140,7 @@ enum MoistFixtures {
             MoistFloorZone(id: "f4", polygon: input.rooms[3].polygon, covering: .tile),
             MoistFloorZone(id: "f5", polygon: input.rooms[4].polygon, covering: .carpet),
         ]
-        input.sources = [floorSource("s1", MoistVec(8.4, 0.6), .appliance)]
+        input.sources = [floorSource(MoistVec(8.4, 0.6), type: .appliance)]
         input.readings = [floorReading("m1", MoistVec(8.0, 1.0), 32), floorReading("m2", MoistVec(6.0, 2.0), 22),
                           floorReading("m3", MoistVec(3.0, 2.0), 11), floorReading("m4", MoistVec(7.7, 5.5), 10),
                           floorReading("m5", MoistVec(5.5, 3.6), 12), floorReading("m6", MoistVec(6.0, 0.5), 25)]
