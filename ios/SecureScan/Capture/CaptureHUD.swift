@@ -107,7 +107,8 @@ struct CaptureHUD: View {
                 recordButton
                 OutlineCircle("xmark", label: "Close") { hud.engine.requestClose() }
             }
-            title.padding(.horizontal, 104)
+            // Clear of the side buttons (the recording timer is wider than the mic).
+            title.padding(.horizontal, hud.display.recordingSince == nil ? 104 : 136)
         }
     }
 
@@ -510,7 +511,8 @@ struct ReticleView: View {
     var body: some View {
         let locked = aim.hit != nil
         ZStack {
-            Circle().stroke(Color.black.opacity(0.4), lineWidth: 1.5).frame(width: 36, height: 36)
+            // Dark either side of the white ring, so it holds on a white wall.
+            Circle().stroke(Color.black.opacity(0.45), lineWidth: 4.5).frame(width: 32, height: 32)
             Circle()
                 .stroke(Color.white, style: StrokeStyle(lineWidth: 2, dash: locked ? [] : [4, 4]))
                 .frame(width: 32, height: 32)
