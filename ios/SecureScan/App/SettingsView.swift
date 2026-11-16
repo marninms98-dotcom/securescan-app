@@ -36,7 +36,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                SyncSettingsSection()  // SecureSuite sync hook: account
                 Section {
                     Toggle("Show prices", isOn: Binding(get: { showPrices }, set: { on in
                         if on {

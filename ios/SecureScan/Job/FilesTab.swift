@@ -15,7 +15,6 @@ struct FilesTab: View {
 
     var body: some View {
         List {
-            SyncStatusSection(jobID: vm.jobID)  // SecureSuite sync hook: status line
             Section("Job") {
                 fact("Address", vm.meta?.displayAddress ?? "–")
                 if let ref = vm.meta?.jobRef, !ref.isEmpty { fact("Job / claim ref", ref) }

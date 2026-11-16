@@ -11,7 +11,6 @@ import RoomPlan
 
 struct JobsListView: View {
     @ObservedObject private var store = JobStore.shared
-    @ObservedObject private var cloud = SyncCenter.shared  // SecureSuite sync hook
     @StateObject private var summaries = JobSummaries()
     @State private var path: [UUID] = []
     @State private var search = ""
@@ -42,7 +41,7 @@ struct JobsListView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if store.jobs.isEmpty && cloud.remoteOnly(localIDs: []).isEmpty {  // SecureSuite sync hook: cloud jobs show in the list
+                if store.jobs.isEmpty {
                     emptyState
                 } else {
                     list
@@ -104,7 +103,7 @@ struct JobsListView: View {
             ForEach(filtered) { job in
                 Section {
                     NavigationLink(value: job.id) {
-                        JobCard(job: job, summary: summaries.byID[job.id], thumbsVersion: summaries.thumbsVersion)
+                        JobCard(job: job, summary: summaries.byID[job.id])
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) { deleteCandidate = job } label: {
@@ -118,9 +117,7 @@ struct JobsListView: View {
                     }
                 }
             }
-            // SecureSuite sync hook: jobs saved from other phones, not on this one.
-            CloudJobsSection(localIDs: Set(store.jobs.map(\.id)), search: search) { id in store.reload(); path.append(id) }
-            if filtered.isEmpty && !search.isEmpty {
+            if filtered.isEmpty {
                 Section {
                     Text("No job matches “\(search)”.")
                         .font(DS.Font.callout)
@@ -265,8 +262,6 @@ struct JobsListView: View {
 struct JobCard: View {
     let job: JobMeta
     let summary: JobSummary?
-    /// Changes when thumbnails are re-rendered (forces the image to reload).
-    var thumbsVersion = 0
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -291,33 +286,18 @@ struct JobCard: View {
         .padding(.vertical, 6)
     }
 
-    /// The 3D dollhouse (thumb3d.png), else the plan drawing, else a placeholder.
     private var thumbnail: some View {
-        let folder = JobFiles.folder(for: job.id)
-        let dollhouse = UIImage(contentsOfFile: Dollhouse.thumbURL(folder).path)
-        return ZStack {
-            if let dollhouse {
-                Color(uiColor: Dollhouse.canvas)
-                Image(uiImage: dollhouse).resizable().scaledToFill()
-            } else if let img = UIImage(contentsOfFile: folder.thumbURL.path) {
-                Color.white
+        ZStack {
+            Color.white
+            if let img = UIImage(contentsOfFile: JobFiles.folder(for: job.id).thumbURL.path) {
                 Image(uiImage: img).resizable().scaledToFit().padding(5)
             } else {
-                Color(uiColor: Dollhouse.canvas)
-                Image(systemName: "cube.transparent").font(.system(size: 24)).foregroundStyle(.tertiary)
+                Image(systemName: "square.dashed").font(.system(size: 22)).foregroundStyle(.tertiary)
             }
         }
-        .id(thumbsVersion)
-        .frame(width: 96, height: 96)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
-        .overlay(alignment: .topTrailing) {
-            // Cloud state on the thumbnail's corner (like a photo library badge).
-            ThumbSyncBadge(jobID: job.id) {
-                SyncGlyph(jobID: job.id)  // SecureSuite sync hook
-            }
-            .padding(5)
-        }
+        .frame(width: 64, height: 64)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.primary.opacity(0.08), lineWidth: 1))
     }
 
     private var facts: String {
@@ -354,23 +334,6 @@ struct JobCard: View {
         if cal.isDateInToday(d) { return "Today" }
         if cal.isDateInYesterday(d) { return "Yesterday" }
         return d.formatted(.dateTime.day().month(.abbreviated))
-    }
-}
-
-/// A white disc behind the sync glyph, shown only when the job has a sync state.
-struct ThumbSyncBadge<Glyph: View>: View {
-    let jobID: UUID
-    @ViewBuilder let glyph: () -> Glyph
-    @ObservedObject private var center = SyncCenter.shared
-
-    var body: some View {
-        if center.status(jobID) != .off {
-            glyph()
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(Color(.systemBackground)))
-                .overlay(Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
-                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
-        }
     }
 }
 

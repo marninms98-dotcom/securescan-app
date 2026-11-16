@@ -5,9 +5,6 @@
 #   ASC_KEY_ID      - App Store Connect API key ID
 #   ASC_ISSUER_ID   - App Store Connect issuer ID (same page as the key)
 #   ASC_KEY_P8      - the full text of the downloaded AuthKey_XXXX.p8 file
-# Optional, for SecureSuite sync (docs/SYNC.md; empty = the app stays local only):
-#   SUPABASE_URL      - https://<project>.supabase.co
-#   SUPABASE_ANON_KEY - the project's publishable (anon) key
 # The key needs the Admin role so Xcode can create the distribution certificate
 # and profile in the cloud. Nothing here stores or prints the key.
 name: TestFlight
@@ -61,9 +58,6 @@ jobs:
           KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ISSUER: ${{ secrets.ASC_ISSUER_ID }}
           KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          # SecureSuite sync (docs/SYNC.md). Optional: without them the build is local only.
-          SB_URL: ${{ secrets.SUPABASE_URL }}
-          SB_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -o pipefail
           KEYFILE="$RUNNER_TEMP/AuthKey_$KEY_ID.p8"
@@ -79,13 +73,10 @@ jobs:
           print("-----END PRIVATE KEY-----")
           print("key body length:", len(body), file=sys.stderr)
           ' > "$KEYFILE"
-          if [ -n "$SB_URL" ] && [ -n "$SB_KEY" ]; then echo "SecureSuite sync: on";
-          else echo "::notice::SUPABASE_URL / SUPABASE_ANON_KEY not set - this build has no SecureSuite sync (local only)."; fi
           AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEYFILE" -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER")
           xcodebuild archive -project SecureScan.xcodeproj -scheme SecureScan -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/SecureScan.xcarchive" \
-            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic SUPABASE_URL="$SB_URL" SUPABASE_ANON_KEY="$SB_KEY" \
-            "${AUTH[@]}" | tail -40
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic "${AUTH[@]}" | tail -40
           cat > "$RUNNER_TEMP/export.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
