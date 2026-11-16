@@ -44,21 +44,31 @@ enum MoistSolver {
         scale[MoistGrid.LinkClass.floor.rawValue] = params.floorSpread * params.floorSpread
         scale[MoistGrid.LinkClass.faceUp.rawValue] = params.rise * params.rise
         scale[MoistGrid.LinkClass.lining.rawValue] = params.lining
-        var inFrom = Array(repeating: 0, count: g.inLink.count)
-        var inK = Array(repeating: 0.0, count: g.inLink.count)
+        let m = g.inFrom.count
+        var inK = Array(repeating: 0.0, count: m)
         var out = Array(repeating: 0.0, count: n)
-        for p in 0..<g.inLink.count {
-            let l = g.links[g.inLink[p]]
-            let k = l.k0 * scale[l.cls.rawValue] + l.kg
-            inFrom[p] = l.from
-            inK[p] = k
-            out[l.from] += k
+        g.inFrom.withUnsafeBufferPointer { F in
+            g.inK0.withUnsafeBufferPointer { K0 in
+                g.inKg.withUnsafeBufferPointer { KG in
+                    g.inClass.withUnsafeBufferPointer { C in
+                        inK.withUnsafeMutableBufferPointer { K in
+                            out.withUnsafeMutableBufferPointer { O in
+                                for p in 0..<m {
+                                    let k = K0[p] * scale[C[p]] + KG[p]
+                                    K[p] = k
+                                    O[F[p]] += k
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         let s = hours > 0 ? 1 / hours : 0
         var denom = Array(repeating: 1.0, count: n)
         var om = Array(repeating: 1.0, count: n)
         for i in 0..<n { denom[i] = out[i] + g.cells[i].dryRate + s; om[i] = omega(g.cells[i].surface) }
-        return MoistConductance(inFrom: inFrom, inK: inK, denom: denom, omega: om)
+        return MoistConductance(inFrom: g.inFrom, inK: inK, denom: denom, omega: om)
     }
 
     // MARK: Free water
@@ -113,7 +123,7 @@ enum MoistSolver {
             let hc = hops[c]
             guard hc < limit else { continue }
             for p in g.inStart[c]..<g.inStart[c + 1] {
-                let j = g.links[g.inLink[p]].from
+                let j = g.inFrom[p]
                 if hops[j] == Int.max { hops[j] = hc + 1; queue.append(j) }
             }
         }
@@ -124,7 +134,7 @@ enum MoistSolver {
 
     /// Projected SOR. `pin[i] >= 0` fixes a cell (then kept inside [lo, hi]).
     static func solve(_ g: MoistGrid, _ k: MoistConductance, pin: [Double], lo: [Double], hi: [Double],
-                      initial: [Double]?, active: [Bool], maxIterations: Int, tolerance: Double) -> (w: [Double], iterations: Int) {
+                      initial: [Double]?, active: [Bool], maxIterations: Int, tolerance: Double) -> (w: [Double], iterations: Int, work: Int) {
         let n = g.count
         var w = initial ?? Array(repeating: 0.0, count: n)
         var order: [Int] = []
@@ -140,6 +150,8 @@ enum MoistSolver {
             }
         }
         var iterations = 0
+        var degree = 0
+        for i in order { degree += g.inStart[i + 1] - g.inStart[i] }
         w.withUnsafeMutableBufferPointer { W in
             k.inK.withUnsafeBufferPointer { K in
                 k.inFrom.withUnsafeBufferPointer { F in
@@ -176,7 +188,7 @@ enum MoistSolver {
                 }
             }
         }
-        return (w, iterations)
+        return (w, iterations, iterations * degree)
     }
 }
 

@@ -238,8 +238,10 @@ is pulled into the reading's interval with a smoothstep falloff (1 at the readin
 - totals: wall lining m², floor m² (per covering), skirting lm — each
   measured / estimated / scoper — and cavity lm;
 - **suggestions** (never decisions): `stripLining` per wet run on a lining face
-  (extended 300 mm each side, cut = tide line + 300 mm rounded up to
-  600 / 900 / 1200; above that the note says to measure higher), `removeSkirting`
+  (extended 300 mm each side, cut = the run's typical tide height — 80th
+  percentile of its columns, so one damp stripe doesn't set the cut for the
+  whole wall — + 300 mm, rounded up to 600 / 900 / 1200; a local peak above the
+  cut is named in the note, and above 1.2 m the note says to measure higher), `removeSkirting`
   runs, `liftFlooring` (carpet + underlay over the wet outline), `inspectCavity`
   (tiled faces, or wet inside a wall with no face suggested). Each suggestion
   carries the confidence of the area it comes from;

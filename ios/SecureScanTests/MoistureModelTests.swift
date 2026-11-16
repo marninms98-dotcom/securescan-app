@@ -251,11 +251,16 @@ final class MoistureModelTests: XCTestCase {
         print(MoistDebug.summary(r, rep))
         #if DEBUG
         print(MoistDebug.floor(r))
-        // Unoptimised test build on a CI simulator; the phone target is < 50 ms in a release build.
-        XCTAssertLessThan(ms, 4000)
+        // An unoptimised test build on a shared CI simulator: wall-clock time there varies
+        // ten-fold from run to run, so only a sanity bound. The cost is pinned down by the
+        // machine-independent counts below; the phone target is < 50 ms in a release build.
+        XCTAssertLessThan(ms, 30000)
         #else
         XCTAssertLessThan(ms, 50)
         #endif
+        XCTAssertLessThanOrEqual(r.fit.evaluations, 45)
+        XCTAssertLessThan(r.iterations, input.options.maxIterations, "final solve converged")
+        XCTAssertLessThan(r.work, 60_000_000, "link visits")
         XCTAssertGreaterThan(r.grid.count, 10000)
         XCTAssertGreaterThan(rep.totals.floor.total, 1)
         XCTAssertLessThan(r.wetness(floor: MoistVec(3.0, 2.0)) ?? 1, MoistScale.dampLevel)

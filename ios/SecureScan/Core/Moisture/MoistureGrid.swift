@@ -123,9 +123,13 @@ final class MoistGrid {
     private(set) var ny = 0
     private var floorIndex: [Int] = []
 
-    // Diffusion links grouped by receiving cell (CSR).
+    // Diffusion links grouped by receiving cell (CSR), with each link's data laid out flat.
     private(set) var inStart: [Int] = []
     private(set) var inLink: [Int] = []
+    private(set) var inFrom: [Int] = []
+    private(set) var inK0: [Double] = []
+    private(set) var inKg: [Double] = []
+    private(set) var inClass: [Int] = []
     // Free-water edges grouped by sending cell (CSR).
     private(set) var flowStart: [Int] = []
     private(set) var flowTo: [Int] = []
@@ -505,6 +509,10 @@ final class MoistGrid {
         inLink = Array(repeating: 0, count: links.count)
         var fill = countIn
         for (e, l) in links.enumerated() { inLink[fill[l.to]] = e; fill[l.to] += 1 }
+        inFrom = inLink.map { links[$0].from }
+        inK0 = inLink.map { links[$0].k0 }
+        inKg = inLink.map { links[$0].kg }
+        inClass = inLink.map { links[$0].cls.rawValue }
 
         var countOut = Array(repeating: 0, count: n + 1)
         for f in flows { countOut[f.0 + 1] += 1 }

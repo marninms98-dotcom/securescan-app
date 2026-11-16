@@ -260,7 +260,7 @@ struct MoistOptions: Equatable {
     /// Readings pull cells within this radius (same surface).
     var readingRadius: Double = 0.4
     var maxIterations: Int = 220
-    var fitIterations: Int = 80
+    var fitIterations: Int = 60
 }
 
 struct MoistThresholds: Equatable {

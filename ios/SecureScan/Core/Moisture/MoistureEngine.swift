@@ -124,6 +124,8 @@ final class MoistResult {
     let constraints: [MoistConstraint]
     let iterations: Int
     var timings: [String: Double] = [:]
+    /// Link visits by every solve of this run (fit + final): a machine-independent measure of cost.
+    var work = 0
 
     init(input: MoistInput, grid: MoistGrid, wetness: [Double], provenance: [MoistProvenance], scale: MoistScale,
          params: MoistParams, hours: Double, sources: [MoistResolvedSource], fit: MoistFitReport, hints: [MoistSourceHint],
@@ -357,6 +359,7 @@ enum MoistModel {
         var objective: Double
         var misfit: Double
         var iterations: Int
+        var work: Int
     }
 
     struct Problem {
@@ -397,7 +400,7 @@ enum MoistModel {
             let v = c.violation(r.w[cell])
             misfit += c.weight * v * v
         }
-        return Evaluation(w: r.w, objective: misfit + prior, misfit: misfit, iterations: r.iterations)
+        return Evaluation(w: r.w, objective: misfit + prior, misfit: misfit, iterations: r.iterations, work: r.work)
     }
 
     // MARK: Run
@@ -459,6 +462,7 @@ enum MoistModel {
         var best = evaluate(PC, params: params, volumes: vols, prior: prior(theta), warm: nil, iterations: opt.fitIterations * 2)
         let before = best.objective
         var evals = 1
+        var work = best.work
         let fitWanted = opt.fit && !sources.isEmpty && cons.contains(where: { $0.useInFit })
         if fitWanted && best.misfit > 1e-4 {
             for (si, step) in [0.8, 0.4, 0.2].enumerated() {
@@ -472,6 +476,7 @@ enum MoistModel {
                             let (p, v) = decode(t)
                             let e = evaluate(PC, params: p, volumes: v, prior: prior(t), warm: best.w, iterations: opt.fitIterations)
                             evals += 1
+                            work += e.work
                             if e.objective < best.objective - 1e-7 { theta = t; best = e; improved = true; break }
                         }
                     }
@@ -555,6 +560,7 @@ enum MoistModel {
                                  sources: sources, fit: MoistFitReport(fitted: fitWanted, objectiveBefore: before, objective: best.objective,
                                                                        evaluations: evals, checks: checks),
                                  hints: hints, constraints: cons, iterations: solved.iterations)
+        result.work = work + solved.work
         result.timings = ["build": tBuild.timeIntervalSince(t0) * 1000, "fit": tFit.timeIntervalSince(tBuild) * 1000,
                           "hints": tHints.timeIntervalSince(tFit) * 1000, "solve": tSolve.timeIntervalSince(tHints) * 1000,
                           "total": tSolve.timeIntervalSince(t0) * 1000]

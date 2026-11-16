@@ -70,7 +70,8 @@ enum MoistDebug {
     static func summary(_ r: MoistResult, _ rep: MoistReport) -> String {
         var s = String(format: "Moisture model: %ld cells, %ld iterations, hours %.0f, fitted %@ (objective %.4f -> %.4f, %ld solves)\n",
                        r.grid.count, r.iterations, r.hours, r.fit.fitted ? "yes" : "no", r.fit.objectiveBefore, r.fit.objective, r.fit.evaluations)
-        s += String(format: "  params: floor x%.2f, rise x%.2f, lining x%.2f\n", r.params.floorSpread, r.params.rise, r.params.lining)
+        s += String(format: "  params: floor x%.2f, rise x%.2f, lining x%.2f; work %.1f M link visits\n",
+                    r.params.floorSpread, r.params.rise, r.params.lining, Double(r.work) / 1e6)
         for src in r.sources {
             s += String(format: "  source %@ (%@, %@): %.2f L\n", src.source.id, src.source.type.rawValue,
                         src.loc?.surface.rawValue ?? "not placed", r.params.volumes[src.source.id] ?? src.litres)
