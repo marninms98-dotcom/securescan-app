@@ -26,8 +26,19 @@ struct MarkerInfo {
     var label: String?
     var color: UIColor
     var position: SIMD3<Float>
-    /// Labels of nearby markers are stacked: 0 = lowest.
-    var level: Int = 0
+    /// Label order when space is short: higher first (wet > damp > dry).
+    var priority: Int = 0
+    /// Where the screen label points (default: the marker itself).
+    var labelAnchor: SIMD3<Float>? = nil
+}
+
+/// A label drawn over the 3D view (screen space).
+struct ScreenLabel: Identifiable, Equatable {
+    var id: String
+    var text: String
+    var color: UIColor
+    var frame: CGRect
+    var selected: Bool
 }
 
 struct MoistureLine3D {
@@ -44,6 +55,8 @@ struct SceneContent {
     var wallBands: [(a: PlanVec, b: PlanVec, top: Double, done: Bool)] = []
     /// Lifted flooring: outline, done.
     var floorAreas: [(poly: [PlanVec], done: Bool)] = []
+    /// Drying equipment as 3D models (EquipmentModels): type, floor point, yaw (0 = +Z), airflow arrow.
+    var equipment: [(type: String, position: SIMD3<Float>, yaw: Float, flow: Bool)] = []
     var error: String?
 }
 
@@ -79,6 +92,9 @@ final class ModelViewModel: ObservableObject {
     @Published var hidden: Set<ModelLayer> = []
     @Published var measuring = false
     @Published var measureText: String?
+    /// Screen labels, laid out after every camera move.
+    @Published private(set) var labels: [ScreenLabel] = []
+    @Published var selectedID: String? { didSet { relayout() } }
 
     private(set) var scene: SCNScene?
     private(set) var rooms: [Dollhouse.Room] = []
@@ -91,6 +107,10 @@ final class ModelViewModel: ObservableObject {
     private var measurePoints: [SIMD3<Float>] = []
     private var loadedVersion: Int?
     private var folder: JobFolder?
+    /// Every label's anchor and what it says.
+    private struct Anchor { var id: String; var point: SIMD3<Float>; var layer: ModelLayer; var text: String
+                            var color: UIColor; var priority: Int; var onlyWhenSelected: Bool; var size: CGSize }
+    private var anchors: [Anchor] = []
 
     func load(folder: JobFolder, version: Int) {
         guard loadedVersion != version else { return }
@@ -127,7 +147,8 @@ final class ModelViewModel: ObservableObject {
         for line in content.lines { layers[.lines]!.addChildNode(Self.lineNode(line, scale: scale)) }
         for b in content.wallBands { layers[.removals]!.addChildNode(Self.wallBandNode(b.a, b.b, top: b.top, done: b.done)) }
         for f in content.floorAreas { if let n = Self.floorAreaNode(f.poly, done: f.done) { layers[.removals]!.addChildNode(n) } }
-        for m in content.markers {
+        anchors = []
+        for (i, m) in content.markers.enumerated() {
             let layer: ModelLayer
             switch m.kind {
             case "equipment": layer = .equipment
@@ -135,7 +156,19 @@ final class ModelViewModel: ObservableObject {
             case "boundary": layer = .lines
             default: layer = .readings
             }
-            layers[layer]!.addChildNode(Self.markerNode(m, scale: scale))
+            // Equipment is drawn as its 3D model (below); the marker only carries the label.
+            if m.kind != "equipment" { layers[layer]!.addChildNode(Self.markerNode(m, scale: scale)) }
+            if let text = m.label {
+                anchors.append(Anchor(id: "m\(i)", point: m.labelAnchor ?? m.position, layer: layer, text: text, color: m.color,
+                                      priority: m.priority, onlyWhenSelected: m.kind == "equipment", size: Self.labelSize(text)))
+            }
+        }
+        for e in content.equipment {
+            let n = EquipmentModels.model(e.type)
+            if e.flow { n.addChildNode(EquipmentModels.airflow()) }
+            n.simdPosition = e.position
+            n.simdEulerAngles = [0, e.yaw, 0]
+            layers[.equipment]!.addChildNode(n)
         }
         for l in ModelLayer.allCases where l != .furniture {
             layers[l]!.enumerateHierarchy { n, _ in n.categoryBitMask = Dollhouse.markupCategory }
@@ -161,6 +194,59 @@ final class ModelViewModel: ObservableObject {
 
     private func applyLayers() {
         for (l, n) in layers { n.isHidden = hidden.contains(l) }
+        relayout()
+    }
+
+    // MARK: Screen labels
+
+    static let labelFont = UIFont.systemFont(ofSize: 13, weight: .semibold)
+
+    static func labelSize(_ text: String) -> CGSize {
+        let w = (text as NSString).size(withAttributes: [.font: labelFont]).width
+        return CGSize(width: ceil(w) + 32, height: 24)      // dot + padding
+    }
+
+    /// Where the floating controls are (labels keep clear of them).
+    private func controlRects(_ size: CGSize) -> [CGRect] {
+        var r = [CGRect(x: 0, y: 0, width: 168, height: 132),                     // Orbit / Plan, Layers
+                 CGRect(x: size.width - 76, y: 0, width: 76, height: 256)]        // the right column
+        if measuring { r.append(CGRect(x: size.width / 2 - 120, y: size.height - 72, width: 240, height: 72)) }
+        return r
+    }
+
+    /// Projects every anchor and places the labels (called after camera moves).
+    func relayout() {
+        guard let v = view, ready, v.bounds.width > 0 else { if !labels.isEmpty { labels = [] }; return }
+        var items: [LabelLayout.Item] = []
+        for a in anchors where !hidden.contains(a.layer) {
+            if a.onlyWhenSelected && a.id != selectedID { continue }
+            let p = v.projectPoint(SCNVector3(a.point.x, a.point.y, a.point.z))
+            let pt = CGPoint(x: CGFloat(p.x), y: CGFloat(p.y))
+            let visible = p.z > 0 && p.z < 1 && v.bounds.contains(pt)
+            items.append(LabelLayout.Item(id: a.id, anchor: pt, size: a.size,
+                                          priority: a.priority + (a.id == selectedID ? 100 : 0), onScreen: visible))
+        }
+        let frames = LabelLayout.layout(items, in: v.bounds.insetBy(dx: 6, dy: 6), obstacles: controlRects(v.bounds.size))
+        let byId = Dictionary(anchors.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let out = frames.compactMap { id, f -> ScreenLabel? in
+            guard let a = byId[id] else { return nil }
+            return ScreenLabel(id: id, text: a.text, color: a.color, frame: f, selected: id == selectedID)
+        }.sorted { $0.id < $1.id }
+        if out != labels { labels = out }
+    }
+
+    /// Tap (not measuring): select the nearest marker, or clear.
+    func select(at point: CGPoint) {
+        guard let v = view else { return }
+        var best: (String, CGFloat)?
+        for a in anchors where !hidden.contains(a.layer) {
+            let p = v.projectPoint(SCNVector3(a.point.x, a.point.y, a.point.z))
+            guard p.z > 0, p.z < 1 else { continue }
+            let d = hypot(CGFloat(p.x) - point.x, CGFloat(p.y) - point.y)
+            if d < 34, d < (best?.1 ?? .greatestFiniteMagnitude) { best = (a.id, d) }
+        }
+        if let l = labels.first(where: { $0.frame.insetBy(dx: -6, dy: -6).contains(point) }) { best = (l.id, 0) }
+        selectedID = best.map { $0.0 == selectedID ? nil : $0.0 } ?? nil
     }
 
     var aspect: Double {
@@ -168,14 +254,28 @@ final class ModelViewModel: ObservableObject {
         return Double(v.bounds.width / v.bounds.height)
     }
 
-    /// The default camera for the current mode, installed on the view.
+    /// The default camera for the current mode, installed on the view: the
+    /// model fills the free canvas, either below the right-hand button column
+    /// (full width) or beside it (full height), whichever shows it bigger.
     func resetView(animated: Bool = true) {
         guard let v = view, let scene else { return }
         let azimuth = ProcessInfo.processInfo.environment["SECURESCAN_3D_AZIMUTH"].flatMap { Double($0) } ?? 28
-        // Plan: leave the side columns of buttons clear.
-        let (cam, centre) = Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan, points: fitPoints,
-                                             azimuth: azimuth, margin: mode == .plan ? 0.66 : 0.8,
-                                             lift: mode == .plan ? 0.12 : 0.2, shiftLeft: 0.1)
+        let size = v.bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        let w = size.width, h = size.height
+        let below = CGRect(x: 0.05, y: min(0.6, 262 / h), width: 0.9, height: max(0.3, (h - 262 - 12) / h))
+        let beside = CGRect(x: 12 / w, y: 12 / h, width: (w - 12 - 80) / w, height: (h - 24) / h)
+        func make(_ rect: CGRect) -> (SCNNode, SIMD3<Float>) {
+            Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan, points: fitPoints,
+                             azimuth: azimuth, margin: 0.98, rect: rect)
+        }
+        let a = make(below), b = make(beside)
+        // Bigger on screen = closer camera (orbit) or smaller orthographic scale (plan).
+        func spread(_ c: (SCNNode, SIMD3<Float>)) -> Double {
+            if let cam = c.0.camera, cam.usesOrthographicProjection { return cam.orthographicScale }
+            return Double(simd_distance(c.0.simdPosition, c.1))
+        }
+        let (cam, centre) = spread(a) <= spread(b) ? a : b
         install(cam, centre: centre, in: v, scene: scene, animated: animated)
     }
 
@@ -195,6 +295,7 @@ final class ModelViewModel: ObservableObject {
             v.pointOfView = cam
         }
         configureController(v)
+        relayout()
     }
 
     func configureController(_ v: SCNView) {
@@ -249,6 +350,7 @@ final class ModelViewModel: ObservableObject {
     func toggleMeasure() {
         measuring.toggle()
         clearMeasure()
+        relayout()
     }
 
     func clearMeasure() {
@@ -258,7 +360,8 @@ final class ModelViewModel: ObservableObject {
     }
 
     func measureTap(at point: CGPoint) {
-        guard measuring, let v = view else { return }
+        guard measuring else { select(at: point); return }
+        guard let v = view else { return }
         let hits = v.hitTest(point, options: [.categoryBitMask: Dollhouse.solidCategory,
                                               .searchMode: SCNHitTestSearchMode.closest.rawValue])
         guard let hit = hits.first else { return }
@@ -285,12 +388,22 @@ final class ModelViewModel: ObservableObject {
             measureText = String(format: "%.2f m", len)
         }
         DS.Haptic.lock()
+        relayout()
     }
 
     // MARK: Share, AR
 
     func snapshotAndShare() {
-        guard let v = view, let data = v.snapshot().pngData() else { return }
+        guard let v = view else { return }
+        let base = v.snapshot()
+        let labels = self.labels
+        let composed = UIGraphicsImageRenderer(size: base.size).image { _ in
+            base.draw(in: CGRect(origin: .zero, size: base.size))
+            for l in labels {
+                if let img = Self.labelImage(l.text, accent: l.color) { img.draw(in: l.frame) }
+            }
+        }
+        guard let data = composed.pngData() else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("SecureScan-3D.png")
         do {
             try data.write(to: url, options: .atomic)
@@ -359,22 +472,32 @@ final class ModelViewModel: ObservableObject {
                 content.markers.append(MarkerInfo(kind: kind, label: n.map { "P\($0)" } ?? "P", color: .systemGray, position: pos))
             default:
                 var label = n.map { "R\($0)" } ?? "R"
-                if let v = PlanDocument.number(d["value"]) { label += " · \(ItemsModel.fmt(v))%" }
-                content.markers.append(MarkerInfo(kind: kind, label: label, color: status(d, damp: damp, wet: wet), position: pos))
+                let value = PlanDocument.number(d["value"])
+                if let v = value { label += " · \(ItemsModel.fmt(v))%" }
+                // Wet readings keep their labels first when space is short.
+                let priority = value.map { $0 >= wet ? 30 : ($0 >= damp ? 20 : 10) } ?? 5
+                content.markers.append(MarkerInfo(kind: kind, label: label, color: status(d, damp: damp, wet: wet), position: pos, priority: priority))
             }
         }
         for d in markup["sources"] as? [[String: Any]] ?? [] {
             guard let pos = place(d) else { continue }
             let text = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
-            content.markers.append(MarkerInfo(kind: "source", label: text.isEmpty ? "Source" : text, color: lineBlue, position: pos))
+            content.markers.append(MarkerInfo(kind: "source", label: text.isEmpty ? "Source" : text, color: lineBlue, position: pos, priority: 25))
         }
         for d in markup["equipment"] as? [[String: Any]] ?? [] {
             if let removed = d["removed"], !(removed is NSNull), (removed as? String)?.isEmpty != true { continue }
             guard let p = ScopeList.pt(d["pos"]) else { continue }
-            // No label: the teal unit reads as equipment, and its asset number
-            // (in Items) would cover the readings' labels.
-            content.markers.append(MarkerInfo(kind: "equipment", label: nil,
-                                              color: UIColor(DS.Color.equip), position: SIMD3(Float(p.x), 0.12, Float(p.y))))
+            let type = (d["type"] as? String) ?? "other"
+            let dir = PlanDocument.number(d["dir"])
+            // The unit as its 3D model; plan angle a -> yaw about +y with 0 = +Z.
+            content.equipment.append((type: type, position: SIMD3(Float(p.x), 0, Float(p.y)),
+                                      yaw: dir.map { a in Float(atan2(cos(a), sin(a))) } ?? 0, flow: dir != nil && type == "airMover"))
+            // Its label shows only when the unit is selected.
+            let label = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+            let name = PlanDocument.equipmentName(type)
+            let top = Float(EquipmentModels.height(type)) + 0.05
+            content.markers.append(MarkerInfo(kind: "equipment", label: label.isEmpty ? name : "\(label) · \(name)",
+                                              color: UIColor(DS.Color.equip), position: SIMD3(Float(p.x), top, Float(p.y)), priority: 0))
         }
         let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         for x in markup["removals"] as? [[String: Any]] ?? [] {
@@ -389,27 +512,12 @@ final class ModelViewModel: ObservableObject {
                 content.floorAreas.append((area, done))
             }
         }
-        stackLabels(&content.markers)
         for ids in MoistureLines.lines(marks) {
             let pts = ids.compactMap { byId[$0] }
             guard pts.count >= 2 else { continue }
             content.lines.append(MoistureLine3D(points: pts, floorY: pts.map { _ in 0 }))
         }
         return content
-    }
-
-    /// Gives each label the lowest level not used by an earlier label within
-    /// 0.8 m (horizontally), so neighbouring labels don't sit on top of each other.
-    nonisolated static func stackLabels(_ markers: inout [MarkerInfo]) {
-        var placed: [(SIMD2<Float>, Int)] = []
-        for i in markers.indices where markers[i].label != nil {
-            let p = SIMD2<Float>(markers[i].position.x, markers[i].position.z)
-            let used = Set(placed.filter { simd_distance($0.0, p) < 1.1 }.map { $0.1 })
-            var level = 0
-            while used.contains(level) { level += 1 }
-            markers[i].level = level
-            placed.append((p, level))
-        }
     }
 
     // MARK: Markup nodes (main)
@@ -452,22 +560,6 @@ final class ModelViewModel: ObservableObject {
             let facing = SCNNode()
             facing.constraints = [SCNBillboardConstraint()]
             facing.addChildNode(rn)
-            node.addChildNode(facing)
-        }
-        if let text = m.label, let image = labelImage(text, accent: m.color) {
-            let height = CGFloat(max(0.3, min(0.55, scale * 0.07)))
-            let plane = SCNPlane(width: height * image.size.width / image.size.height, height: height)
-            let lm = overlayMaterial(.white)
-            lm.diffuse.contents = image
-            plane.materials = [lm]
-            let labelNode = SCNNode(geometry: plane)
-            labelNode.name = "label"
-            labelNode.renderingOrder = 210
-            let lift = r * 1.6 + height / 2 + CGFloat(m.level) * height * 1.15
-            labelNode.position = SCNVector3(0, Float(lift), 0)
-            let facing = SCNNode()
-            facing.constraints = [SCNBillboardConstraint()]
-            facing.addChildNode(labelNode)
             node.addChildNode(facing)
         }
         return node
@@ -586,6 +678,7 @@ struct ModelTab: View {
             Color(uiColor: Dollhouse.canvas).ignoresSafeArea(edges: .horizontal)
             if model.ready {
                 SceneContainer(model: model)
+                labelLayer
                 controls
             } else if model.loading {
                 ProgressView()
@@ -595,6 +688,32 @@ struct ModelTab: View {
         }
         .onAppear { model.load(folder: vm.folder, version: vm.planVersion) }
         .onChange(of: vm.planVersion) { _, v in model.load(folder: vm.folder, version: v) }
+    }
+
+    /// Labels in screen space, laid out by LabelLayout after every camera move.
+    private var labelLayer: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(model.labels) { l in
+                HStack(spacing: 6) {
+                    Circle().fill(Color(uiColor: l.color)).frame(width: 8, height: 8)
+                    Text(l.text)
+                        .font(.system(size: 13, weight: .semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                .foregroundStyle(l.selected ? Color.white : DS.Color.ink)
+                .padding(.horizontal, 10)
+                .frame(width: l.frame.width, height: l.frame.height)
+                .background(Capsule().fill(l.selected ? DS.Color.ink : Color.white))
+                .overlay(Capsule().strokeBorder(Color.black.opacity(l.selected ? 0 : 0.1), lineWidth: 1))
+                .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                .position(x: l.frame.midX, y: l.frame.midY)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private var controls: some View {
@@ -718,6 +837,8 @@ struct SceneContainer: UIViewRepresentable {
         let single = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:)))
         single.require(toFail: double)
         v.addGestureRecognizer(single)
+        // Labels follow the camera.
+        v.delegate = context.coordinator
         // Frame once the view has its size.
         Task { @MainActor in model.resetView(animated: false) }
         return v
@@ -731,9 +852,37 @@ struct SceneContainer: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, SCNSceneRendererDelegate {
         let model: ModelViewModel
         init(model: ModelViewModel) { self.model = model }
+
+        private let lock = NSLock()
+        nonisolated(unsafe) private var last = simd_float4x4()
+        nonisolated(unsafe) private var lastScale = 0.0
+        nonisolated(unsafe) private var pending = false
+
+        /// Render thread: when the camera moved, lay the labels out again (coalesced).
+        nonisolated func renderer(_ renderer: SCNSceneRenderer, didRenderScene scene: SCNScene, atTime time: TimeInterval) {
+            guard let pov = renderer.pointOfView?.presentation else { return }
+            let t = pov.simdWorldTransform
+            let sc = pov.camera?.orthographicScale ?? 0
+            lock.lock()
+            let moved = t != last || sc != lastScale
+            if moved { last = t; lastScale = sc }
+            let schedule = moved && !pending
+            if schedule { pending = true }
+            lock.unlock()
+            guard schedule else { return }
+            let m = model
+            DispatchQueue.main.async { [weak self] in
+                self?.donePending()
+                MainActor.assumeIsolated { m.relayout() }
+            }
+        }
+
+        nonisolated private func donePending() {
+            lock.lock(); pending = false; lock.unlock()
+        }
 
         @objc func doubleTap(_ g: UITapGestureRecognizer) {
             guard let v = g.view else { return }

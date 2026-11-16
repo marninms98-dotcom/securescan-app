@@ -322,47 +322,95 @@ enum MarkIntent {
 
 // MARK: - Every word on the capture screen
 
+/// The capture modes, picked on the swipeable strip (Photo is not a mode: the shutter is always there).
 enum CaptureTool: String, CaseIterable, Equatable {
-    case reading, photo, mark, equipment, source, remeasure, done
+    case moisture, stripOut, equipment, source, remeasure
 
     var title: String {
         switch self {
-        case .reading: return "Reading"
-        case .photo: return "Photo"
-        case .mark: return "Mark"
+        case .moisture: return "Moisture"
+        case .stripOut: return "Strip-out"
         case .equipment: return "Equipment"
         case .source: return "Source"
         case .remeasure: return "Re-measure"
-        case .done: return "Done"
-        }
-    }
-
-    /// The rail's label: five equal tabs on a 393-402 pt phone leave ~63 pt for 13 pt text,
-    /// so the two long names are shortened rather than shrunk.
-    var railTitle: String {
-        switch self {
-        case .equipment: return "Equip."
-        case .remeasure: return "Measure"
-        default: return title
         }
     }
 
     var icon: String {
         switch self {
-        case .reading: return "humidity"
-        case .photo: return "camera"
-        case .mark: return "pencil.and.outline"
+        case .moisture: return "humidity"
+        case .stripOut: return "scissors"
         case .equipment: return "fan"
         case .source: return "drop"
         case .remeasure: return "arrow.triangle.2.circlepath"
-        case .done: return "checkmark.circle"
         }
     }
 
-    /// The rail: first visit has everything; return visits re-measure first.
-    static func rail(returnVisit: Bool, scopeOnSite: Bool = false) -> [CaptureTool] {
-        if scopeOnSite { return [.done, .equipment, .mark, .photo] }
-        return returnVisit ? [.remeasure, .photo, .done, .mark, .equipment] : [.reading, .photo, .mark, .equipment, .source]
+    /// The marks this mode draws (moisture lines and wet areas, or strip-out).
+    var markFamily: MarkFamily? {
+        switch self {
+        case .moisture: return .moisture
+        case .stripOut: return .stripOut
+        default: return nil
+        }
+    }
+
+    /// The mode strip: first visit, return visit, "See scope on site".
+    static func modes(returnVisit: Bool, scopeOnSite: Bool = false) -> [CaptureTool] {
+        if scopeOnSite { return [.equipment, .stripOut] }
+        return returnVisit ? [.remeasure, .moisture, .stripOut, .equipment] : [.moisture, .stripOut, .equipment, .source]
+    }
+
+    /// Kept for older call sites: the same list as `modes`.
+    static func rail(returnVisit: Bool, scopeOnSite: Bool = false) -> [CaptureTool] { modes(returnVisit: returnVisit, scopeOnSite: scopeOnSite) }
+}
+
+/// Which marks a mode draws.
+enum MarkFamily: Equatable { case moisture, stripOut }
+
+extension MarkIntent {
+    /// Strip-out: what the reticle's spot suggests (the sub-picker follows it until the user picks).
+    static func stripKind(_ p: MarkPoint?, remembered: [String: MarkMeaning] = [:]) -> MarkMeaning {
+        guard let p, p.surface != nil else { return .skirting }
+        if p.nearFloorLine { return .skirting }
+        switch p.surface {
+        case .floor?: return .liftFlooring
+        case .cabinet?, .benchtop?: return .cabinetry
+        default: return remembered["stripLine"] == .cabinetry ? .cabinetry : .wallLining
+        }
+    }
+
+    /// Strip-out marks saved without the tray (Undo is there): the ones with nothing to set.
+    static func savesDirectly(_ m: MarkMeaning) -> Bool { m == .skirting || m == .cabinetry || m == .moistureLine || m == .wetFloor }
+
+    /// Moisture mode: a line is a moisture line, an area a wet floor (no question).
+    /// Strip-out mode: by where it was aimed - skirting near the floor, wall lining higher up,
+    /// flooring for an area; two floor taps away from the walls ask "Skirting run or floor area?".
+    static func defaultMeaning(shape: MarkShape, points: [MarkPoint], family: MarkFamily,
+                               remembered: [String: MarkMeaning] = [:]) -> MarkMeaning? {
+        switch family {
+        case .moisture: return shape == .area ? .wetFloor : .moistureLine
+        case .stripOut:
+            if shape == .area { return .liftFlooring }
+            if points.allSatisfy(\.nearFloorLine) { return .skirting }
+            if points.allSatisfy({ $0.surface == .floor }) { return nil }
+            return remembered["stripLine"] == .cabinetry ? .cabinetry : .wallLining
+        }
+    }
+
+    /// The chips for a finished shape in a family (the default first).
+    static func options(shape: MarkShape, family: MarkFamily, default d: MarkMeaning?) -> [MarkMeaning] {
+        let all: [MarkMeaning]
+        switch (family, shape) {
+        case (.moisture, .line): all = [.moistureLine]
+        case (.moisture, .area): all = [.wetFloor]
+        case (.stripOut, .line): all = [.skirting, .wallLining, .cabinetry]
+        case (.stripOut, .area): all = [.liftFlooring]
+        }
+        guard let d, let i = all.firstIndex(of: d) else { return all }
+        var out = all
+        out.remove(at: i)
+        return [d] + out
     }
 }
 
@@ -436,13 +484,47 @@ enum CaptureCopy {
     /// Leak causes. "Unknown" is a choice the user makes, never a default.
     static let causes = ["Shower", "Flexi hose", "Pipe", "Roof", "Window", "Appliance", "Overflow", "Unknown"]
 
-    /// First-run help: one line per tool, shown until the tool is first used.
+    /// First-run help: one line per mode, on the instruction card until the mode is first used.
     static func coach(_ t: CaptureTool) -> String? {
         switch t {
-        case .reading: return "Aim where the meter touches"
-        case .mark: return "Tap start and end, or floor corners"
+        case .moisture: return "Aim at the spot you metered, then tap"
+        case .stripOut: return "Tap where it starts, then where it ends"
         case .equipment: return "Aim at the floor where it stands"
-        default: return nil
+        case .source: return "Aim where the water comes in, then tap"
+        case .remeasure: return "Aim at a saved point to measure it again"
+        }
+    }
+
+    /// "Tips" in the top bar: one line per mode.
+    static func tips(_ modes: [CaptureTool]) -> [(title: String, line: String)] {
+        modes.compactMap { m in coach(m).map { (m.title, $0) } }
+    }
+
+    static let snappedEnd = "Snapped to wall end"
+    static let aimAirflow = "Aim where the air should go"
+    static let twistHint = "Twist with two fingers to turn it"
+    static let wetLineStart = "Tap where the wet line starts"
+    static let wetAreaStart = "Tap the corners of the wet area"
+
+    /// The sub-picker under the viewport for each mode (empty = none).
+    static func subPicker(_ t: CaptureTool) -> [(key: String, title: String)] {
+        switch t {
+        case .moisture: return [("reading", "Reading"), ("line", "Line"), ("area", "Wet area")]
+        case .stripOut: return [("skirting", "Skirting"), ("wallLining", "Wall lining"), ("cabinetry", "Cabinets"), ("liftFlooring", "Floor")]
+        case .equipment: return [("airMover", "Air mover"), ("dehumidifier", "Dehumidifier"), ("airScrubber", "Scrubber"), ("heater", "Heater")]
+        case .source, .remeasure: return []
+        }
+    }
+
+    /// The top bar's second line: "Scanning · 2 readings", "Drying setup · 2 units".
+    static func subtitle(phase: String, tool: CaptureTool, readings: Int, marks: Int, units: Int, fixed: Bool) -> String {
+        if fixed { return phase }
+        func n(_ k: Int, _ one: String, _ many: String) -> String { k == 1 ? "1 \(one)" : "\(k) \(many)" }
+        switch tool {
+        case .moisture, .remeasure: return readings > 0 ? "\(phase) · \(n(readings, "reading", "readings"))" : phase
+        case .stripOut: return marks > 0 ? "\(phase) · \(n(marks, "item", "items"))" : phase
+        case .equipment: return units > 0 ? "Drying setup · \(n(units, "unit", "units"))" : "Drying setup"
+        case .source: return phase
         }
     }
 

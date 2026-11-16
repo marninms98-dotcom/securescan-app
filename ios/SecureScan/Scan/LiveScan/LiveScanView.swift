@@ -36,13 +36,14 @@ struct LiveScanView: View {
     }
 
     private var scanBody: some View {
-        ZStack(alignment: .top) {
-            LiveScanContainer(model: model, onStalled: { s in if stalled != s { stalled = s } }).ignoresSafeArea()
-            CaptureScreen(hud: model.hud)
-            if stalled && model.roomsDone == 0 {
-                SecondaryButton("No walls yet — use the classic scan", icon: "arrow.uturn.left") { requestClassic() }
-                    .dsSurface(.camera)
-                    .padding(.top, 64)
+        CaptureScreen(hud: model.hud) {
+            ZStack(alignment: .bottom) {
+                LiveScanContainer(model: model, onStalled: { s in if stalled != s { stalled = s } })
+                if stalled && model.roomsDone == 0 {
+                    SecondaryButton("No walls yet — use the classic scan", icon: "arrow.uturn.left") { requestClassic() }
+                        .dsSurface(.camera)
+                        .padding(.bottom, 120)
+                }
             }
         }
         .statusBarHidden()

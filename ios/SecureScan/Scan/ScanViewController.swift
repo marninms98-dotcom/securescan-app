@@ -46,6 +46,8 @@ final class ScanViewController: UIViewController, RoomCaptureViewDelegate, RoomC
     private var live = CaptureWorld.empty
     private var sections: [String] = []
     private(set) var coaching: String?
+    /// New walls / doors / windows / objects, for the scan's soft tick.
+    private var structure = StructureDiff()
     private var configuration: RoomCaptureSession.Configuration {
         var c = RoomCaptureSession.Configuration()
         c.isCoachingEnabled = true
@@ -68,7 +70,10 @@ final class ScanViewController: UIViewController, RoomCaptureViewDelegate, RoomC
         super.viewDidAppear(animated)
         if !started {
             started = true
-            startRoom()
+            // The camera runs (world tracking only) so the room can be framed; RoomPlan's
+            // capture starts with "Start" (ScanModel.startScan -> startRoom). The same
+            // ARSession carries on, as between rooms (stop(pauseARSession: false)).
+            if model?.started == true { startRoom() } else { roomCaptureView?.captureSession.arSession.run(ARWorldTrackingConfiguration()) }
         }
     }
 
@@ -89,6 +94,7 @@ final class ScanViewController: UIViewController, RoomCaptureViewDelegate, RoomC
     func startRoom() {
         live = .empty
         sections = []
+        structure.reset()
         roomCaptureView?.captureSession.run(configuration: configuration)
     }
 
@@ -145,6 +151,7 @@ final class ScanViewController: UIViewController, RoomCaptureViewDelegate, RoomC
         let r = ScanWorld.from(room, name: name, idPrefix: "live\(model?.roomsDone ?? 0)-")
         live = CaptureWorld(floorY: r.floorY ?? live.floorY, walls: r.walls, rooms: r.room.map { [$0] } ?? [])
         sections = ScanWorld.sectionLabels(room)
+        if structure.add(ScanWorld.structureIds(room)) > 0 { DS.Haptic.structure() }
     }
 
     private func roomFinished(_ room: CapturedRoom) {

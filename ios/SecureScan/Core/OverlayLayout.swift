@@ -17,11 +17,36 @@ import CoreGraphics
 import simd
 
 enum OverlayLayout {
-    /// Screen limits for labels (points): below the top bar, inside the side margins.
+    /// Limits for labels inside the camera viewport (points): below the instruction card,
+    /// above the sub-picker, inside the side margins.
     static let margin: CGFloat = 12
-    static let topLimit: CGFloat = 116
-    static let pinLift: CGFloat = 44
-    static let pinRadius: CGFloat = 15
+    static let topLimit: CGFloat = 60
+    static let bottomLimit: CGFloat = 64
+    static let pinLift: CGFloat = 0
+    static let pinRadius: CGFloat = 17
+
+    /// The 3D models' heights (m): air mover 0.40, dehumidifier 0.75, air scrubber 0.60, heater 0.40.
+    static func equipmentHeight(_ type: String) -> Double {
+        switch type {
+        case "dehumidifier": return 0.75
+        case "airScrubber": return 0.60
+        default: return 0.40
+        }
+    }
+
+    /// The words on a mark's tag as drawn: the noun first ("Skirting · 2.35 m"); equipment
+    /// adds its type ("AM-03 · Air mover"); reading tags only when selected.
+    static func displayTag(_ m: OverlayMark) -> String? {
+        switch m.style {
+        case .equipment(let type, _):
+            guard let t = m.tag, !t.isEmpty else { return nil }
+            return "\(t) · \(CaptureCopy.equipmentName(type))"
+        case .reading, .readingDraft:
+            return m.selected ? m.tag : nil
+        default:
+            return m.tag
+        }
+    }
 
     struct Pin: Equatable {
         var anchor: CGPoint          // the surface point
@@ -40,6 +65,8 @@ enum OverlayLayout {
         /// Tag capsules (key = mark id; the reticle label is "reticle").
         var labels: [String: CGRect] = [:]
         var reticle: CGRect = .zero
+        /// Glyphs that are 3D models' footprints: the reticle may sit on a model (aiming at it).
+        var models: Set<String> = []
 
         /// Everything that must not overlap anything else.
         var solids: [(String, CGRect)] {
@@ -55,7 +82,11 @@ enum OverlayLayout {
         func overlaps() -> [String] {
             var out: [String] = []
             let s = solids
+            let onModel: (String, String) -> Bool = { a, b in
+                a == "reticle-ring" && b.hasPrefix("glyph:") && models.contains(String(b.dropFirst(6)))
+            }
             for i in s.indices { for j in s.indices where j > i {
+                if onModel(s[i].0, s[j].0) || onModel(s[j].0, s[i].0) { continue }
                 if s[i].1.insetBy(dx: 0.5, dy: 0.5).intersects(s[j].1.insetBy(dx: 0.5, dy: 0.5)) { out.append("\(s[i].0) × \(s[j].0)") }
             } }
             for (k, a) in arrows { for (l, r) in labels where a.intersects(r) && l != k { out.append("arrow:\(k) × label:\(l)") } }
@@ -83,8 +114,10 @@ enum OverlayLayout {
         var plan = Plan()
         var obstacles: [CGRect] = []
         let centre = CGPoint(x: vp.width / 2, y: vp.height / 2)
-        plan.reticle = CGRect(x: centre.x - 16, y: centre.y - 16, width: 32, height: 32)
+        plan.reticle = CGRect(x: centre.x - 18, y: centre.y - 18, width: 36, height: 36)
         obstacles.append(plan.reticle)
+        // The torch and 0.5x at the right edge, mid-height: labels keep clear of them.
+        obstacles.append(edgeControls(vp))
 
         // 1. Glyphs and equipment boxes (fixed to their point), arrows' bounds.
         for m in marks {
@@ -100,14 +133,23 @@ enum OverlayLayout {
                     let sp = proj.projectPolygon(poly)
                     if sp.count >= 3 { plan.arrows[m.id] = bounds(sp.map(cg)) }
                 }
-                if m.id != "draft-airflow", let s = proj.project(p + WorldVec(0, 0.17, 0)) {
+                if let h = m.modelHeight {
+                    // The model's screen footprint: its box (0.6 m wide) from floor to top.
+                    let toUnit = WorldVec(p.x - proj.cameraPosition.x, 0, p.z - proj.cameraPosition.z)
+                    let side = simd_length(toUnit) > 1e-6 ? simd_normalize(WorldVec(-toUnit.z, 0, toUnit.x)) * 0.3 : WorldVec(0.3, 0, 0)
+                    let corners = [p - side, p + side, p - side + WorldVec(0, h, 0), p + side + WorldVec(0, h, 0)]
+                    let sp = corners.compactMap { proj.project($0) }
+                    if sp.count == 4 { plan.glyphs[m.id] = bounds(sp.map(cg)).insetBy(dx: 4, dy: 4) }
+                } else if m.id != "draft-airflow", let s = proj.project(p + WorldVec(0, 0.17, 0)) {
                     plan.glyphs[m.id] = CGRect(x: s.x - 17, y: s.y - 17, width: 34, height: 34)
                 }
             default: break
             }
         }
-        // Glyphs that land on each other (or on the reticle) step sideways.
-        for id in plan.glyphs.keys.sorted() {
+        // Glyphs that land on each other (or on the reticle) step sideways (3D models stay put).
+        let models = Set(marks.filter { $0.modelHeight != nil }.map(\.id))
+        plan.models = models
+        for id in plan.glyphs.keys.sorted() where !models.contains(id) {
             guard var r = plan.glyphs[id] else { continue }
             if r.intersects(plan.reticle) { r.origin.x = r.midX < plan.reticle.midX ? plan.reticle.minX - r.width - 6 : plan.reticle.maxX + 6 }
             for _ in 0..<4 {
@@ -124,7 +166,7 @@ enum OverlayLayout {
         for m in marks {
             switch m.style {
             case .reading, .readingDraft:
-                if let p = m.points.first, let s = proj.project(p) { pinIds.append((m.id, cg(s), m.tag)) }
+                if let p = m.points.first, let s = proj.project(p) { pinIds.append((m.id, cg(s), displayTag(m))) }
             default: break
             }
         }
@@ -166,7 +208,7 @@ enum OverlayLayout {
         // 4. Tags of lines, areas, glyphs and equipment.
         obstacles += plan.arrows.values
         for m in marks {
-            guard let text = m.tag else { continue }
+            guard let text = displayTag(m) else { continue }
             var anchor: CGPoint? = nil
             var below = false
             var leading = false
@@ -175,7 +217,10 @@ enum OverlayLayout {
             case .photo: if m.selected, let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - 2) }
             case .source: if let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - 3) }
             case .equipment:
-                if let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.maxY + 3); below = true }
+                if let g = plan.glyphs[m.id] {
+                    if m.modelHeight != nil { anchor = CGPoint(x: g.midX, y: g.minY - 6) }
+                    else { anchor = CGPoint(x: g.midX, y: g.maxY + 3); below = true }
+                }
             case .skirting, .lineDraft:
                 guard m.points.count >= 2, let seg = proj.projectSegment(m.points[0], m.points[1]) else { continue }
                 let (a, b) = clipToScreen(cg(seg.0), cg(seg.1), vp)
@@ -208,12 +253,17 @@ enum OverlayLayout {
         return plan
     }
 
+    /// Where the viewport's edge controls (torch, 0.5x) sit.
+    static func edgeControls(_ vp: CGSize) -> CGRect {
+        CGRect(x: vp.width - 66, y: vp.height / 2 - 84, width: 66, height: 168)
+    }
+
     /// The nearest free spot for a label: as asked, then stepping up / down, then sideways; inside the screen.
     static func free(_ r0: CGRect, obstacles: [CGRect], viewport vp: CGSize) -> CGRect {
         func clamp(_ r: CGRect) -> CGRect {
             var r = r
             r.origin.x = min(max(r.minX, margin), vp.width - r.width - margin)
-            r.origin.y = min(max(r.minY, topLimit), vp.height - r.height - margin)
+            r.origin.y = min(max(r.minY, topLimit), vp.height - r.height - bottomLimit)
             return r
         }
         let base = clamp(r0)

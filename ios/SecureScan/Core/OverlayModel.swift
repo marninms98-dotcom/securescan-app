@@ -54,6 +54,11 @@ struct OverlayMark: Identifiable, Equatable {
     /// Earlier visit / already done: drawn quieter.
     var faded = false
     var needsFix = false
+    /// Equipment drawn as a 3D model of this height (m): the overlay keeps the tag only,
+    /// and lays it out above the model. nil = the 2D glyph.
+    var modelHeight: Double? = nil
+    /// A draft drawn in strip-out red instead of the accent.
+    var removal = false
 }
 
 enum OverlayBuild {

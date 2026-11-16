@@ -25,6 +25,7 @@
 
 import SwiftUI
 import UIKit
+import QuartzCore
 
 enum DS {
 
@@ -35,20 +36,26 @@ enum DS {
         static let ink = SwiftUI.Color(hex: 0x0B0F14)
         static let paper = SwiftUI.Color(hex: 0xFFFFFF)
         /// The one accent (brand colour, replaceable later).
-        static let accent = SwiftUI.Color(hex: 0x1F6FEB)
+        static let accent = SwiftUI.Color(hex: 0x0A84FF)
         // Semantic colours: only where the colour means something.
-        static let dry = SwiftUI.Color(hex: 0x2E9E5B)
-        static let damp = SwiftUI.Color(hex: 0xE0A21A)
-        static let wet = SwiftUI.Color(hex: 0xD9453A)
-        static let remove = SwiftUI.Color(hex: 0xE5484D)
+        static let dry = SwiftUI.Color(hex: 0x30D158)
+        static let damp = SwiftUI.Color(hex: 0xFF9F0A)
+        static let wet = SwiftUI.Color(hex: 0xFF453A)
+        static let remove = SwiftUI.Color(hex: 0xFF453A)
         static let equip = SwiftUI.Color(hex: 0x12A594)
         static let source = SwiftUI.Color(hex: 0x2F7CF6)
-        /// 1 px white 12 % line on materials.
-        static let hairline = SwiftUI.Color.white.opacity(0.12)
+        /// The glass hairline: 0.5 pt white 22 %.
+        static let hairline = SwiftUI.Color.white.opacity(0.22)
+        /// The selected mode on the mode strip (system yellow, the Camera app's).
+        static let modeOn = SwiftUI.Color(hex: 0xFFD60A)
+        /// Airflow on the floor (soft teal).
+        static let airflow = SwiftUI.Color(hex: 0x64D2B4)
+        /// Outline pills on the black panels.
+        static let outline = SwiftUI.Color.white.opacity(0.45)
         /// Secondary text over the camera.
         static let onCameraSecondary = SwiftUI.Color.white.opacity(0.72)
         /// The dark tint laid under every camera material, so white text holds over bright walls.
-        static let cameraTint = SwiftUI.Color.black.opacity(0.34)
+        static let cameraTint = SwiftUI.Color(hex: 0x1C1C1E, opacity: 0.38)
         /// Destructive text over the camera (remove red, lifted for dark materials).
         static let removeOnCamera = SwiftUI.Color(hex: 0xFF7A7D)
 
@@ -118,12 +125,42 @@ enum DS {
         static let fly = Animation.easeInOut(duration: 0.35)
     }
 
+    /// Every haptic of the app, from prepared generators. UIKit's generators already
+    /// respect Settings › Sounds & Haptics › System Haptics (nothing plays when it is off).
+    /// Never call these per frame: the callers fire on events (a save, a snap, a mode step).
+    /// Call on the main thread (UIKit's generators are main-thread objects).
     enum Haptic {
-        /// The reticle locked onto something new.
-        static func lock() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-        static func save() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
-        static func undo() { UIImpactFeedbackGenerator(style: .rigid).impactOccurred() }
-        static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+        private static let soft = UIImpactFeedbackGenerator(style: .soft)
+        private static let light = UIImpactFeedbackGenerator(style: .light)
+        private static let medium = UIImpactFeedbackGenerator(style: .medium)
+        private static let rigid = UIImpactFeedbackGenerator(style: .rigid)
+        private static let picker = UISelectionFeedbackGenerator()
+        private static let notice = UINotificationFeedbackGenerator()
+        private static var structureLimit = HapticRateLimiter(interval: 0.25)
+
+        /// The capture screen appeared: wake the Taptic Engine so the first tick is on time.
+        static func prepare() { soft.prepare(); light.prepare(); medium.prepare(); picker.prepare() }
+
+        /// Scanning: RoomPlan found a new wall / door / window / object (at most one per 250 ms).
+        static func structure() {
+            guard structureLimit.allow(at: CACurrentMediaTime()) else { return }
+            soft.impactOccurred(intensity: 0.4)
+            soft.prepare()
+        }
+        /// A room finished scanning.
+        static func roomDone() { medium.impactOccurred() }
+        /// The reticle locked onto a surface, or snapped to a wall end / corner.
+        static func lock() { light.impactOccurred(); light.prepare() }
+        /// A reading, mark, photo or unit was saved.
+        static func save() { medium.impactOccurred(); medium.prepare() }
+        /// Undo or delete.
+        static func undo() { rigid.impactOccurred() }
+        /// A mode-strip step or a chip / segment change.
+        static func selection() { picker.selectionChanged(); picker.prepare() }
+        /// "Can't do that here".
+        static func warning() { notice.notificationOccurred(.warning) }
+        /// The job is finished.
+        static func success() { notice.notificationOccurred(.success) }
     }
 
     /// Where a control sits: over the camera (dark material) or on a light screen.
@@ -149,10 +186,14 @@ extension View {
         environment(\.dsSurface, s).environment(\.colorScheme, s == .camera ? .dark : .light)
     }
 
-    /// A dark material capsule with the hairline (the over-camera look).
-    func dsCapsule() -> some View {
-        background(CameraFill(shape: Capsule()))
-            .overlay(Capsule().strokeBorder(DS.Color.hairline, lineWidth: 1))
+    /// Glass: the dark material capsule with the 0.5 pt hairline and an inner top highlight.
+    func dsCapsule() -> some View { dsGlass(Capsule()) }
+
+    func dsGlass<S: InsettableShape>(_ shape: S) -> some View {
+        background(CameraFill(shape: shape))
+            .overlay(shape.strokeBorder(DS.Color.hairline, lineWidth: 0.5))
+            .overlay(shape.inset(by: 0.75).stroke(LinearGradient(colors: [.white.opacity(0.18), .clear], startPoint: .top, endPoint: .center), lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 6)
     }
 
     /// A card: 22 pt continuous corners, material on the camera, secondary grouped on light.

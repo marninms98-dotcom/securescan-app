@@ -252,10 +252,12 @@ enum Dollhouse {
 
     /// Elevated three-quarter (or top-down orthographic) camera that fits `lo...hi`.
     static func camera(lo: SIMD3<Float>, hi: SIMD3<Float>, aspect: Double, plan: Bool, points: [SIMD3<Float>]? = nil,
-                       azimuth: Double = 28, elevation: Double = 62, margin: Double = 0.9,
-                       lift: Double = 0, shiftLeft: Double = 0) -> (SCNNode, SIMD3<Float>) {
-        // lift / shiftLeft: fractions of the half view by which the model sits
-        // lower / further left on screen (clear of the floating controls).
+                       azimuth: Double = 28, elevation: Double = 70, margin: Double = 0.9,
+                       rect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> (SCNNode, SIMD3<Float>) {
+        // rect: the part of the view (0...1, y down) the model is fitted into;
+        // its centre in normalised device coordinates (y up):
+        let cx = Double(rect.midX) * 2 - 1, cy = 1 - Double(rect.midY) * 2
+        let rw = Double(rect.width), rh = Double(rect.height)
         let l = SIMD3<Double>(lo), h = SIMD3<Double>(hi)
         let centre = (l + h) / 2
         let node = SCNNode()
@@ -266,11 +268,17 @@ enum Dollhouse {
             cam.usesOrthographicProjection = true
             let w = h.x - l.x, d = h.z - l.z
             // orthographicScale = half the visible height.
-            cam.orthographicScale = max(d / 2, w / 2 / max(aspect, 0.1)) / margin + 0.3
+            var pw = w, pd = d, pc = centre
+            if let points, !points.isEmpty {
+                let xs = points.map { Double($0.x) }, zs = points.map { Double($0.z) }
+                pw = xs.max()! - xs.min()!; pd = zs.max()! - zs.min()!
+                pc = SIMD3((xs.max()! + xs.min()!) / 2, 0, (zs.max()! + zs.min()!) / 2)
+            }
+            cam.orthographicScale = max(pd / 2 / rh, pw / 2 / max(aspect, 0.1) / rw) / margin + 0.15
             cam.zFar = 100
             let half = cam.orthographicScale
-            // Screen up is -z, screen right is +x.
-            let look = SIMD3<Double>(centre.x + shiftLeft * half * aspect, 0, centre.z - lift * half)
+            // Screen up is -z, screen right is +x: put the model's centre at (cx, cy).
+            let look = SIMD3<Double>(pc.x - cx * half * aspect, 0, pc.z + cy * half)
             node.simdPosition = SIMD3<Float>(Float(look.x), 30, Float(look.z))
             node.look(at: SCNVector3(Float(look.x), 0, Float(look.z)), up: SCNVector3(0, 0, -1), localFront: SCNVector3(0, 0, -1))
             return (node, SIMD3<Float>(look))
@@ -284,13 +292,14 @@ enum Dollhouse {
             cam.projectionDirection = .vertical
             cam.fieldOfView = CGFloat(fov)
             let tanV = tan(fov / 2 * .pi / 180), tanH = tanV * aspect
-            let dist = CameraFit.distance(points: corners, target: centre, direction: dir, tanH: tanH, tanV: tanV, margin: margin)
+            let dist = CameraFit.distance(points: corners, target: centre, direction: dir, tanH: tanH * rw, tanV: tanV * rh, margin: margin)
             cam.zFar = max(100, dist * 8)
             // Camera axes: back = dir, right = up x back, screen-up = back x right.
             var right = simd_cross(SIMD3<Double>(0, 1, 0), dir)
             right = simd_length(right) < 1e-6 ? SIMD3(1, 0, 0) : simd_normalize(right)
             let up = simd_cross(dir, right)
-            let look = centre + up * (lift * dist * tanV) + right * (shiftLeft * dist * tanH)
+            // The model's centre appears at (cx, cy).
+            let look = centre - right * (cx * dist * tanH) - up * (cy * dist * tanV)
             node.simdPosition = SIMD3<Float>(look + dir * dist)
             node.look(at: SCNVector3(Float(look.x), Float(look.y), Float(look.z)), up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
             return (node, SIMD3<Float>(look))
@@ -299,7 +308,8 @@ enum Dollhouse {
 
     // MARK: Thumbnail (jobs list)
 
-    static func thumbURL(_ folder: JobFolder) -> URL { folder.url.appendingPathComponent("thumb3d.png") }
+    /// Versioned, so thumbnails from an older look are rendered again.
+    static func thumbURL(_ folder: JobFolder) -> URL { folder.url.appendingPathComponent("thumb3d-v2.png") }
 
     /// thumb3d.png is missing or older than plan.json.
     static func thumbNeedsRender(_ folder: JobFolder) -> Bool {
@@ -312,7 +322,7 @@ enum Dollhouse {
 
     /// Renders and caches the dollhouse thumbnail; false if it can't be made here.
     @discardableResult
-    static func renderThumb(_ folder: JobFolder, side: CGFloat = 240) -> Bool {
+    static func renderThumb(_ folder: JobFolder, side: CGFloat = 300) -> Bool {
         guard let data = try? Data(contentsOf: folder.planURL),
               let plan = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let built = build(plan: plan),
@@ -320,14 +330,49 @@ enum Dollhouse {
         let extent = max(built.bounds.max.x - built.bounds.min.x, built.bounds.max.z - built.bounds.min.z)
         addLights(built.scene.rootNode, extent: extent)
         let (cam, _) = camera(lo: built.bounds.min, hi: built.bounds.max, aspect: 1, plan: false, points: built.fitPoints,
-                              azimuth: 30, elevation: 55, margin: 0.97)
+                              azimuth: 30, elevation: 60, margin: 0.98)
         built.scene.rootNode.addChildNode(cam)
         let renderer = SCNRenderer(device: device, options: nil)
         renderer.scene = built.scene
         renderer.pointOfView = cam
-        let image = renderer.snapshot(atTime: 0, with: CGSize(width: side, height: side), antialiasingMode: .multisampling4X)
+        let full = renderer.snapshot(atTime: 0, with: CGSize(width: side * 2, height: side * 2), antialiasingMode: .multisampling4X)
+        let image = cropToModel(full, side: side) ?? full
         guard let png = image.pngData() else { return false }
         return (try? png.write(to: thumbURL(folder), options: .atomic)) != nil
+    }
+
+    /// Crops a render to a square round everything that isn't canvas (8 % margin), scaled to `side`.
+    static func cropToModel(_ img: UIImage, side: CGFloat) -> UIImage? {
+        guard let cg = img.cgImage else { return nil }
+        let w = cg.width, h = cg.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        // The canvas colour, from the corner.
+        let r0 = Int(px[0]), g0 = Int(px[1]), b0 = Int(px[2])
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in stride(from: 0, to: h, by: 2) {
+            for x in stride(from: 0, to: w, by: 2) {
+                let i = (y * w + x) * 4
+                if abs(Int(px[i]) - r0) + abs(Int(px[i + 1]) - g0) + abs(Int(px[i + 2]) - b0) > 18 {
+                    minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+        }
+        guard maxX > minX, maxY > minY else { return nil }
+        let size = CGFloat(max(maxX - minX, maxY - minY)) * 1.08
+        let cxp = CGFloat(minX + maxX) / 2, cyp = CGFloat(minY + maxY) / 2
+        // Bitmap rows are stored top-down, like UIKit.
+        let rect = CGRect(x: cxp - size / 2, y: cyp - size / 2, width: size, height: size)
+        let scale = side / size
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            canvas.setFill()
+            UIRectFill(CGRect(x: 0, y: 0, width: side, height: side))
+            img.draw(in: CGRect(x: -rect.minX * scale, y: -rect.minY * scale, width: CGFloat(w) * scale, height: CGFloat(h) * scale))
+        }
     }
 
     // MARK: Floor geometry
@@ -424,11 +469,12 @@ enum Floor {
             let c = ctx.cgContext
             switch key {
             case "carpet":
-                UIColor(red: 0.90, green: 0.88, blue: 0.85, alpha: 1).setFill()
+                // Cool mid-grey.
+                UIColor(red: 0.76, green: 0.77, blue: 0.79, alpha: 1).setFill()
                 c.fill(CGRect(x: 0, y: 0, width: side, height: side))
                 for _ in 0..<9000 {
-                    let v = 0.82 + rng.next() * 0.12
-                    UIColor(red: v, green: v * 0.97, blue: v * 0.93, alpha: 0.5).setFill()
+                    let v = 0.70 + rng.next() * 0.12
+                    UIColor(red: v, green: v * 1.01, blue: v * 1.03, alpha: 0.5).setFill()
                     c.fill(CGRect(x: rng.next() * Double(side), y: rng.next() * Double(side), width: 2, height: 2))
                 }
             case "tile":
@@ -456,23 +502,24 @@ enum Floor {
                     var x: CGFloat = -CGFloat(rng.next()) * side * 0.5
                     while x < side {
                         let w = side * CGFloat(0.45 + rng.next() * 0.35)
-                        let t = 0.92 + rng.next() * 0.06
-                        UIColor(red: t, green: t * 0.93, blue: t * 0.83, alpha: 1).setFill()
+                        // Pale greige oak.
+                        let t = 0.86 + rng.next() * 0.06
+                        UIColor(red: t, green: t * 0.965, blue: t * 0.91, alpha: 1).setFill()
                         let rect = CGRect(x: x, y: CGFloat(r) * rowH, width: w, height: rowH)
                         c.fill(rect)
                         for _ in 0..<5 {
                             let gy = rect.minY + CGFloat(rng.next()) * rowH
-                            UIColor(red: t * 0.93, green: t * 0.84, blue: t * 0.72, alpha: 0.22).setStroke()
+                            UIColor(red: t * 0.9, green: t * 0.87, blue: t * 0.82, alpha: 0.25).setStroke()
                             c.setLineWidth(1)
                             c.move(to: CGPoint(x: rect.minX, y: gy))
                             c.addLine(to: CGPoint(x: rect.maxX, y: gy + CGFloat(rng.next() * 3 - 1.5)))
                             c.strokePath()
                         }
-                        UIColor(red: 0.66, green: 0.58, blue: 0.48, alpha: 0.4).setFill()
+                        UIColor(red: 0.62, green: 0.60, blue: 0.56, alpha: 0.38).setFill()
                         c.fill(CGRect(x: rect.minX, y: rect.minY, width: 1.5, height: rowH))
                         x += w
                     }
-                    UIColor(red: 0.66, green: 0.58, blue: 0.48, alpha: 0.4).setFill()
+                    UIColor(red: 0.62, green: 0.60, blue: 0.56, alpha: 0.38).setFill()
                     c.fill(CGRect(x: 0, y: CGFloat(r) * rowH, width: side, height: 1.5))
                 }
             }

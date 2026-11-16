@@ -136,6 +136,10 @@ final class StudioEngine: ObservableObject, CaptureEngine {
     func setAirflow(id: String, direction: WorldVec) -> Bool { true }
     func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary? { override }
     var zoomState: ZoomState { .available }
+    var hasTorch: Bool { true }
+    func camera3D(viewport: CGSize) -> Camera3D? {
+        Camera3D.pinhole(position: camera, lookAt: target, fovYDegrees: fovY, viewport: viewport)
+    }
     var photos: [JobPhoto] = []
     func jobPhotos() -> [JobPhoto] { photos }
     func replacePhoto(id: String, photo: Task<CapturedPhoto?, Never>) async -> Bool { true }
@@ -163,18 +167,64 @@ enum StudioScript {
         let hud = e.hud
         let shot = StudioShots.image
         let p = StudioScenes.self
-        func final() { e.look(at: d.target, from: d.camera); e.saved = d.marks.filter { $0.id != "draft-airflow" } }
+        func final() { e.look(at: d.target, from: d.camera); e.saved = StudioScenes.raw(scene).marks.filter { !$0.id.hasPrefix("draft-") } }
+        /// A job with `n` captures this session, the newest a photo.
+        func fill(_ n: Int) {
+            for i in 1..<max(n, 2) { hud.studioAdd(entry("f\(i)", "reading", "R\(i) · 12%", "Wall · Bedroom", photo: false)) }
+            hud.studioAdd(entry("fp", "photo", "P5", "Bedroom", photo: true), thumb: shot(3, nil))
+        }
+        let finishLit = [QuietAction(id: "roomDone", title: "Room done"), QuietAction(id: "finish", title: "Finish", prominent: true)]
         // The job's photos (rendered from the synthetic room, newest first).
         e.photos = (1...5).reversed().map { n in
             JobPhoto(id: "p\(n)", title: "Photo \(n)", place: n % 2 == 0 ? "Bedroom · floor" : "Bedroom · wall \(String(format: "%.1f", 0.3 + Double(n) * 0.25)) m up",
                      caption: n == 2 ? "Damage" : "", load: { shot(n, CGSize(width: 900, height: 1200)) })
         }
         switch scene {
+        case "mode-moisture":
+            hud.hintsEnabled = true
+            e.recordingSince = Date().addingTimeInterval(-102)
+            e.quietActions = finishLit
+            fill(14)
+        case "mode-stripout":
+            e.phaseText = "Marking"
+            e.quietActions = finishLit
+            hud.tool = .stripOut
+            hud.stripPick = .skirting
+            fill(14)
+            hud.studioMark(points: [MarkPoint(world: WorldVec(1.1, 0.05, 0.0), surface: .wall, height: 0.05, distanceToWall: 0, wallId: "w1")],
+                           shape: nil, start: .line)
+        case "mode-equipment":
+            e.quietActions = finishLit
+            hud.tool = .equipment
+            e.units = [EquipmentGuard.Unit(id: "a3", type: "airMover", pos: PlanVec(1.55, 1.35), hasAirflow: false, tag: "AM-03")]
+            fill(14)
+            hud.studioAirflow("a3")
+        case "mode-source":
+            hud.hintsEnabled = true
+            e.quietActions = finishLit
+            hud.tool = .source
+            fill(14)
+        case "scan-start":
+            e.phaseText = "Ready to scan"
+            e.coaching = "Tap Start to begin scanning the room"
+            e.quietActions = []
+            e.override = EnginePrimary(title: "Start scan", icon: "record.circle", start: true, action: {})
+        case "equipment-model-preview":
+            hud.hintsEnabled = true
+            e.quietActions = finishLit
+            hud.tool = .equipment
+            fill(6)
+        case "equipment-model-placed":
+            e.quietActions = finishLit
+            hud.tool = .equipment
+            e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(1.55, 1.2), hasAirflow: true, tag: "AM-01"),
+                       EquipmentGuard.Unit(id: "d1", type: "dehumidifier", pos: PlanVec(2.3, 0.4), hasAirflow: false, tag: "DH-01")]
+            fill(8)
         case "aim-wall", "aim-wall-bright":
             e.recordingSince = Date().addingTimeInterval(-42)
             hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: shot(1, nil))
         case "aim-skirting":
-            hud.tool = .mark
+            hud.tool = .stripOut
         case "aim-nothing":
             e.noHit = true
         case "reading-tray":
@@ -190,22 +240,22 @@ enum StudioScript {
             }
             hud.studioUndo(true)
         case "line-progress":
-            hud.tool = .mark
+            hud.tool = .stripOut
             hud.studioMark(points: [MarkPoint(world: WorldVec(0.6, 0.05, 0.0), surface: .wall, height: 0.05, distanceToWall: 0, wallId: "w1")],
                            shape: nil, start: .line)
         case "line-tray-skirting":
-            hud.tool = .mark
+            hud.tool = .stripOut
             let a = MarkPoint(world: WorldVec(0.6, 0.05, 0.0), surface: .wall, height: 0.05, distanceToWall: 0, wallId: "w1")
             let b = MarkPoint(world: WorldVec(1.9, 0.04, 0.0), surface: .wall, height: 0.04, distanceToWall: 0, wallId: "w1")
             hud.studioMark(points: [a, b], shape: .line, start: .line)
             hud.tray = .mark
         case "lining-band-done":
-            hud.tool = .mark
+            hud.tool = .stripOut
             hud.studioAdd(entry("x2", "mark", "Skirting · 1.80 m", "Bedroom", photo: true), thumb: shot(2, nil))
             hud.studioAdd(entry("x1", "mark", "Wall lining · 1.30 m", "Bedroom", photo: true), thumb: shot(3, nil))
             hud.studioUndo(true)
         case "area-progress", "area-tray":
-            hud.tool = .mark
+            hud.tool = .stripOut
             let all = [WorldVec(1.0, 0, 1.0), WorldVec(1.7, 0, 0.95), WorldVec(1.75, 0, 1.55), WorldVec(1.05, 0, 1.6)]
             let pts = (scene == "area-tray" ? all : Array(all.prefix(3))).map { MarkPoint(world: $0, surface: .floor, height: 0, distanceToWall: 0.7) }
             if scene == "area-tray" {
@@ -218,7 +268,6 @@ enum StudioScript {
                 hud.studioMark(points: pts, shape: nil, start: .area)
             }
         case "photo-taken", "photo-preview-card":
-            hud.tool = .photo
             hud.studioAdd(entry("r1", "reading", "R1 · 10%", "Skirting · Bedroom", photo: true), thumb: shot(1, nil))
             hud.studioAdd(entry("p5", "photo", "P5", "Bedroom", photo: true), thumb: shot(5, nil))
             hud.studioUndo(true)
@@ -228,13 +277,11 @@ enum StudioScript {
                 return
             }
         case "photo-viewer":
-            hud.tool = .photo
             hud.studioAdd(entry("p5", "photo", "P5", "Bedroom", photo: true), thumb: shot(5, nil))
             final()
             hud.viewerStart = "p3"
             return
         case "photo-zoom-toggle":
-            hud.tool = .photo
             hud.zoomUltra = true
             hud.studioAdd(entry("p5", "photo", "P5", "Bedroom", photo: true), thumb: shot(5, nil))
         case "review-drawer", "needs-fix":
@@ -295,7 +342,7 @@ enum StudioScript {
             e.quietActions = []
             e.phaseText = "Scope · 1 of 4 done"
             e.roomName = ""
-            hud.tool = .done
+            hud.tool = .equipment
             e.override = EnginePrimary(title: "Mark placed · AM-1", action: {})
         default:
             break
@@ -374,11 +421,17 @@ struct StudioView: View {
 
     var body: some View {
         ZStack {
-            StudioCameraView(engine: engine).ignoresSafeArea()
-            // A slight lens vignette, so it reads as a camera feed.
-            RadialGradient(colors: [.clear, .black.opacity(engine.bright ? 0.12 : 0.32)], center: .center, startRadius: 220, endRadius: 560)
-                .ignoresSafeArea().allowsHitTesting(false)
-            if ready { CaptureScreen(hud: engine.hud) }
+            Color.black.ignoresSafeArea()
+            if ready {
+                CaptureScreen(hud: engine.hud) {
+                    ZStack {
+                        StudioCameraView(engine: engine)
+                        // A slight lens vignette, so it reads as a camera feed.
+                        RadialGradient(colors: [.clear, .black.opacity(engine.bright ? 0.1 : 0.26)], center: .center, startRadius: 160, endRadius: 420)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
         }
         .statusBarHidden()
         .background(Color.black)

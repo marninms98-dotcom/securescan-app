@@ -209,8 +209,17 @@ final class CaptureTests: XCTestCase {
         // Sentence case, no shouting, no "could not".
         let all = [CaptureCopy.addReading, CaptureCopy.takePhoto, CaptureCopy.startHere, CaptureCopy.markSource, CaptureCopy.setAirflow, CaptureCopy.markDone]
         for s in all { XCTAssertNotEqual(s, s.uppercased()); XCTAssertFalse(s.lowercased().contains("could not")) }
-        XCTAssertEqual(CaptureTool.rail(returnVisit: false).map(\.title), ["Reading", "Photo", "Mark", "Equipment", "Source"])
-        XCTAssertEqual(CaptureTool.rail(returnVisit: true).map(\.title), ["Re-measure", "Photo", "Done", "Mark", "Equipment"])
+        XCTAssertEqual(CaptureTool.modes(returnVisit: false).map(\.title), ["Moisture", "Strip-out", "Equipment", "Source"])
+        XCTAssertEqual(CaptureTool.modes(returnVisit: true).map(\.title), ["Re-measure", "Moisture", "Strip-out", "Equipment"])
+        XCTAssertEqual(CaptureTool.modes(returnVisit: false, scopeOnSite: true), [.equipment, .stripOut])
+        // Every mode has a first-use line (the Tips list) and the sub-pickers are as designed.
+        XCTAssertEqual(CaptureCopy.tips(CaptureTool.modes(returnVisit: false)).count, 4)
+        XCTAssertEqual(CaptureCopy.subPicker(.stripOut).map(\.title), ["Skirting", "Wall lining", "Cabinets", "Floor"])
+        XCTAssertEqual(CaptureCopy.subPicker(.equipment).first?.key, "airMover")
+        XCTAssertTrue(CaptureCopy.subPicker(.source).isEmpty)
+        XCTAssertEqual(CaptureCopy.subtitle(phase: "Scanning", tool: .moisture, readings: 3, marks: 0, units: 0, fixed: false), "Scanning · 3 readings")
+        XCTAssertEqual(CaptureCopy.subtitle(phase: "Marking", tool: .equipment, readings: 0, marks: 0, units: 1, fixed: false), "Drying setup · 1 unit")
+        XCTAssertEqual(CaptureCopy.subtitle(phase: "Visit 2 · 1 of 3", tool: .moisture, readings: 5, marks: 0, units: 0, fixed: true), "Visit 2 · 1 of 3")
         XCTAssertFalse(CaptureCopy.causes.isEmpty)
         XCTAssertEqual(CaptureCopy.causes.last, "Unknown")
     }
@@ -354,7 +363,9 @@ final class OverlayLayoutTests: XCTestCase {
         XCTAssertNotNil(plan.labels["f1"])
         XCTAssertNotNil(plan.labels["a1"])
         XCTAssertNotNil(plan.glyphs["a1"])
-        XCTAssertNotNil(plan.arrows["a1"])
+        // Equipment is a 3D model with its own airflow: no 2D arrow, the tag above the model.
+        XCTAssertNil(plan.arrows["a1"])
+        XCTAssertLessThan(plan.labels["a1"]!.maxY, plan.glyphs["a1"]!.minY + 1)
         // Reading pins: every pin placed, none on another.
         let r = StudioScenes.data("reading-saved")
         let rp = OverlayLayout.plan(r.marks, projector: StudioScenes.projector(r), reticleLabel: r.reticle, measure: .estimate)
@@ -385,8 +396,73 @@ final class OverlayLayoutTests: XCTestCase {
         XCTAssertEqual(abs(a[0].x - a[6].x), 0.18, accuracy: 1e-9)      // shaft 0.18 m
     }
 
-    func testRailLabelsFitAt13pt() {
-        // ~7.3 pt a character at 13 pt semibold; a tab leaves ~63 pt on a 402 pt phone.
-        for t in CaptureTool.allCases { XCTAssertLessThanOrEqual(Double(t.railTitle.count) * 7.3, 63, t.railTitle) }
+    func testReadingTagsOnlyWhenSelected() {
+        var m = StudioScenes.pin("a", WorldVec(0.5, 0.5, 0), 12, 1)
+        XCTAssertNil(OverlayLayout.displayTag(m))
+        m.selected = true
+        XCTAssertEqual(OverlayLayout.displayTag(m), "R1")
+        let eq = OverlayMark(id: "e", style: .equipment(type: "airMover", planned: false), points: [.zero], tag: "AM-03")
+        XCTAssertEqual(OverlayLayout.displayTag(eq), "AM-03 · Air mover")
+    }
+}
+
+final class CaptureFrameTests: XCTestCase {
+
+    func testFramedViewportIsThreeByFourOnModernPhones() {
+        // iPhone 16 Pro: 402 x 874, safe area 62 / 34.
+        let f = CaptureFrame.layout(width: 402, height: 874, safeTop: 62, safeBottom: 34)
+        XCTAssertEqual(f.viewport, 536, accuracy: 0.5)
+        XCTAssertEqual(f.top + f.viewport + f.bottom, 874, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(f.bottom, CaptureFrame.panelContent + 34)
+        // iPhone SE: the viewport gives way so the controls still fit.
+        let se = CaptureFrame.layout(width: 375, height: 667, safeTop: 20, safeBottom: 0)
+        XCTAssertLessThan(se.viewport, 375 * 4 / 3)
+        XCTAssertGreaterThanOrEqual(se.bottom, CaptureFrame.panelContent - 0.5)
+    }
+
+    func testModeStripCentresTheSelectedModeAndLandsOnTheNearest() {
+        let l = ModeStripLayout(widths: [70, 80, 90, 60], gap: 26)
+        XCTAssertEqual(l.centre(0), 35)
+        XCTAssertEqual(l.centre(1), 70 + 26 + 40)
+        XCTAssertEqual(l.offset(selected: 1, in: 400) + l.centre(1), 200)
+        XCTAssertEqual(l.landing(from: 1, drag: 0), 1)
+        XCTAssertEqual(l.landing(from: 1, drag: -110), 2)      // swipe left: the next mode
+        XCTAssertEqual(l.landing(from: 1, drag: 110), 0)       // swipe right: the previous one
+        XCTAssertEqual(l.landing(from: 0, drag: 2000), 0)      // clamped
+        XCTAssertEqual(l.landing(from: 0, drag: -2000), 3)
+    }
+
+    func testHapticRateLimiterAllowsOnePer250ms() {
+        var r = HapticRateLimiter(interval: 0.25)
+        XCTAssertTrue(r.allow(at: 10.0))
+        XCTAssertFalse(r.allow(at: 10.1))
+        XCTAssertFalse(r.allow(at: 10.24))
+        XCTAssertTrue(r.allow(at: 10.26))
+        XCTAssertFalse(r.allow(at: 10.3))
+        // A clock that went backwards never blocks for ever.
+        XCTAssertTrue(r.allow(at: 5.0))
+    }
+
+    func testStructureDiffCountsOnlyNewPieces() {
+        var d = StructureDiff()
+        XCTAssertEqual(d.add(["w1", "w2"]), 2)
+        XCTAssertEqual(d.add(["w1", "w2"]), 0)               // RoomPlan re-sends the whole room
+        XCTAssertEqual(d.add(["w1", "w2", "door1"]), 1)
+        XCTAssertEqual(d.add(["w2"]), 0)                     // something merged away: no tick
+        d.reset()
+        XCTAssertEqual(d.add(["w1"]), 1)                     // a new room
+    }
+
+    func testStripOutKindFollowsTheAim() {
+        let base = MarkPoint(world: .zero, surface: .wall, height: 0.05, distanceToWall: 0)
+        XCTAssertEqual(MarkIntent.stripKind(base), .skirting)
+        XCTAssertEqual(MarkIntent.stripKind(MarkPoint(world: .zero, surface: .wall, height: 0.8, distanceToWall: 0)), .wallLining)
+        XCTAssertEqual(MarkIntent.stripKind(MarkPoint(world: .zero, surface: .wall, height: 0.8, distanceToWall: 0),
+                                            remembered: ["stripLine": .cabinetry]), .cabinetry)
+        XCTAssertEqual(MarkIntent.stripKind(MarkPoint(world: .zero, surface: .floor, height: 0, distanceToWall: 1.2)), .liftFlooring)
+        XCTAssertEqual(MarkIntent.stripKind(MarkPoint(world: .zero, surface: .floor, height: 0, distanceToWall: 0.05)), .skirting)
+        XCTAssertEqual(MarkIntent.stripKind(nil), .skirting)
+        XCTAssertTrue(MarkIntent.savesDirectly(.skirting))
+        XCTAssertFalse(MarkIntent.savesDirectly(.wallLining))
     }
 }
