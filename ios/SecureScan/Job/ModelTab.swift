@@ -174,7 +174,8 @@ final class ModelViewModel: ObservableObject {
         let azimuth = ProcessInfo.processInfo.environment["SECURESCAN_3D_AZIMUTH"].flatMap { Double($0) } ?? 28
         // Plan: leave the side columns of buttons clear.
         let (cam, centre) = Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan, points: fitPoints,
-                                             azimuth: azimuth, margin: mode == .plan ? 0.68 : 0.94)
+                                             azimuth: azimuth, margin: mode == .plan ? 0.66 : 0.8,
+                                             lift: mode == .plan ? 0.12 : 0.2, shiftLeft: 0.1)
         install(cam, centre: centre, in: v, scene: scene, animated: animated)
     }
 

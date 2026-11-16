@@ -252,7 +252,10 @@ enum Dollhouse {
 
     /// Elevated three-quarter (or top-down orthographic) camera that fits `lo...hi`.
     static func camera(lo: SIMD3<Float>, hi: SIMD3<Float>, aspect: Double, plan: Bool, points: [SIMD3<Float>]? = nil,
-                       azimuth: Double = 28, elevation: Double = 62, margin: Double = 0.9) -> (SCNNode, SIMD3<Float>) {
+                       azimuth: Double = 28, elevation: Double = 62, margin: Double = 0.9,
+                       lift: Double = 0, shiftLeft: Double = 0) -> (SCNNode, SIMD3<Float>) {
+        // lift / shiftLeft: fractions of the half view by which the model sits
+        // lower / further left on screen (clear of the floating controls).
         let l = SIMD3<Double>(lo), h = SIMD3<Double>(hi)
         let centre = (l + h) / 2
         let node = SCNNode()
@@ -265,8 +268,12 @@ enum Dollhouse {
             // orthographicScale = half the visible height.
             cam.orthographicScale = max(d / 2, w / 2 / max(aspect, 0.1)) / margin + 0.3
             cam.zFar = 100
-            node.simdPosition = SIMD3<Float>(Float(centre.x), 30, Float(centre.z))
-            node.look(at: SCNVector3(Float(centre.x), 0, Float(centre.z)), up: SCNVector3(0, 0, -1), localFront: SCNVector3(0, 0, -1))
+            let half = cam.orthographicScale
+            // Screen up is -z, screen right is +x.
+            let look = SIMD3<Double>(centre.x + shiftLeft * half * aspect, 0, centre.z - lift * half)
+            node.simdPosition = SIMD3<Float>(Float(look.x), 30, Float(look.z))
+            node.look(at: SCNVector3(Float(look.x), 0, Float(look.z)), up: SCNVector3(0, 0, -1), localFront: SCNVector3(0, 0, -1))
+            return (node, SIMD3<Float>(look))
         } else {
             var corners: [SIMD3<Double>] = points?.map { SIMD3<Double>($0) } ?? []
             if corners.isEmpty {
@@ -279,10 +286,15 @@ enum Dollhouse {
             let tanV = tan(fov / 2 * .pi / 180), tanH = tanV * aspect
             let dist = CameraFit.distance(points: corners, target: centre, direction: dir, tanH: tanH, tanV: tanV, margin: margin)
             cam.zFar = max(100, dist * 8)
-            node.simdPosition = SIMD3<Float>(centre + dir * dist)
-            node.look(at: SCNVector3(Float(centre.x), Float(centre.y), Float(centre.z)), up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
+            // Camera axes: back = dir, right = up x back, screen-up = back x right.
+            var right = simd_cross(SIMD3<Double>(0, 1, 0), dir)
+            right = simd_length(right) < 1e-6 ? SIMD3(1, 0, 0) : simd_normalize(right)
+            let up = simd_cross(dir, right)
+            let look = centre + up * (lift * dist * tanV) + right * (shiftLeft * dist * tanH)
+            node.simdPosition = SIMD3<Float>(look + dir * dist)
+            node.look(at: SCNVector3(Float(look.x), Float(look.y), Float(look.z)), up: SCNVector3(0, 1, 0), localFront: SCNVector3(0, 0, -1))
+            return (node, SIMD3<Float>(look))
         }
-        return (node, SIMD3<Float>(centre))
     }
 
     // MARK: Thumbnail (jobs list)
@@ -444,8 +456,8 @@ enum Floor {
                     var x: CGFloat = -CGFloat(rng.next()) * side * 0.5
                     while x < side {
                         let w = side * CGFloat(0.45 + rng.next() * 0.35)
-                        let t = 0.90 + rng.next() * 0.07
-                        UIColor(red: t, green: t * 0.91, blue: t * 0.79, alpha: 1).setFill()
+                        let t = 0.92 + rng.next() * 0.06
+                        UIColor(red: t, green: t * 0.93, blue: t * 0.83, alpha: 1).setFill()
                         let rect = CGRect(x: x, y: CGFloat(r) * rowH, width: w, height: rowH)
                         c.fill(rect)
                         for _ in 0..<5 {
