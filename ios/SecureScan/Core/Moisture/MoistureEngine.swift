@@ -101,6 +101,9 @@ struct MoistFitReport: Equatable {
     var objective: Double
     var evaluations: Int
     var checks: [MoistReadingCheck]
+    /// Fitted parameters that ended on a bound ("vol:s1", "floor", "rise", "lining"):
+    /// the evidence pulls harder than the model allows, so treat its estimate with care.
+    var atBounds: [String] = []
 }
 
 struct MoistResolvedSource: Equatable {
@@ -486,6 +489,8 @@ enum MoistModel {
             }
             (params, vols) = decode(theta)
         }
+        var atBounds: [String] = []
+        for (i, n) in names.enumerated() where theta[i] <= lower[i] + 1e-9 || theta[i] >= upper[i] - 1e-9 { atBounds.append(n) }
         let tFit = Date()
 
         // Which readings does the physics explain?
@@ -558,7 +563,7 @@ enum MoistModel {
 
         let result = MoistResult(input: input, grid: g, wetness: w, provenance: prov, scale: scale, params: params, hours: hours,
                                  sources: sources, fit: MoistFitReport(fitted: fitWanted, objectiveBefore: before, objective: best.objective,
-                                                                       evaluations: evals, checks: checks),
+                                                                       evaluations: evals, checks: checks, atBounds: atBounds),
                                  hints: hints, constraints: cons, iterations: solved.iterations)
         result.work = work + solved.work
         result.timings = ["build": tBuild.timeIntervalSince(t0) * 1000, "fit": tFit.timeIntervalSince(tBuild) * 1000,

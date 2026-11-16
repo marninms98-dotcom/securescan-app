@@ -199,7 +199,11 @@ need a wall reading or mark).
 Objective: Σ weight x violation² over readings and scoper marks (physics alone,
 no projection) + 0.005 x Σ((θ − θ₀)/σ)². Steps 0.8, 0.4 (two passes) and 0.2
 (one pass) in ln units, first improvement accepted, stop when every constraint
-is met. Warm-started, fixed iteration caps: deterministic. Typically 10–35 solves.
+is met. Warm-started, fixed iteration caps: deterministic. Typically 20–40 solves.
+A parameter that ends on its bound is listed in `fit.atBounds` (and
+`solved.paramsAtBounds`): the evidence pulls harder than the model allows — for
+example moisture-line marks far above what the source could wick to — so the
+estimate around it deserves less trust.
 
 ### "Second source likely"
 
@@ -322,9 +326,15 @@ No randomness, no dictionary iteration in any output path (Swift hashing is
 seeded per process), fixed iteration caps and tolerances, ties in the flood
 broken by filling equal-cost cells together. `testSameInputSameOutput` checks
 bit-identical results. Target: < 50 ms for a typical 3–6 room job in a release
-build on the phone. The test suite runs an unoptimised (Debug) build on a CI
-simulator, so its bound is looser; it prints the measured time and cell count
-for a synthetic 5-room, 9 x 7.5 m house.
+build on the phone. The test suite runs an unoptimised (Debug) build on a shared
+CI simulator whose wall-clock time varies ten-fold between runs, so the speed
+test checks machine-independent counts instead: solver evaluations (≤ 45), final
+solve converged, and total link visits (`result.work`, < 60 M). Measured in CI:
+the 5-room, 9 x 7.5 m house (20,346 cells) takes 38 fit solves + 55 final
+iterations = 16.6 M link visits, 1.7–2.6 s in the Debug simulator build; the
+ensuite case 7.1 M, 0.6 s. At the 1–2 ns per link visit an optimised build
+manages on a recent iPhone, the house should be roughly 20–50 ms. That is an
+estimate: it has not been timed in a release build on a phone.
 
 ## Limits and caveats
 

@@ -72,6 +72,7 @@ enum MoistDebug {
                        r.grid.count, r.iterations, r.hours, r.fit.fitted ? "yes" : "no", r.fit.objectiveBefore, r.fit.objective, r.fit.evaluations)
         s += String(format: "  params: floor x%.2f, rise x%.2f, lining x%.2f; work %.1f M link visits\n",
                     r.params.floorSpread, r.params.rise, r.params.lining, Double(r.work) / 1e6)
+        if !r.fit.atBounds.isEmpty { s += "  AT BOUNDS: " + r.fit.atBounds.joined(separator: ", ") + "\n" }
         for src in r.sources {
             s += String(format: "  source %@ (%@, %@): %.2f L\n", src.source.id, src.source.type.rawValue,
                         src.loc?.surface.rawValue ?? "not placed", r.params.volumes[src.source.id] ?? src.litres)

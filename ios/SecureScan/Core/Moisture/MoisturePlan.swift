@@ -183,6 +183,7 @@ enum MoisturePlan {
             "hours": MoistNum.r2(result.hours),
             "fitted": result.fit.fitted,
             "secondSourceLikely": result.secondSourceLikely,
+            "paramsAtBounds": result.fit.atBounds,
         ]
         if let at = solvedAt { solved["at"] = at }
         let t = report.totals

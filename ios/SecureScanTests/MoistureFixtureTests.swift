@@ -206,8 +206,9 @@ final class MoistureFixtureTests: XCTestCase {
         XCTAssertTrue([600, 900].contains(strip?.cutHeightMm ?? 0), "cut \(String(describing: strip?.cutHeightMm))")
         XCTAssertTrue(rep.suggestions.contains { $0.kind == .removeSkirting && $0.wallId == "wS" && $0.side == .b })
         XCTAssertFalse(rep.suggestions.contains { $0.kind == .stripLining && $0.side == .a && $0.wallId == "wS" })
-        // The readings are explained by the one source.
+        // The readings are explained by the one source, within the parameters' bounds.
         XCTAssertTrue(r.hints.isEmpty, r.hints.map { $0.message }.joined(separator: "; "))
+        XCTAssertEqual(r.fit.atBounds, [])
         // Measured and estimated are kept apart.
         XCTAssertGreaterThan(rep.totals.wallLining.estimated + rep.totals.floor.estimated, 0)
         XCTAssertGreaterThan(rep.totals.wallLining.measured, 0)

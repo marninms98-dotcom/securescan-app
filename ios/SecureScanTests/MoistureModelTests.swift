@@ -170,6 +170,8 @@ final class MoistureModelTests: XCTestCase {
         let f = face(rep, "w1", .a)
         XCTAssertNotNil(f)
         XCTAssertEqual(f?.maxHeight ?? 0, 0.7, accuracy: 0.2)
+        // 0.7 m is far above what a light floor leak wicks to: the fit says so.
+        XCTAssertTrue(r.fit.atBounds.contains("rise"), r.fit.atBounds.joined(separator: ","))
     }
 
     // MARK: Scoper
