@@ -184,7 +184,7 @@ jobs:
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=3d xcrun simctl launch "$UDID" "$BID";     shot app-job-3d 16
           SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=3d SIMCTL_CHILD_SECURESCAN_3D_MODE=plan xcrun simctl launch "$UDID" "$BID"; shot app-job-3d-plan 16
           # The 3D tab with one of every mark (docs/MARKING.md D, H): orbit, the other side, and plan.
-          M="SIMCTL_CHILD_SECURESCAN_3D_MARKS=1"
+          M="SIMCTL_CHILD_SECURESCAN_3D_MARKS=1 SIMCTL_CHILD_SECURESCAN_3D_FOCUS=1"
           env $M SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=3d xcrun simctl launch "$UDID" "$BID"; shot app-job-3d-marks 16
           env $M SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=3d SIMCTL_CHILD_SECURESCAN_3D_AZIMUTH=200 xcrun simctl launch "$UDID" "$BID"; shot app-job-3d-marks-other-side 16
           env $M SIMCTL_CHILD_SECURESCAN_DEMO=1 SIMCTL_CHILD_SECURESCAN_TAB=3d SIMCTL_CHILD_SECURESCAN_3D_MODE=plan xcrun simctl launch "$UDID" "$BID"; shot app-job-3d-marks-plan 16

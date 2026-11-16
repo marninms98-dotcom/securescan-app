@@ -272,8 +272,17 @@ final class ModelViewModel: ObservableObject {
         let w = size.width, h = size.height
         let below = CGRect(x: 0.05, y: min(0.6, 262 / h), width: 0.9, height: max(0.3, (h - 262 - 12) / h))
         let beside = CGRect(x: 12 / w, y: 12 / h, width: (w - 12 - 80) / w, height: (h - 24) / h)
+        var lo = bounds.min, hi = bounds.max, pts = fitPoints
+        #if DEBUG
+        // Screenshots of the marks: frame the largest room only (SECURESCAN_3D_FOCUS=1).
+        if ProcessInfo.processInfo.environment["SECURESCAN_3D_FOCUS"] == "1",
+           let r = rooms.max(by: { FloorArea.area($0.polygon) < FloorArea.area($1.polygon) }) {
+            lo = r.min; hi = r.max
+            pts = r.polygon.flatMap { p in [SIMD3<Float>(Float(p.x), 0, Float(p.y)), SIMD3<Float>(Float(p.x), Float(Dollhouse.cutHeight), Float(p.y))] }
+        }
+        #endif
         func make(_ rect: CGRect, _ azimuth: Double) -> (SCNNode, SIMD3<Float>) {
-            Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan, points: fitPoints,
+            Dollhouse.camera(lo: lo, hi: hi, aspect: aspect, plan: mode == .plan, points: pts,
                              azimuth: azimuth, margin: 0.98, rect: rect)
         }
         // Bigger on screen = closer camera (orbit) or smaller orthographic scale (plan).

@@ -83,6 +83,8 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: SecureScanTests
+      # The moisture model (pure Swift, docs/MOISTURE.md).
+      - path: SecureScan/Core/Moisture
       - path: SecureScan/Core/PlanBuilder.swift
       - path: SecureScan/Core/PlanDocument.swift
       - path: SecureScan/Core/SimulatedScan.swift

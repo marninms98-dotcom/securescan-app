@@ -736,13 +736,26 @@ enum PlanBuilder {
             height = isFloor ? 0 : max(0, y - base)
         }
 
+        // The side, against the plan wall's own a -> b (the live wall may have run the other way).
+        var side = r.side
+        if let wid = wallId, let w = walls.first(where: { $0.id == wid }), side == "a" || side == "b",
+           r.cameraPosition.x.isFinite && r.cameraPosition.z.isFinite {
+            side = Self.side(of: camPlan, wall: w)
+        }
         return PlanReading(id: r.id, kind: r.kind, n: nil, pos: pos,
                            value: r.kind == "reading" ? r.value : nil, material: r.material,
                            note: r.note, photo: r.photo, takenAt: r.takenAt,
                            height: height, wallId: wallId, wallT: wallT,
                            reference: r.reference, worldPoint: world,
                            cam: (r.cameraPosition.x.isFinite && r.cameraPosition.z.isFinite) ? camPlan : nil,
-                           status: r.status, side: r.side)
+                           status: r.status, side: side)
+    }
+
+    /// Which side of a plan wall a point is on (docs/MARKING.md H, docs/MOISTURE.md): "a" when it
+    /// is on the side of the wall's left normal n = (-d.y, d.x), d = b - a; else "b".
+    static func side(of p: PlanVec, wall w: PlanWall) -> String {
+        let d = w.b - w.a
+        return simd_dot(p - w.a, PlanVec(-d.y, d.x)) >= 0 ? "a" : "b"
     }
 
     /// Equipment stands on the floor: the floor point under the crosshair (the
@@ -850,6 +863,7 @@ enum PlanBuilder {
         out.wallId = w.id
         out.t0 = min(u, v)
         out.t1 = max(u, v)
+        if let c = out.cam, out.side == "a" || out.side == "b" { out.side = side(of: c, wall: w) }
         return .placed(out)
     }
 
