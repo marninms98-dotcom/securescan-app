@@ -122,7 +122,7 @@ extension CaptureHUDModel {
         if let r = run { return Primary(title: "Done · \(CaptureCopy.length(r.length(w)))", enabled: r.length(w) > 0.05) }
         if let s = strip { return Primary(title: "Done · \(CaptureCopy.area(s.area(w)))", enabled: abs(s.t1 - s.t0) > 0) }
         if let id = cabinetPick, let ob = w.object(id) {
-            return Primary(title: kickOnly ? "Done · kick \(CaptureCopy.length(ob.size.x))" : "Done · base \(CaptureCopy.length(ob.size.x))", enabled: true)
+            return Primary(title: "Done · \(CaptureCopy.length(ob.size.x))", enabled: true)
         }
         if floorPaint != nil || floorWhole != nil { return Primary(title: "Done · \(CaptureCopy.area(floorDraftArea))", enabled: floorDraftArea > 0.01) }
         if let t = tide { return Primary(title: "Done · \(t.maxMm) mm", enabled: t.points(w).count >= 2) }
@@ -362,7 +362,7 @@ extension CaptureHUDModel {
         guard drafting else { return nil }
         let p = primary
         if cabinetPick != nil {
-            return (Pill(id: "cancelDraft", title: "Cancel"), p.title, Pill(id: "kick", title: MarkIntent.kickBoardNote, prominent: kickOnly))
+            return (Pill(id: "cancelDraft", title: "Cancel"), p.title, Pill(id: "kick", title: "Kick board", prominent: kickOnly))
         }
         if run != nil { return (Pill(id: "undoScrub", title: "Undo"), p.title, Pill(id: "wholeRun", title: "Whole run")) }
         if floorPaint != nil || floorWhole != nil { return (Pill(id: "undoScrub", title: "Undo"), p.title, Pill(id: "wholeRoom", title: "Whole room")) }

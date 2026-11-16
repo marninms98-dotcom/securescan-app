@@ -90,10 +90,16 @@ enum EquipmentModels {
 
     static func voluteRadius(_ t: Double) -> Double { 0.15 + 0.03 * t }
 
+    /// The housing's flat back and flat top (so it never reads as a drum from behind).
+    static let voluteBack = -0.15
+    static let voluteTop = 0.365
+
     static func volutePoint(_ t: Double, inset: Double = 0) -> CGPoint {
         let a = voluteStart + 2 * .pi * t
         let r = voluteRadius(t) - inset
-        return CGPoint(x: voluteCentre.x + r * cos(a), y: voluteCentre.y + r * sin(a))
+        let x = max(voluteCentre.x + r * cos(a), voluteBack + inset)
+        let y = min(voluteCentre.y + r * sin(a), voluteTop - inset)
+        return CGPoint(x: x, y: y)
     }
 
     static func voluteProfile() -> UIBezierPath {
@@ -161,26 +167,26 @@ enum EquipmentModels {
         }
         // A flat top deck across the volute (with the handle), breaking the round silhouette.
         body.addChildNode(node(SCNBox(width: W - 0.04, height: 0.02, length: 0.2, chamferRadius: 0.008), tealDark,
-                               at: [0, Float(voluteCentre.y + voluteRadius(0.43)) - 0.012, -0.04]))
+                               at: [0, Float(voluteTop) - 0.012, -0.04]))
         let c = SIMD3<Float>(0, Float(voluteCentre.y), Float(voluteCentre.x))
         for side: Float in [-1, 1] {
             let x = side * Float(W / 2)
             // Teal rim along the volute on each flat side.
             body.addChildNode(sideShape(voluteRim(), depth: 0.006, chamfer: 0, accent, x: x + side * 0.003))
             // Intake: a dark disc with steel rings and a hub.
-            body.addChildNode(node(SCNCylinder(radius: 0.125, height: 0.006), charcoal, at: [x + side * 0.004, c.y, c.z], euler: [0, 0, .pi / 2]))
-            for rr in [0.112, 0.088, 0.064, 0.04] {
+            body.addChildNode(node(SCNCylinder(radius: 0.11, height: 0.006), charcoal, at: [x + side * 0.004, c.y, c.z], euler: [0, 0, .pi / 2]))
+            for rr in [0.1, 0.08, 0.06, 0.038] {
                 body.addChildNode(node(SCNTorus(ringRadius: CGFloat(rr), pipeRadius: 0.0035), steel,
                                        at: [x + side * 0.008, c.y, c.z], euler: [0, 0, .pi / 2]))
             }
             for a in stride(from: 0.0, to: Double.pi, by: Double.pi / 4) {
-                body.addChildNode(node(SCNBox(width: 0.004, height: 0.24, length: 0.004, chamferRadius: 0), steel,
+                body.addChildNode(node(SCNBox(width: 0.004, height: 0.21, length: 0.004, chamferRadius: 0), steel,
                                        at: [x + side * 0.008, c.y, c.z], euler: [Float(a), 0, 0]))
             }
             body.addChildNode(node(SCNCylinder(radius: 0.022, height: 0.012), steel, at: [x + side * 0.01, c.y, c.z], euler: [0, 0, .pi / 2]))
         }
         // Integrated carry handle moulded into the top of the volute.
-        let top = Float(voluteCentre.y + voluteRadius(0.43))
+        let top = Float(voluteTop)
         for z: Float in [-0.12, 0.04] {
             body.addChildNode(node(SCNBox(width: 0.05, height: 0.04, length: 0.035, chamferRadius: 0.012), teal, at: [0, top + 0.002, z]))
         }

@@ -500,7 +500,6 @@ struct OverlayPainter {
             guard let p = m.points.first, let s = proj.project(p) else { return }
             let r = CGRect(x: s.x - 24, y: s.y - 24, width: 48, height: 48)
             c.stroke(Circle().path(in: r), with: .color(.white.opacity(m.selected ? 0.9 : 0.55)), lineWidth: m.selected ? 2 : 1.5)
-            if m.selected { c.fill(Circle().path(in: r.insetBy(dx: 18, dy: 18)), with: .color(.white.opacity(0.9))) }
         }
     }
 

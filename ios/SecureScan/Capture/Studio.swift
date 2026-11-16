@@ -230,7 +230,7 @@ enum StudioScript {
             hud.stripPick = .wallLining
             fill(5)
             hud.strip = StripBack(wallId: "w1", t0: 0.0, t1: 1.0, heightMm: 600)
-            hud.readout = (WorldVec(StudioRoom.width - 0.35, 0.6, 0.0), "600 mm")
+            hud.readout = (WorldVec(2.3, 0.6, 0.0), "600 mm")
             hud.suggestion = Suggest.afterTide(maxMm: 450, wallId: "w1")
         case "cabinet-hover":
             e.phaseText = "Marking"
