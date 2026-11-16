@@ -259,23 +259,31 @@ final class ModelViewModel: ObservableObject {
     /// (full width) or beside it (full height), whichever shows it bigger.
     func resetView(animated: Bool = true) {
         guard let v = view, let scene else { return }
-        let azimuth = ProcessInfo.processInfo.environment["SECURESCAN_3D_AZIMUTH"].flatMap { Double($0) } ?? 28
+        let fixedAzimuth = ProcessInfo.processInfo.environment["SECURESCAN_3D_AZIMUTH"].flatMap { Double($0) }
         let size = v.bounds.size
         guard size.width > 0, size.height > 0 else { return }
         let w = size.width, h = size.height
         let below = CGRect(x: 0.05, y: min(0.6, 262 / h), width: 0.9, height: max(0.3, (h - 262 - 12) / h))
         let beside = CGRect(x: 12 / w, y: 12 / h, width: (w - 12 - 80) / w, height: (h - 24) / h)
-        func make(_ rect: CGRect) -> (SCNNode, SIMD3<Float>) {
+        func make(_ rect: CGRect, _ azimuth: Double) -> (SCNNode, SIMD3<Float>) {
             Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan, points: fitPoints,
                              azimuth: azimuth, margin: 0.98, rect: rect)
         }
-        let a = make(below), b = make(beside)
         // Bigger on screen = closer camera (orbit) or smaller orthographic scale (plan).
         func spread(_ c: (SCNNode, SIMD3<Float>)) -> Double {
             if let cam = c.0.camera, cam.usesOrthographicProjection { return cam.orthographicScale }
             return Double(simd_distance(c.0.simdPosition, c.1))
         }
-        let (cam, centre) = spread(a) <= spread(b) ? a : b
+        // Orbit: turn the house to the angle that shows it biggest (Plan stays north-up).
+        let azimuths: [Double] = mode == .plan ? [0] : (fixedAzimuth.map { [$0] } ?? Array(stride(from: 10.0, to: 360, by: 15)))
+        var best: (SCNNode, SIMD3<Float>)?
+        for az in azimuths {
+            for rect in [below, beside] {
+                let c = make(rect, az)
+                if best == nil || spread(c) < spread(best!) { best = c }
+            }
+        }
+        guard let (cam, centre) = best else { return }
         install(cam, centre: centre, in: v, scene: scene, animated: animated)
     }
 
