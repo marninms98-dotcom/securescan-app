@@ -139,6 +139,14 @@ enum MoistShapesMath {
         return 1200
     }
 
+    /// A robust "how high" for a run of columns: the 80th percentile, so one
+    /// damp stripe doesn't set the cut for the whole wall.
+    static func typicalTop(_ tops: [Double]) -> Double {
+        guard !tops.isEmpty else { return 0 }
+        let s = tops.sorted()
+        return s[min(s.count - 1, Int((Double(s.count - 1) * 0.8).rounded()))]
+    }
+
     /// Contiguous runs of true values: (first, last) indices.
     static func runs(_ flags: [Bool]) -> [(Int, Int)] {
         var out: [(Int, Int)] = []
@@ -330,7 +338,10 @@ extension MoistResult {
                     seg.append(MoistVec(MoistNum.r3(Double(b + 1) * L.colWidth), MoistNum.r3(tops[b]!)))
                     segments.append(seg)
                     // Suggestions for this run.
-                    let tide = (a...b).map { tops[$0]! }.max() ?? 0
+                    let runTops = (a...b).map { tops[$0]! }
+                    let tide = MoistShapesMath.typicalTop(runTops)
+                    let peak = runTops.max() ?? tide
+                    let peakAt = (Double(a + (runTops.firstIndex(of: peak) ?? 0)) + 0.5) * L.colWidth
                     let from = max(0, Double(a) * L.colWidth - 0.3), to = min(w.length, Double(b + 1) * L.colWidth + 0.3)
                     if setup.lining(side).name == "tiled" {
                         suggestions.append(MoistSuggestion(kind: .inspectCavity, wallId: w.id, side: side, roomId: roomId(L.faceRoom[k][a]),
@@ -338,12 +349,16 @@ extension MoistResult {
                                                            note: "Tiled face: confirm behind the tiles (inspection hole or the other side) before removing tiles."))
                     } else {
                         let cut = MoistShapesMath.cutHeightMm(tide: tide)
+                        var note = tide + 0.3 > 1.2 + 1e-9
+                            ? "Moisture reaches the top of the modelled band: measure higher before setting the cut."
+                            : "Tide line \(Int((tide * 1000).rounded())) mm + 300 mm, rounded up."
+                        if peak > Double(cut) / 1000 - 0.15 {
+                            note += String(format: " Damp locally up to %.0f mm about %.1f m along: check there before cutting.", peak * 1000, peakAt)
+                        }
                         suggestions.append(MoistSuggestion(kind: .stripLining, wallId: w.id, side: side, roomId: roomId(L.faceRoom[k][a]),
                                                            from: MoistNum.r2(from), to: MoistNum.r2(to), cutHeightMm: cut,
                                                            area: MoistNum.r2((to - from) * Double(cut) / 1000), length: MoistNum.r2(to - from),
-                                                           note: tide + 0.3 > 1.2 + 1e-9
-                                                               ? "Moisture reaches the top of the modelled band: measure higher before setting the cut."
-                                                               : "Tide line \(Int((tide * 1000).rounded())) mm + 300 mm, rounded up."))
+                                                           note: note))
                     }
                 }
                 // Skirting runs.

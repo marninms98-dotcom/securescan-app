@@ -164,7 +164,9 @@ final class MoistureModelTests: XCTestCase {
             b.wallId = "w1"; b.height = 0.7; b.material = "wall"
             input.readings.append(b)
         }
-        let rep = MoistModel.run(input).report()
+        let r = MoistModel.run(input)
+        let rep = r.report()
+        print("\n===== MOISTURE LINE MARKS =====\n" + MoistDebug.summary(r, rep) + MoistDebug.wall(r, id: "w1"))
         let f = face(rep, "w1", .a)
         XCTAssertNotNil(f)
         XCTAssertEqual(f?.maxHeight ?? 0, 0.7, accuracy: 0.2)
@@ -226,7 +228,11 @@ final class MoistureModelTests: XCTestCase {
 
     func testSameInputSameOutput() {
         let input = MoisturePlan.input(plan: MoistFixtures.ensuitePlan())
+        let t0 = Date()
         let a = MoistModel.run(input), b = MoistModel.run(input)
+        let t1 = Date()
+        _ = a.report()
+        print(String(format: "\n===== DETERMINISM: two runs %.0f ms, one report %.0f ms =====", t1.timeIntervalSince(t0) * 1000, Date().timeIntervalSince(t1) * 1000))
         XCTAssertEqual(a.wetness, b.wetness)
         XCTAssertEqual(a.provenance, b.provenance)
         XCTAssertEqual(a.params, b.params)

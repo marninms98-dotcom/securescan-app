@@ -219,8 +219,10 @@ final class MoistGrid {
                                   area: h * h, capacity: m.capacity * h * h, wetLevel: m.wetLevel, dryRate: 1 / m.dryHours))
             }
         }
-        let barriers = MoistSetup.barriers(input)
+        // Lines are lengthened a little so a link through their very end can't slip past.
+        let barriers = MoistSetup.barriers(input).map { MoistGeom.extend($0.0, $0.1, by: 0.03) }
         self.barriers = barriers
+        let thresholds = input.floorThresholds.map { (MoistGeom.extend($0.a, $0.b, by: 0.05), $0.type) }
         for j in 0..<ny {
             for i in 0..<nx {
                 let c = floorIndex[j * nx + i]
@@ -234,8 +236,8 @@ final class MoistGrid {
                     let x = crossing(p, q)
                     if x.blocked { continue }
                     var f: Double? = nil
-                    for t in input.floorThresholds where MoistGeom.cross(p, q, t.a, t.b) != nil {
-                        f = min(f ?? 1, MoistMaterials.thresholdFactor(t.type))
+                    for t in thresholds where MoistGeom.cross(p, q, t.0.0, t.0.1) != nil {
+                        f = min(f ?? 1, MoistMaterials.thresholdFactor(t.1))
                     }
                     if f == nil && x.doorway { f = MoistMaterials.doorwayFactor(cells[c].covering ?? .other, cells[n].covering ?? .other) }
                     let factor = f ?? 1
@@ -256,8 +258,8 @@ final class MoistGrid {
                     let x = crossing(p, q)
                     if x.blocked { continue }
                     var f: Double? = nil
-                    for t in input.floorThresholds where MoistGeom.cross(p, q, t.a, t.b) != nil {
-                        f = min(f ?? 1, MoistMaterials.thresholdFactor(t.type))
+                    for t in thresholds where MoistGeom.cross(p, q, t.0.0, t.0.1) != nil {
+                        f = min(f ?? 1, MoistMaterials.thresholdFactor(t.1))
                     }
                     if f == nil && x.doorway { f = MoistMaterials.doorwayFactor(cells[c].covering ?? .other, cells[n].covering ?? .other) }
                     let factor = f ?? 1
@@ -552,6 +554,14 @@ enum MoistGeom {
         let u = (ap.x * s.y - ap.y * s.x) / den     // along p-q
         let t = (ap.x * r.y - ap.y * r.x) / den     // along a-b
         return u >= 0 && u <= 1 && t >= 0 && t <= 1 ? t : nil
+    }
+
+    /// The segment a-b lengthened by `d` at both ends.
+    static func extend(_ a: MoistVec, _ b: MoistVec, by d: Double) -> (MoistVec, MoistVec) {
+        let l = simd_length(b - a)
+        guard l > 1e-9 else { return (a, b) }
+        let u = (b - a) / l
+        return (a - u * d, b + u * d)
     }
 
     static func distanceToSegment(_ p: MoistVec, _ a: MoistVec, _ b: MoistVec) -> Double {
