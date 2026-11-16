@@ -58,9 +58,9 @@ struct SyncStatusSection: View {
                 if let link = center.link(for: jobID) {
                     Button { center.linkingJob = jobID } label: {
                         LabeledContent {
-                            Text(link.title).foregroundStyle(.secondary).lineLimit(1)
+                            Text(link.title).foregroundStyle(Color(.secondaryLabel)).lineLimit(1)
                         } label: {
-                            Text("SecureSuite job").foregroundStyle(.primary)
+                            Text("SecureSuite job").foregroundStyle(Color(.label))
                         }
                         .font(DS.Font.body)
                     }
@@ -68,7 +68,7 @@ struct SyncStatusSection: View {
                 } else if center.canLink {
                     Button { center.linkingJob = jobID } label: {
                         Label {
-                            Text("Link SecureSuite job").foregroundStyle(.primary)
+                            Text("Link SecureSuite job").foregroundStyle(Color(.label))
                         } icon: {
                             Image(systemName: "link").foregroundStyle(DS.Color.accent)
                         }
@@ -77,9 +77,6 @@ struct SyncStatusSection: View {
                 }
             } header: {
                 Text("SecureSuite")
-            }
-            .sheet(isPresented: $signingIn) {
-                SignInView(onDone: { signingIn = false }, fromSettings: true)
             }
         }
     }
@@ -113,6 +110,10 @@ struct SyncStatusSection: View {
             }
         }
         .accessibilityElement(children: .contain)
+        // On a row, not the Section: presentations attached to a Form section don't show.
+        .sheet(isPresented: $signingIn) {
+            SignInView(onDone: { signingIn = false }, fromSettings: true)
+        }
     }
 
     private func rowAction(_ title: String, _ action: @escaping () -> Void) -> some View {
@@ -141,6 +142,12 @@ struct SyncSettingsSection: View {
                 Button(role: .destructive) { confirmSignOut = true } label: {
                     Text("Sign out").font(DS.Font.body).foregroundStyle(DS.Color.remove)
                 }
+                .confirmationDialog("Sign out of SecureSuite?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+                    Button("Sign out", role: .destructive) { center.signOut() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Jobs stay on this iPhone. New changes upload when you sign in again.")
+                }
             } else {
                 Button { signingIn = true } label: {
                     Label {
@@ -150,20 +157,14 @@ struct SyncSettingsSection: View {
                     }
                     .font(DS.Font.body)
                 }
+                .sheet(isPresented: $signingIn) {
+                    SignInView(onDone: { signingIn = false }, fromSettings: true)
+                }
             }
         } header: {
             Text("SecureSuite")
         } footer: {
             Text(footer)
-        }
-        .sheet(isPresented: $signingIn) {
-            SignInView(onDone: { signingIn = false }, fromSettings: true)
-        }
-        .confirmationDialog("Sign out of SecureSuite?", isPresented: $confirmSignOut, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive) { center.signOut() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Jobs stay on this iPhone. New changes upload when you sign in again.")
         }
     }
 
@@ -336,10 +337,7 @@ struct LinkJobSection: View {
         if center.canLink {
             Section {
                 Button { picking = true } label: { row }
-            } header: {
-                Text("SecureSuite job")
-            }
-            .sheet(isPresented: $picking) {
+                    .sheet(isPresented: $picking) {
                 SecureSuiteJobPicker(current: link,
                                      onPick: { job in
                                          link = SecureSuiteLink(job: job)
@@ -348,8 +346,11 @@ struct LinkJobSection: View {
                                      },
                                      onUnlink: { link = nil; picking = false },
                                      onCancel: { picking = false })
+                    }
+                    .onAppear(perform: previewForScreenshots)
+            } header: {
+                Text("SecureSuite job")
             }
-            .onAppear(perform: previewForScreenshots)
         }
     }
 
@@ -361,10 +362,10 @@ struct LinkJobSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(link.jobNumber.isEmpty ? "Linked job" : link.jobNumber)
                         .font(DS.Font.bodyBold)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color(.label))
                         .monospacedDigit()
                     if !link.clientName.isEmpty {
-                        Text(link.clientName).font(DS.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(link.clientName).font(DS.Font.caption).foregroundStyle(Color(.secondaryLabel)).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 8)
@@ -372,7 +373,7 @@ struct LinkJobSection: View {
             } else {
                 Text("Link SecureSuite job").foregroundStyle(DS.Color.accent)
                 Spacer(minLength: 8)
-                Text("Optional").foregroundStyle(.secondary)
+                Text("Optional").foregroundStyle(Color(.secondaryLabel))
             }
         }
         .font(DS.Font.body)
@@ -383,7 +384,8 @@ struct LinkJobSection: View {
         #if DEBUG
         switch FakeCloud.picker {
         case "1", "search":
-            Task { try? await Task.sleep(nanoseconds: 700_000_000); picking = true }
+            // After the New job cover has finished sliding in.
+            Task { try? await Task.sleep(nanoseconds: 1_500_000_000); picking = true }
         case "linked":
             if link == nil, let job = FakeCloud.secureSuiteJobs.first {
                 link = SecureSuiteLink(job: job)
