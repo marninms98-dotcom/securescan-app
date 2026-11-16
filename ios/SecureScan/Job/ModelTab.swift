@@ -283,7 +283,8 @@ final class ModelViewModel: ObservableObject {
                 if best == nil || spread(c) < spread(best!) { best = c }
             }
         }
-        guard let (cam, centre) = best else { return }
+        guard let pick = best else { return }
+        let (cam, centre) = pick
         install(cam, centre: centre, in: v, scene: scene, animated: animated)
     }
 
