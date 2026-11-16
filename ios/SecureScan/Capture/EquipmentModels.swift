@@ -83,74 +83,143 @@ enum EquipmentModels {
         return root
     }
 
+    /// The air mover's side profile (u = forward/+Z, v = up), metres: a volute spiralling out
+    /// from the fan and opening into a low, wide outlet at the bottom front.
+    static let voluteCentre = SIMD2<Double>(-0.03, 0.21)
+    static let voluteStart = -0.35 * Double.pi
+
+    static func voluteRadius(_ t: Double) -> Double { 0.15 + 0.03 * t }
+
+    static func volutePoint(_ t: Double, inset: Double = 0) -> CGPoint {
+        let a = voluteStart + 2 * .pi * t
+        let r = voluteRadius(t) - inset
+        return CGPoint(x: voluteCentre.x + r * cos(a), y: voluteCentre.y + r * sin(a))
+    }
+
+    static func voluteProfile() -> UIBezierPath {
+        let p = UIBezierPath()
+        p.move(to: volutePoint(0))
+        for k in 1...64 { p.addLine(to: volutePoint(Double(k) / 64)) }
+        // The duct along the floor to the outlet mouth (its face leans slightly down).
+        p.addLine(to: CGPoint(x: 0.19, y: 0.04))
+        p.addLine(to: CGPoint(x: 0.205, y: 0.06))
+        p.addLine(to: CGPoint(x: 0.20, y: 0.145))
+        p.close()
+        return p
+    }
+
+    /// The teal band along the volute's rim (side faces).
+    static func voluteRim() -> UIBezierPath {
+        let p = UIBezierPath()
+        let n = 56
+        p.move(to: volutePoint(0.06))
+        for k in 1...n { p.addLine(to: volutePoint(0.06 + 0.9 * Double(k) / Double(n))) }
+        for k in stride(from: n, through: 0, by: -1) { p.addLine(to: volutePoint(0.06 + 0.9 * Double(k) / Double(n), inset: 0.016)) }
+        p.close()
+        return p
+    }
+
+    /// A shape drawn in the (forward, up) plane, extruded across the unit (x).
+    static func sideShape(_ path: UIBezierPath, depth: CGFloat, chamfer: CGFloat, _ m: SCNMaterial, x: Float = 0) -> SCNNode {
+        let shape = SCNShape(path: path, extrusionDepth: depth)
+        shape.chamferRadius = chamfer
+        shape.chamferMode = .both
+        shape.materials = [m]
+        let n = SCNNode(geometry: shape)
+        // Path x -> +Z, path y -> +Y, extrusion -> X.
+        n.simdEulerAngles = [0, -.pi / 2, 0]
+        n.simdPosition = [x, 0, 0]
+        return n
+    }
+
+    /// A centrifugal "snail shell" carpet dryer (Velo / Sahara / Ram Air style):
+    /// ~0.41 L x 0.30 W x 0.43 H, intake grilles on both flat sides, outlet low at the front.
     static func airMover() -> SCNNode {
         let n = SCNNode()
-        let r: CGFloat = 0.17, w: CGFloat = 0.28
-        // The snail shell: a drum on its side (axis X) plus a scroll widening into the outlet.
-        n.addChildNode(node(SCNCylinder(radius: r, height: w), teal, at: [0, 0.215, -0.06], euler: [0, 0, .pi / 2]))
-        n.addChildNode(node(SCNBox(width: w, height: 0.17, length: 0.24, chamferRadius: 0.03), teal, at: [0, 0.125, 0.07]))
-        // Outlet: the dark mouth facing +Z, with a lip.
-        n.addChildNode(node(SCNBox(width: w + 0.02, height: 0.15, length: 0.04, chamferRadius: 0.012), tealDark, at: [0, 0.12, 0.2]))
-        n.addChildNode(node(SCNBox(width: w - 0.04, height: 0.105, length: 0.02, chamferRadius: 0.006), charcoal, at: [0, 0.12, 0.215]))
+        let W: CGFloat = 0.30
+        let lift: Float = 0.018                       // on its feet
+        let body = SCNNode()
+        body.simdPosition = [0, lift, 0]
+        n.addChildNode(body)
+        body.addChildNode(sideShape(voluteProfile(), depth: W, chamfer: 0.022, teal))
+        // The outlet mouth: dark, with louvres.
+        let mouth = UIBezierPath(rect: CGRect(x: 0.0, y: 0.0, width: 0.24, height: 0.075))
+        let m = sideShape(mouth, depth: 0.004, chamfer: 0, charcoal)
+        m.simdEulerAngles = [0, 0, 0]
+        m.simdPosition = [-0.12, 0.055, 0.203]
+        body.addChildNode(m)
         for k in 0..<3 {
-            n.addChildNode(node(SCNBox(width: w - 0.05, height: 0.006, length: 0.012, chamferRadius: 0.002), steel,
-                                at: [0, 0.09 + Float(k) * 0.03, 0.222]))
+            body.addChildNode(node(SCNBox(width: 0.23, height: 0.005, length: 0.012, chamferRadius: 0.002), steel,
+                                   at: [0, 0.07 + Float(k) * 0.022, 0.206]))
         }
-        // Side intakes: dark disc with steel rings, both sides.
+        let c = SIMD3<Float>(0, Float(voluteCentre.y), Float(voluteCentre.x))
         for side: Float in [-1, 1] {
-            let x = side * Float(w / 2 + 0.004)
-            n.addChildNode(node(SCNCylinder(radius: 0.125, height: 0.008), charcoal, at: [x, 0.215, -0.06], euler: [0, 0, .pi / 2]))
-            for (i, rr) in [0.11, 0.08, 0.05].enumerated() {
-                n.addChildNode(node(SCNTorus(ringRadius: CGFloat(rr), pipeRadius: 0.0045), steel,
-                                    at: [x + side * 0.004 * Float(i + 1) * 0.3, 0.215, -0.06], euler: [0, 0, .pi / 2]))
+            let x = side * Float(W / 2)
+            // Teal rim along the volute on each flat side.
+            body.addChildNode(sideShape(voluteRim(), depth: 0.006, chamfer: 0, accent, x: x + side * 0.003))
+            // Intake: a dark disc with steel rings and a hub.
+            body.addChildNode(node(SCNCylinder(radius: 0.125, height: 0.006), charcoal, at: [x + side * 0.004, c.y, c.z], euler: [0, 0, .pi / 2]))
+            for rr in [0.112, 0.088, 0.064, 0.04] {
+                body.addChildNode(node(SCNTorus(ringRadius: CGFloat(rr), pipeRadius: 0.0035), steel,
+                                       at: [x + side * 0.008, c.y, c.z], euler: [0, 0, .pi / 2]))
             }
-            n.addChildNode(node(SCNCylinder(radius: 0.022, height: 0.01), steel, at: [x + side * 0.004, 0.215, -0.06], euler: [0, 0, .pi / 2]))
+            for a in stride(from: 0.0, to: Double.pi, by: Double.pi / 4) {
+                body.addChildNode(node(SCNBox(width: 0.004, height: 0.24, length: 0.004, chamferRadius: 0), steel,
+                                       at: [x + side * 0.008, c.y, c.z], euler: [Float(a), 0, 0]))
+            }
+            body.addChildNode(node(SCNCylinder(radius: 0.022, height: 0.012), steel, at: [x + side * 0.01, c.y, c.z], euler: [0, 0, .pi / 2]))
         }
-        // Teal rim round the shell's edge (both sides) and a strip on the base.
-        for side: Float in [-1, 1] {
-            n.addChildNode(node(SCNTorus(ringRadius: r - 0.006, pipeRadius: 0.006), accent,
-                                at: [side * Float(w / 2 - 0.004), 0.215, -0.06], euler: [0, 0, .pi / 2]))
+        // Integrated carry handle moulded into the top of the volute.
+        let top = Float(voluteCentre.y + voluteRadius(0.43))
+        for z: Float in [-0.12, 0.04] {
+            body.addChildNode(node(SCNBox(width: 0.05, height: 0.04, length: 0.035, chamferRadius: 0.012), teal, at: [0, top + 0.002, z]))
         }
-        n.addChildNode(node(SCNBox(width: 0.16, height: 0.012, length: 0.008, chamferRadius: 0.004), accent, at: [Float(w / 2) + 0.002, 0.05, 0.02],
-                            euler: [0, .pi / 2, 0]))
-        n.addChildNode(node(SCNBox(width: 0.16, height: 0.012, length: 0.008, chamferRadius: 0.004), accent, at: [-Float(w / 2) - 0.002, 0.05, 0.02],
-                            euler: [0, .pi / 2, 0]))
-        // Carry handle over the top.
-        for z: Float in [-0.16, 0.05] {
-            n.addChildNode(node(SCNBox(width: 0.03, height: 0.07, length: 0.03, chamferRadius: 0.01), charcoal, at: [0, 0.405, z]))
-        }
-        n.addChildNode(node(SCNCapsule(capRadius: 0.018, height: 0.27), charcoal, at: [0, 0.44, -0.055], euler: [.pi / 2, 0, 0]))
-        // Feet.
-        for x: Float in [-0.11, 0.11] { for z: Float in [-0.17, 0.17] {
-            n.addChildNode(node(SCNBox(width: 0.05, height: 0.02, length: 0.05, chamferRadius: 0.008), rubber, at: [x, 0.01, z]))
+        body.addChildNode(node(SCNCapsule(capRadius: 0.016, height: 0.21), charcoal, at: [0, top + 0.03, -0.04], euler: [.pi / 2, 0, 0]))
+        // Rubber feet.
+        for x: Float in [-0.11, 0.11] { for z: Float in [-0.14, 0.15] {
+            n.addChildNode(node(SCNBox(width: 0.045, height: lift, length: 0.045, chamferRadius: 0.006), rubber, at: [x, lift / 2, z]))
         } }
         return n
     }
 
+    /// An LGR dehumidifier (LGR 3500i / Phoenix 200 style): upright rounded body
+    /// ~0.45 W x 0.55 D x 0.85 H; intake grille on the front (+Z), exhaust grille at the top
+    /// back, a tubular handle across the top back, big wheels at the back, feet at the front.
     static func dehumidifier() -> SCNNode {
         let n = SCNNode()
-        let W: CGFloat = 0.40, H: CGFloat = 0.70, D: CGFloat = 0.50
-        n.addChildNode(node(SCNBox(width: W, height: H, length: D, chamferRadius: 0.05), teal, at: [0, Float(H / 2) + 0.05, 0]))
-        // Teal band and the front intake grille (faces +Z).
-        n.addChildNode(node(SCNBox(width: W + 0.004, height: 0.03, length: D + 0.004, chamferRadius: 0.012), accent, at: [0, 0.62, 0]))
-        n.addChildNode(node(SCNBox(width: W - 0.08, height: 0.38, length: 0.01, chamferRadius: 0.01), charcoal, at: [0, 0.32, Float(D / 2) + 0.002]))
-        for k in 0..<9 {
-            n.addChildNode(node(SCNBox(width: W - 0.1, height: 0.008, length: 0.012, chamferRadius: 0.002), midGrey,
-                                at: [0, 0.155 + Float(k) * 0.041, Float(D / 2) + 0.008]))
+        let W: CGFloat = 0.45, D: CGFloat = 0.55, H: CGFloat = 0.76, base: Float = 0.07
+        n.addChildNode(node(SCNBox(width: W, height: H, length: D, chamferRadius: 0.07), teal, at: [0, base + Float(H / 2), 0]))
+        // Teal accent line round the body.
+        n.addChildNode(node(SCNBox(width: W + 0.004, height: 0.016, length: D + 0.004, chamferRadius: 0.008), accent, at: [0, 0.66, 0]))
+        // Recessed front intake grille with horizontal slats.
+        let front = Float(D / 2)
+        n.addChildNode(node(SCNBox(width: 0.36, height: 0.44, length: 0.02, chamferRadius: 0.025), charcoal, at: [0, 0.38, front - 0.006]))
+        for k in 0..<11 {
+            n.addChildNode(node(SCNBox(width: 0.33, height: 0.007, length: 0.01, chamferRadius: 0.002), midGrey,
+                                at: [0, 0.18 + Float(k) * 0.04, front + 0.004]))
         }
-        // Top control panel with a status light.
-        n.addChildNode(node(SCNBox(width: 0.26, height: 0.012, length: 0.16, chamferRadius: 0.006), charcoal, at: [0, 0.755, 0.08]))
-        n.addChildNode(node(SCNSphere(radius: 0.008), plastic(0x2E9E5B, emission: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 1)), at: [0.08, 0.763, 0.1]))
-        // Handle at the back of the top.
-        for x: Float in [-0.14, 0.14] {
-            n.addChildNode(node(SCNBox(width: 0.025, height: 0.09, length: 0.025, chamferRadius: 0.008), charcoal, at: [x, 0.79, -0.19]))
+        // Exhaust grille on the top, towards the back.
+        let topY = base + Float(H)
+        n.addChildNode(node(SCNBox(width: 0.34, height: 0.012, length: 0.16, chamferRadius: 0.01), charcoal, at: [0, topY - 0.002, -0.09]))
+        for k in 0..<6 {
+            n.addChildNode(node(SCNBox(width: 0.32, height: 0.006, length: 0.008, chamferRadius: 0.002), midGrey,
+                                at: [0, topY + 0.005, -0.155 + Float(k) * 0.026]))
         }
-        n.addChildNode(node(SCNCapsule(capRadius: 0.016, height: 0.32), charcoal, at: [0, 0.835, -0.19], euler: [0, 0, .pi / 2]))
-        // Wheels at the back, feet at the front.
+        // Control panel on the top, at the front, with a status light.
+        n.addChildNode(node(SCNBox(width: 0.2, height: 0.014, length: 0.1, chamferRadius: 0.006), charcoal, at: [0, topY, 0.15]))
+        n.addChildNode(node(SCNSphere(radius: 0.008), plastic(0x2E9E5B, emission: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 1)), at: [0.06, topY + 0.009, 0.16]))
+        n.addChildNode(node(SCNBox(width: 0.06, height: 0.006, length: 0.03, chamferRadius: 0.003), accent, at: [-0.04, topY + 0.008, 0.16]))
+        // Tubular handle across the top back.
         for x: Float in [-0.19, 0.19] {
-            n.addChildNode(node(SCNCylinder(radius: 0.06, height: 0.035), rubber, at: [x, 0.06, -0.17], euler: [0, 0, .pi / 2]))
-            n.addChildNode(node(SCNCylinder(radius: 0.025, height: 0.04), steel, at: [x, 0.06, -0.17], euler: [0, 0, .pi / 2]))
-            n.addChildNode(node(SCNBox(width: 0.05, height: 0.05, length: 0.05, chamferRadius: 0.01), rubber, at: [x * 0.8, 0.025, 0.18]))
+            n.addChildNode(node(SCNCylinder(radius: 0.014, height: 0.12), steel, at: [x, topY + 0.05, -0.24]))
+        }
+        n.addChildNode(node(SCNCapsule(capRadius: 0.018, height: 0.42), charcoal, at: [0, topY + 0.11, -0.24], euler: [0, 0, .pi / 2]))
+        // Two big wheels at the back, two feet at the front.
+        for side: Float in [-1, 1] {
+            let x = side * Float(W / 2 + 0.01)
+            n.addChildNode(node(SCNCylinder(radius: 0.095, height: 0.04), rubber, at: [x, 0.095, -0.19], euler: [0, 0, .pi / 2]))
+            n.addChildNode(node(SCNCylinder(radius: 0.04, height: 0.046), steel, at: [x, 0.095, -0.19], euler: [0, 0, .pi / 2]))
+            n.addChildNode(node(SCNBox(width: 0.06, height: base, length: 0.06, chamferRadius: 0.012), rubber, at: [side * 0.15, base / 2, 0.2]))
         }
         return n
     }
@@ -237,7 +306,7 @@ enum EquipmentModels {
         fanShape.materials = [fm]
         let fanNode = SCNNode(geometry: fanShape)
         fanNode.simdEulerAngles = [.pi / 2, 0, 0]          // path y -> world +Z
-        fanNode.simdPosition = [0, 0.008, 0.24]
+        fanNode.simdPosition = [0, 0.008, 0.21]
         fanNode.renderingOrder = 1
         root.addChildNode(fanNode)
         // Chevrons.
@@ -263,7 +332,7 @@ enum EquipmentModels {
             shape.materials = [m]
             let c = SCNNode(geometry: shape)
             c.simdEulerAngles = [.pi / 2, 0, 0]
-            c.simdPosition = [0, 0.012, 0.34 + Float(k) * spacing]
+            c.simdPosition = [0, 0.012, 0.3 + Float(k) * spacing]
             c.renderingOrder = 2
             mover.addChildNode(c)
         }

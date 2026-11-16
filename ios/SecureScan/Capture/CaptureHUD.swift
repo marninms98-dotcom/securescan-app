@@ -100,15 +100,14 @@ struct CaptureHUD: View {
     // MARK: Top bar (black)
 
     private var topBar: some View {
-        ZStack {
-            HStack(spacing: 10) {
-                OutlinePill("Tips", icon: "lightbulb") { hud.tipsOpen.toggle(); DS.Haptic.selection() }
-                Spacer()
+        // The title takes the space between Tips and the right-hand buttons (never truncated).
+        HStack(spacing: 8) {
+            OutlinePill("Tips", icon: "lightbulb") { hud.tipsOpen.toggle(); DS.Haptic.selection() }
+            title.frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
                 recordButton
                 OutlineCircle("xmark", label: "Close") { hud.engine.requestClose() }
             }
-            // Clear of the side buttons (the recording timer is wider than the mic).
-            title.padding(.horizontal, hud.display.recordingSince == nil ? 104 : 136)
         }
     }
 
@@ -119,7 +118,8 @@ struct CaptureHUD: View {
                 .font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             if !room.isEmpty || hud.engine.isReturnVisit || hud.engine.isScopeOnSite {
                 Text(room.isEmpty ? (hud.engine.isScopeOnSite ? "See scope on site" : "Return visit") : hud.subtitle)
-                    .font(.system(size: 11.5, weight: .medium)).foregroundStyle(.white.opacity(0.72)).lineLimit(1).minimumScaleFactor(0.85)
+                    .font(.system(size: 11.5, weight: .medium)).foregroundStyle(.white.opacity(0.72))
+                    .lineLimit(1).fixedSize()
             }
         }
         .foregroundStyle(.white)
@@ -319,7 +319,7 @@ struct CaptureHUD: View {
 
     @ViewBuilder private var subPicker: some View {
         let items = hud.subPicker
-        if !items.isEmpty {
+        if !items.isEmpty && !hud.primaryIsStart {
             let sel = hud.subSelection
             let locked = hud.tool == .moisture && !hud.markPoints.isEmpty
             HStack(spacing: 2) {

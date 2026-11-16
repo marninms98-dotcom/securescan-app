@@ -24,13 +24,18 @@ enum OverlayLayout {
     static let bottomLimit: CGFloat = 64
     static let pinLift: CGFloat = 0
     static let pinRadius: CGFloat = 17
+    /// A line shorter than this on screen gets no label.
+    static let minVisibleLine: CGFloat = 80
+    /// A pin moved less than this from its point draws no stem.
+    static let stemMin: CGFloat = 24
 
-    /// The 3D models' heights (m): air mover 0.40, dehumidifier 0.75, air scrubber 0.60, heater 0.40.
+    /// The 3D models' heights (m, to the top of the handle): air mover 0.43, dehumidifier 0.92,
+    /// air scrubber 0.60, heater 0.43.
     static func equipmentHeight(_ type: String) -> Double {
         switch type {
-        case "dehumidifier": return 0.75
+        case "dehumidifier": return 0.92
         case "airScrubber": return 0.60
-        default: return 0.40
+        default: return 0.43
         }
     }
 
@@ -224,7 +229,11 @@ enum OverlayLayout {
             case .skirting, .lineDraft:
                 guard m.points.count >= 2, let seg = proj.projectSegment(m.points[0], m.points[1]) else { continue }
                 let (a, b) = clipToScreen(cg(seg.0), cg(seg.1), vp)
+                // Only a sliver on screen (or under the torch / 0.5x): no label, rather than one
+                // floating away from its line.
+                guard hypot(b.x - a.x, b.y - a.y) >= minVisibleLine else { continue }
                 anchor = CGPoint(x: (a.x + b.x) / 2, y: min(a.y, b.y) - 6)
+                if let p = anchor, edgeControls(vp).insetBy(dx: -8, dy: -8).contains(p) { continue }
             case .lining:
                 guard m.points.count >= 2 else { continue }
                 let top = m.top ?? 0.6
@@ -244,6 +253,8 @@ enum OverlayLayout {
                 if let s = proj.project(c) { anchor = CGPoint(x: s.x, y: s.y + 12); below = true }
             }
             guard let a = anchor, a.x >= 0, a.x <= vp.width, a.y >= 0, a.y <= vp.height else { continue }
+            // Anchored past the side margin: the label could only sit away from its mark.
+            if !leading && (a.x < margin || a.x > vp.width - margin) { continue }
             let sz = measure.tag(text)
             let r0 = CGRect(x: leading ? a.x : a.x - sz.width / 2, y: below ? a.y : a.y - sz.height, width: sz.width, height: sz.height)
             let r = free(r0, obstacles: obstacles, viewport: vp)

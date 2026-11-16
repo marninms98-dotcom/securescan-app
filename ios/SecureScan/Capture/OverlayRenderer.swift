@@ -319,8 +319,12 @@ struct OverlayPainter {
     /// point; when it had to step aside, a thin stem goes back to the point.
     func drawPin(_ pin: OverlayLayout.Pin, value: String, fill: Color, hollow: Bool, tagText: String?, selected: Bool, in c: inout GraphicsContext) {
         let s = pin.anchor, centre = pin.centre
-        if hypot(s.x - centre.x, s.y - centre.y) > OverlayLayout.pinRadius {
-            var stem = Path(); stem.move(to: s); stem.addLine(to: centre)
+        let d = hypot(s.x - centre.x, s.y - centre.y)
+        if d >= OverlayLayout.stemMin {
+            // A short stem from the circle's edge to the point.
+            let edge = CGPoint(x: centre.x + (s.x - centre.x) / d * OverlayLayout.pinRadius,
+                               y: centre.y + (s.y - centre.y) / d * OverlayLayout.pinRadius)
+            var stem = Path(); stem.move(to: s); stem.addLine(to: edge)
             c.stroke(stem, with: .color(DS.Color.ink.opacity(0.45)), lineWidth: 3)
             c.stroke(stem, with: .color(.white), lineWidth: 1.2)
             c.fill(Circle().path(in: CGRect(x: s.x - 2.5, y: s.y - 2.5, width: 5, height: 5)), with: .color(.white))
