@@ -230,6 +230,11 @@ struct SourceTray: View {
                     Chip("Suspected", selected: !hud.sourceConfirmed) { hud.sourceConfirmed = false; DS.Haptic.selection() }
                     Chip("Confirmed", selected: hud.sourceConfirmed) { hud.sourceConfirmed = true; DS.Haptic.selection() }
                 }
+                // Where it is: on the surface, or inside the wall (shown from both rooms).
+                HStack(spacing: DS.Space.tight) {
+                    Chip("On the surface", selected: !hud.sourceInside) { hud.sourceInside = false; DS.Haptic.selection() }
+                    Chip("Inside the wall", selected: hud.sourceInside) { hud.sourceInside = true; DS.Haptic.selection() }
+                }
             }
         }
     }

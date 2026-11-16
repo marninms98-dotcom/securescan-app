@@ -525,7 +525,7 @@ extension CaptureHUDModel {
                 return w.nearestWall(to: PlanVec(mid.x, mid.z), maxDistance: 0.4)?.wall.id
             })
             offer(Suggest.afterReading(value: value, height: a.height, wallId: a.wall?.id, wallsWithSkirting: skirtingWalls))
-        case .source(let s, _, _, _):
+        case .source(let s, _, _, _, _):
             if let h = s.hit { offer(Suggest.afterSource(at: h, objects: w.objects)) }
         default:
             break
@@ -540,9 +540,11 @@ extension CaptureHUDModel {
         var out: [OverlayMark] = []
         func base(_ wall: WorldWall, _ t: Double, _ y: Double) -> WorldVec { let p = wall.a + (wall.b - wall.a) * t; return WorldVec(p.x, y, p.y) }
         // Water-entry rings in Source mode (the hovered one brighter).
+        let cam = engine.aimSample()?.camera
         if tool == .source, tray == nil {
             for c in ComponentIndex.waterCandidates(w) {
                 guard let p = c.point else { continue }
+                if let cam, Visibility.occluded(p + simd_normalize(cam - p) * 0.05, camera: cam, world: w) { continue }
                 var m = OverlayMark(id: "ring-\(c.id)", style: .hover(.ring), points: [p], tag: componentTitle(c))
                 m.selected = c.id == hover?.id
                 out.append(m)

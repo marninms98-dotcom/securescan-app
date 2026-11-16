@@ -28,16 +28,33 @@ enum StudioScenes {
     /// The camera viewport on an iPhone 16 Pro (402 pt wide, 3:4) - the CI simulator.
     static let viewport = ScreenVec(402, 536)
 
+    /// Walls have two sides (docs/MARKING.md H): the "next room" is behind w1 (z < 0).
+    static let sides = ["through-wall-hidden", "cavity-leak-side-a", "cavity-leak-side-b", "strip-out-other-side-hidden"]
+
     static let marking = ["hover-skirting", "scrub-skirting", "strip-back-dragging", "cabinet-hover", "cabinet-selected",
                           "floor-carpet", "floor-vinyl", "floor-timber", "floor-tile", "moisture-tideline",
                           "source-suspected", "source-confirmed", "airflow-drag", "suggestion-chip"]
 
-    static let all = marking + ["mode-moisture", "mode-stripout", "mode-equipment", "mode-source", "scan-start",
+    static let all = marking + sides + ["mode-moisture", "mode-stripout", "mode-equipment", "mode-source", "scan-start",
                       "equipment-model-preview", "equipment-model-placed",
                       "aim-wall", "aim-wall-bright", "aim-skirting", "aim-nothing", "reading-tray", "reading-saved", "line-progress",
                       "line-tray-skirting", "lining-band-done", "area-progress", "area-tray", "photo-taken", "photo-preview-card",
                       "photo-viewer", "photo-zoom-toggle", "review-drawer", "equipment-place", "equipment-airflow", "source-tray",
                       "room-name-tray", "scan-coaching", "visit-remeasure", "scope-on-site", "needs-fix"]
+
+    /// The synthetic bedroom (3.45 x 2.80 m), as the capture screen knows it.
+    static let walls: [WorldWall] = {
+        let W = 3.45, D = 2.80, H = SimulatedScan.wallHeight
+        return [WorldWall(id: "w1", a: PlanVec(0, 0), b: PlanVec(W, 0), height: H),
+                WorldWall(id: "w2", a: PlanVec(W, 0), b: PlanVec(W, D), height: H),
+                WorldWall(id: "w3", a: PlanVec(W, D), b: PlanVec(0, D), height: H),
+                WorldWall(id: "w4", a: PlanVec(0, D), b: PlanVec(0, 0), height: H)]
+    }()
+
+    static var world: CaptureWorld {
+        CaptureWorld(floorY: 0, walls: walls, rooms: [WorldRoom(name: "Bedroom", polygon: [PlanVec(0, 0), PlanVec(3.45, 0), PlanVec(3.45, 2.8), PlanVec(0, 2.8)])],
+                     openings: openings, objects: objects)
+    }
 
     /// The room's door (w4) and window (w1), as RoomPlan would give them.
     static let openings: [WorldOpening] = [
@@ -75,10 +92,11 @@ enum StudioScenes {
     /// tags), the live airflow arrow replaced by the model's own airflow.
     static func data(_ name: String) -> StudioSceneData {
         var d = raw(name)
-        d.marks = d.marks.filter { $0.id != "draft-airflow" }.map { m in
+        d.marks = d.marks.filter { $0.id != "draft-airflow" }.compactMap { m in
             var m = m
             if case .equipment(let type, _) = m.style { m.modelHeight = OverlayLayout.equipmentHeight(type); m.airflow = nil }
-            return m
+            // Marks behind a wall, or on the far side of theirs, are not drawn (docs/MARKING.md H).
+            return Visibility.prepare(m, camera: d.camera, world: world)
         }
         return d
     }
@@ -87,6 +105,33 @@ enum StudioScenes {
         let wallSide = WorldVec(3.3, 1.5, 1.0)
         let corner = WorldVec(0.6, 1.5, 1.9)
         switch name {
+        // Walls have two sides (docs/MARKING.md H).
+        case "through-wall-hidden", "cavity-leak-side-a", "cavity-leak-side-b", "strip-out-other-side-hidden":
+            func onWall(_ m: OverlayMark, _ side: String) -> OverlayMark { var m = m; m.wallId = "w1"; m.side = side; return m }
+            var leak = OverlayMark(id: "s9", style: .source, points: [WorldVec(2.6, 0.55, 0.0)], tag: "Leak · inside wall")
+            leak = onWall(leak, WallSide.cavity)
+            let inside = onWall(pin("r1", WorldVec(2.3, 0.4, 0.0), 22, 1), WallSide.a)
+            let behind = onWall(pin("r9", WorldVec(1.0, 0.5, 0.0), 31, 9), WallSide.b)
+            let nextRoomUnit = OverlayMark(id: "a9", style: .equipment(type: "airMover", planned: false), points: [WorldVec(1.5, 0, -1.2)],
+                                           airflow: WorldVec(1, 0, 0), tag: "AM-09")
+            let lining = onWall(OverlayMark(id: "x1", style: .lining, points: [WorldVec(0.3, 0, 0), WorldVec(2.2, 0, 0)], top: 0.6,
+                                            tag: "Strip wall to 600 · 1.90 m"), WallSide.a)
+            let outerSkirting = onWall(OverlayMark(id: "x2", style: .skirting, points: [WorldVec(1.0, 0, 0), WorldVec(2.4, 0, 0)],
+                                                   tag: "Skirting · 1.40 m"), WallSide.b)
+            switch name {
+            case "through-wall-hidden":
+                // From inside: the next room's air mover and the reading on the far face don't show.
+                return StudioSceneData(name: name, camera: WorldVec(2.3, 1.45, 2.4), target: WorldVec(1.4, 0.6, 0.0),
+                                       marks: [inside, behind, nextRoomUnit])
+            case "cavity-leak-side-a":
+                return StudioSceneData(name: name, camera: WorldVec(2.0, 1.45, 2.2), target: WorldVec(2.4, 0.6, 0.0), marks: [leak, inside])
+            case "cavity-leak-side-b":
+                // The same leak from the other room: drawn on this face, the inside reading hidden.
+                return StudioSceneData(name: name, camera: WorldVec(2.0, 1.45, -2.2), target: WorldVec(2.4, 0.6, 0.0), marks: [leak, inside, behind])
+            default:
+                return StudioSceneData(name: name, camera: WorldVec(1.7, 1.45, -2.3), target: WorldVec(1.7, 0.45, 0.0),
+                                       marks: [lining, outerSkirting, behind])
+            }
         // Marking by component (docs/MARKING.md).
         case "hover-skirting":
             return StudioSceneData(name: name, camera: WorldVec(2.6, 1.4, 2.3), target: WorldVec(1.25, 0.04, 0.0))

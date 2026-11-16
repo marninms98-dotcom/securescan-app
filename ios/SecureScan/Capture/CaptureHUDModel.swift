@@ -132,8 +132,9 @@ final class CaptureHUDModel: ObservableObject {
     var dismissedSuggestions: Set<String> = []
     /// The last wet floor area (for "Lift carpet + underlay in this area").
     var lastWetPolygon: [PlanVec]?
-    /// Source tray: suspected / confirmed.
+    /// Source tray: suspected / confirmed, on the surface / inside the wall.
     @Published var sourceConfirmed = false
+    @Published var sourceInside = false
     /// A finger dragging an air mover's airflow.
     @Published var airflowDrag: (id: String, dir: WorldVec)?
     /// Undo for scrub steps (two-finger tap / Undo pill).
@@ -622,6 +623,11 @@ final class CaptureHUDModel: ObservableObject {
         sourceCause = nil
         sourceNote = ""
         sourceConfirmed = false
+        // Aimed at a wall away from fixtures: most likely inside the wall (a pipe, the cavity).
+        let nearFixture = ComponentIndex.waterCandidates(engine.world).contains { c in
+            c.point.map { pt in s.hit.map { simd_distance(pt, $0) < 0.6 } ?? false } ?? false
+        }
+        sourceInside = p == nil && s.aim.surface == .wall && !nearFixture
         open(.source)
     }
 
@@ -872,7 +878,7 @@ final class CaptureHUDModel: ObservableObject {
             guard let c = sourceCause, let s = pendingShot else { return }
             pendingShot = nil
             tray = nil
-            persist(.source(s, cause: c, note: sourceNote, confirmed: sourceConfirmed))
+            persist(.source(s, cause: c, note: sourceNote, confirmed: sourceConfirmed, inside: sourceInside))
         case .roomName:
             let name = roomTyping ? roomOther.trimmingCharacters(in: .whitespaces) : (roomChoice ?? "")
             guard !name.isEmpty else { return }
@@ -914,7 +920,7 @@ final class CaptureHUDModel: ObservableObject {
     func persist(_ d: CaptureDraft) {
         let photoTask: Task<CapturedPhoto?, Never>? = {
             switch d {
-            case .reading(let s, _, _, _), .photo(let s, _), .source(let s, _, _, _), .equipment(let s, _, _): return s.photo
+            case .reading(let s, _, _, _), .photo(let s, _), .source(let s, _, _, _, _), .equipment(let s, _, _): return s.photo
             case .mark(let m): return m.shots.first?.photo
             }
         }()
@@ -1100,6 +1106,12 @@ final class CaptureHUDModel: ObservableObject {
     /// The saved marks with the review's selection highlighted.
     func allMarks() -> [OverlayMark] {
         var saved = engine.overlayMarks()
+        // Nothing shows through a wall; one-sided marks only from their side; cavity marks on the
+        // face you're looking at (docs/MARKING.md H).
+        if let cam = engine.aimSample()?.camera {
+            let w = engine.world
+            saved = saved.compactMap { Visibility.prepare($0, camera: cam, world: w) }
+        }
         if let r = retakeFor { for i in saved.indices where saved[i].id == r { saved[i].selected = true } }
         if tray == .review, let sel = reviewSelected, let e = stack.entries.first(where: { $0.id == sel }) {
             let ids = Set(e.ids + [e.id])

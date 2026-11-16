@@ -413,6 +413,10 @@ final class EquipmentLayerView: SCNView {
     private var link: CADisplayLink?
     private let cameraNode = SCNNode()
     private var nodes: [String: (state: EquipmentModelState, node: SCNNode)] = [:]
+    /// The scanned walls as invisible depth-only geometry: a unit in the next room is hidden
+    /// behind the wall (docs/MARKING.md H). Doors, openings and windows are left open.
+    private let occluders = SCNNode()
+    private var occluderKey = ""
 
     init(hud: CaptureHUDModel) {
         self.hud = hud
@@ -441,6 +445,7 @@ final class EquipmentLayerView: SCNView {
         amb.light?.type = .ambient
         amb.light?.intensity = 280
         s.rootNode.addChildNode(amb)
+        s.rootNode.addChildNode(occluders)
         scene = s
         pointOfView = cameraNode
         let l = CADisplayLink(target: self, selector: #selector(step))
@@ -466,6 +471,7 @@ final class EquipmentLayerView: SCNView {
         if !hud.models3D { hud.models3D = true }
         cameraNode.simdTransform = cam.view.inverse
         cameraNode.camera?.projectionTransform = SCNMatrix4(cam.projection)
+        updateOccluders(hud.engine.world)
         let states = hud.equipmentModels()
         let ids = Set(states.map(\.id))
         for (id, e) in nodes where !ids.contains(id) { e.node.removeFromParentNode(); nodes[id] = nil }
@@ -484,6 +490,40 @@ final class EquipmentLayerView: SCNView {
             n.simdEulerAngles = [0, st.yaw, 0]
             scene?.rootNode.addChildNode(n)
             nodes[st.id] = (st, n)
+        }
+    }
+
+    private func updateOccluders(_ w: CaptureWorld) {
+        let key = "\(w.walls.count)|\(w.openings.count)|\(Int(((w.floorY ?? 0) * 100).rounded()))|" +
+            w.walls.map { "\(Int(($0.a.x + $0.b.y) * 100))" }.joined(separator: ",")
+        guard key != occluderKey else { return }
+        occluderKey = key
+        occluders.childNodes.forEach { $0.removeFromParentNode() }
+        let fy = w.floorY ?? 0
+        let m = SCNMaterial()
+        m.colorBufferWriteMask = []
+        m.writesToDepthBuffer = true
+        m.readsFromDepthBuffer = true
+        m.isDoubleSided = true
+        func piece(_ wall: WorldWall, _ t0: Double, _ t1: Double, _ y0: Double, _ y1: Double) {
+            let len = wall.length * (t1 - t0)
+            guard len > 0.02, y1 - y0 > 0.02 else { return }
+            let plane = SCNPlane(width: CGFloat(len), height: CGFloat(y1 - y0))
+            plane.materials = [m]
+            let n = SCNNode(geometry: plane)
+            let mid = wall.a + (wall.b - wall.a) * ((t0 + t1) / 2)
+            let d = wall.b - wall.a
+            n.simdPosition = SIMD3<Float>(Float(mid.x), Float(fy + (y0 + y1) / 2), Float(mid.y))
+            n.simdEulerAngles = [0, Float(atan2(-d.y, d.x)), 0]
+            n.renderingOrder = -100
+            occluders.addChildNode(n)
+        }
+        for wall in w.walls {
+            for seg in ComponentIndex.segments(wall, openings: w.openings, floorOnly: false) { piece(wall, seg.0, seg.1, 0, wall.height) }
+            for o in w.openings where o.wallId == wall.id {
+                piece(wall, o.t0, o.t1, min(o.top, wall.height), wall.height)        // above it
+                if o.bottom > 0.02 { piece(wall, o.t0, o.t1, 0, o.bottom) }        // below a window
+            }
         }
     }
 

@@ -91,6 +91,10 @@ struct OverlayMark: Identifiable, Equatable {
     var confirmed = false
     /// Strip-back: the cut line's handle is shown (it can be dragged).
     var handle = false
+    /// Wall-attached marks: the wall and the side they are on ("a" / "b" by the wall's normal,
+    /// "cavity" = inside the wall, shown on whichever face you look at). docs/MARKING.md H.
+    var wallId: String? = nil
+    var side: String? = nil
 }
 
 enum OverlayBuild {

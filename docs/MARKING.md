@@ -164,6 +164,56 @@ left wall. Unit tests: component index (segments split at doors, cabinetry filte
 constrained scrub projection, snapping, run continuation round a corner and back,
 floor painting area, tide line, cut-height rule, suggestion rules.
 
+## H. Walls have two sides
+
+Nothing may show through a wall, and a mark on a wall belongs to one face of it.
+
+**H1. Sidedness in data.** Every wall-attached item records its `wallId` and a `side`:
+
+- `"a"` — the side the wall's left normal points to: for a wall from `a` to `b` (plan
+  x, y), normal = (−(b.y − a.y), b.x − a.x), normalised; `"b"` — the other side.
+- `"cavity"` — inside the wall (a leak in the cavity, a pipe, a wet frame): stored with its
+  position along the wall (`wallT`) and `height`, no face.
+
+The side is decided when the item is captured, from the camera position (the side the camera
+is on): readings, photos, moisture-line points, sources and wall removals (skirting, strip-back,
+cabinetry). Stored as optional `"side"` on `readings-raw.json` records and on
+`markup.readings[]`, `markup.sources[]` and `markup.removals[]` in plan.json (absent = unknown:
+older jobs; such items are drawn from both sides, as before). `cam` stays as it was.
+
+**H2. Visibility in AR.**
+
+- 3D layer: the scanned walls are added as invisible **depth-only occluders**
+  (`colorBufferWriteMask = []`, `writesToDepthBuffer = true`, rendering order −100), split at
+  doors, openings and windows (lintels and sills kept), so a unit in the next room disappears
+  behind the wall. On return visits the plan's walls are used, aligned by relocalisation.
+  Furniture occlusion from ARKit scene depth is **not** used yet: RoomPlan runs its own session
+  configuration (see the round report).
+- 2D overlay: each mark's sample points (first, last, centroid), lifted 3 cm towards the camera,
+  are raycast from the camera against the wall quads; a wall more than **5 cm** in front of all of
+  them hides the mark. Doors, openings and windows don't block.
+- Side test: a one-sided mark is drawn only when the camera is on its side:
+  dot(camera − wallPoint, sideNormal) > 0.
+- Cavity marks are drawn on whichever face you are looking at, at the same position along the
+  wall and the same height (2 cm off that face): the drop pin inside a faint dashed outline
+  (white 75 %, 4 on 4, 10 pt corners, moisture blue 12 % fill), label **"Leak · inside wall"**.
+  They read the same from both rooms without poking through.
+
+**H4. Placing.** Aimed at a wall, the side is taken from where you stand — a reading or a
+strip-out goes on your side automatically. The Source tray has **On the surface / Inside the
+wall** chips; it defaults to *Inside the wall* when the source is aimed at a wall away from
+fixtures (no sink / toilet / bath / washer / window sill within 0.6 m), else *On the surface*.
+
+**H5. Studio:** through-wall-hidden, cavity-leak-side-a, cavity-leak-side-b,
+strip-out-other-side-hidden. Unit tests: the side test, the cavity point on both faces, the
+occlusion raycast (incl. through a doorway).
+
+**For the 3D tab (Job/ModelTab.swift, Job/LabelLayout.swift) — rule to implement there:** in
+the dollhouse, one-sided marks are drawn on their face only and hidden when that face points
+away from the camera (dot(cameraPosition − wallPoint, sideNormal) ≤ 0); cavity marks are drawn
+inside the wall's thickness, visible from both sides through the cut top of the wall. Items
+without `side` are drawn as today.
+
 ## Optional data additions (documented here and in SPEC.md terms)
 
 - `readings-raw.json` source records and `markup.sources[]` items: optional
@@ -171,3 +221,5 @@ floor painting area, tide line, cut-height rule, suggestion rules.
 - `markup.removals[]` / raw removal records: optional `"note": "Kick board only"` is used
   for the toe-kick choice (the field already exists; no new field).
 - `markup.objects[]` is read on return visits for the component index (already in SPEC.md).
+- `side`: `"a" | "b" | "cavity"` on raw records and on `markup.readings[]`, `markup.sources[]`
+  and `markup.removals[]` (section H).

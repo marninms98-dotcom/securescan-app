@@ -220,7 +220,7 @@ enum OverlayLayout {
             switch m.style {
             case .reading, .readingDraft: continue
             case .photo: if m.selected, let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - 2) }
-            case .source: if let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - 3) }
+            case .source: if let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - (m.side == WallSide.cavity ? 17 : 3)) }
             case .equipment:
                 if let g = plan.glyphs[m.id] {
                     if m.modelHeight != nil { anchor = CGPoint(x: g.midX, y: g.minY - 6) }

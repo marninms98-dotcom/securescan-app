@@ -195,4 +195,46 @@ final class ComponentTests: XCTestCase {
         XCTAssertEqual(wall?.0.z ?? -1, 0, accuracy: 1e-6)
         XCTAssertEqual(wall?.1.z ?? 0, 1, accuracy: 1e-9)            // facing the camera
     }
+
+    // MARK: Walls have two sides (docs/MARKING.md H)
+
+    func testSideOfAWall() {
+        let w1 = world.walls[0]                                       // (0,0) -> (4,0): side "a" is +z, the room
+        XCTAssertEqual(WallSide.side(of: PlanVec(2, 1), wall: w1), "a")
+        XCTAssertEqual(WallSide.side(of: PlanVec(2, -1), wall: w1), "b")
+        XCTAssertTrue(Visibility.sideVisible(side: "a", wallId: "w1", camera: WorldVec(2, 1.4, 2), world: world))
+        XCTAssertFalse(Visibility.sideVisible(side: "a", wallId: "w1", camera: WorldVec(2, 1.4, -2), world: world))
+        XCTAssertTrue(Visibility.sideVisible(side: "cavity", wallId: "w1", camera: WorldVec(2, 1.4, -2), world: world))
+        XCTAssertTrue(Visibility.sideVisible(side: nil, wallId: "w1", camera: WorldVec(2, 1.4, -2), world: world))
+    }
+
+    func testCavityMarkIsDrawnOnTheFaceYouLookAt() {
+        var leak = OverlayMark(id: "s", style: .source, points: [WorldVec(2.5, 0.6, 0)], tag: "Leak")
+        leak.wallId = "w1"
+        leak.side = "cavity"
+        let fromRoom = Visibility.prepare(leak, camera: WorldVec(2, 1.4, 2), world: world)
+        let fromNext = Visibility.prepare(leak, camera: WorldVec(2, 1.4, -2), world: world)
+        XCTAssertEqual(fromRoom?.points[0].z ?? 0, 0.02, accuracy: 1e-9)
+        XCTAssertEqual(fromNext?.points[0].z ?? 0, -0.02, accuracy: 1e-9)
+        XCTAssertEqual(fromRoom?.points[0].x ?? 0, 2.5, accuracy: 1e-9)    // same place along the wall
+        XCTAssertEqual(fromNext?.points[0].y ?? 0, 0.6, accuracy: 1e-9)    // and the same height
+    }
+
+    func testOcclusionByWalls() {
+        let inRoom = WorldVec(2, 1.4, 2)
+        // A point in the next room (behind w1) is hidden; one in the room is not.
+        XCTAssertTrue(Visibility.occluded(WorldVec(2, 0.5, -1), camera: inRoom, world: world))
+        XCTAssertFalse(Visibility.occluded(WorldVec(2, 0.5, 1), camera: inRoom, world: world))
+        // A mark on w1's face (lifted towards the camera) is not hidden by w1 itself.
+        var pin = OverlayMark(id: "r", style: .reading(status: "wet", reference: false), points: [WorldVec(2, 0.5, 0)], value: "30")
+        pin.wallId = "w1"; pin.side = "a"
+        XCTAssertNotNil(Visibility.prepare(pin, camera: inRoom, world: world))
+        XCTAssertNil(Visibility.prepare(pin, camera: WorldVec(2, 1.4, -2), world: world))       // the far side
+        // Through the doorway in w4 (z 1.0...1.8 from its start at z 3 -> z 2.0...1.2): visible.
+        XCTAssertFalse(Visibility.occluded(WorldVec(-1.5, 0.8, 1.6), camera: WorldVec(2, 1.0, 1.6), world: world))
+        XCTAssertTrue(Visibility.occluded(WorldVec(-1.5, 0.8, 0.5), camera: WorldVec(2, 1.0, 0.5), world: world))
+        // Equipment in the next room disappears.
+        let unit = OverlayMark(id: "a", style: .equipment(type: "airMover", planned: false), points: [WorldVec(2, 0, -1.5)], tag: "AM-1")
+        XCTAssertNil(Visibility.prepare(unit, camera: inRoom, world: world))
+    }
 }

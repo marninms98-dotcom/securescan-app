@@ -549,10 +549,13 @@ final class RevisitModel: ObservableObject, CaptureEngine {
         case .photo(let s, let caption):
             let pb = Self.pb(s, kind: "photo", material: "wall", note: caption)
             return await add(pb, shot: s, alignment: a, kind: "photo", title: { [weak self] in "P\(self?.lastNumber("photo") ?? 0)" }, detail: caption)
-        case .source(let s, let cause, let note, let confirmed):
+        case .source(let s, let cause, let note, let confirmed, let inside):
             let label = note.trimmingCharacters(in: .whitespaces).isEmpty ? cause : "\(cause) — \(note)"
             var pb = Self.pb(s, kind: "source", material: "wall", note: label)
             pb.status = confirmed ? "confirmed" : "suspected"
+            if let h = s.hit, let w = WallSide.wall(at: h, world: world, within: 0.2) {
+                pb.side = inside ? WallSide.cavity : WallSide.side(of: PlanVec(s.camera.x, s.camera.z), wall: w)
+            }
             return await add(pb, shot: s, alignment: a, kind: "source", title: { "Source" }, detail: cause)
         case .equipment(let s, let type, let asset):
             let pb = Self.pb(s, kind: "equipment", material: type, note: asset)

@@ -354,42 +354,48 @@ enum Scrub {
         guard var last = r.pieces.last, let wall = world.wall(last.wallId) else { return r }
         let fy = world.floorY ?? 0
         let len = max(wall.length, 1e-9)
+        // Where the finger's ray really lands (walls, floor, objects), to tell which wall it is on.
+        let landed = world.raycast(origin: o, dir: d).map { PlanVec($0.0.x, $0.0.z) }
+        func dist(_ w: WorldWall) -> Double { landed.map { PlanBuilder.distanceToSegment($0, w.a, w.b) } ?? .infinity }
         // Back onto the previous wall: the last piece goes.
-        if r.pieces.count > 1, let pw = world.wall(r.pieces[r.pieces.count - 2].wallId),
-           let ph = wallHit(origin: o, dir: d, wall: pw, floorY: fy) {
+        if r.pieces.count > 1, let pw = world.wall(r.pieces[r.pieces.count - 2].wallId), let lp = landed, dist(pw) < dist(wall) - 0.02 {
             var prev = r.pieces[r.pieces.count - 2]
             let corner = prev.tB
-            let inside = corner >= 0.5 ? (corner - ph.t) * pw.length : (ph.t - corner) * pw.length
-            let mine = wallHit(origin: o, dir: d, wall: wall, floorY: fy)
-            let onMine = mine.map { ($0.t - last.tA) * (last.tA < 0.5 ? 1 : -1) * len > cornerEnter } ?? false
-            if inside >= cornerEnter && !onMine {
+            let pt = PlanBuilder.projectParam(lp, pw.a, pw.b)
+            let inside = corner >= 0.5 ? (corner - pt) * pw.length : (pt - corner) * pw.length
+            if inside >= cornerEnter {
                 let segs = ComponentIndex.segments(pw, openings: world.openings)
                 let seg = ComponentIndex.segment(containing: corner, segs)?.1 ?? (0, 1)
-                prev.tB = snap(ph.t, segment: seg, length: pw.length)
+                let ph = wallHit(origin: o, dir: d, wall: pw, floorY: fy)?.t ?? pt
+                prev.tB = snap(ph, segment: seg, length: pw.length)
                 r.pieces.removeLast()
                 r.pieces[r.pieces.count - 1] = prev
                 return r
             }
         }
-        guard let h = wallHit(origin: o, dir: d, wall: wall, floorY: fy) else { return r }
         let segs = ComponentIndex.segments(wall, openings: world.openings)
         let seg = ComponentIndex.segment(containing: last.tA, segs)?.1 ?? (0, 1)
-        // Past a corner (the segment ends at the wall's end): onto the neighbour.
-        for (end, beyond) in [(seg.1, h.t > seg.1 + cornerEnter / len), (seg.0, h.t < seg.0 - cornerEnter / len)] where beyond {
-            guard end <= 1e-9 || end >= 1 - 1e-9 else { continue }      // a door jamb: stop
-            let point = end >= 0.5 ? wall.b : wall.a
-            guard let nbr = neighbour(of: wall, at: point, world: world),
-                  let nh = wallHit(origin: o, dir: d, wall: nbr.0, floorY: fy) else { continue }
-            let nb = nbr.0, ct = nbr.1
-            let into = ct < 0.5 ? nh.t * nb.length : (1 - nh.t) * nb.length
-            guard into >= cornerEnter, nh.t >= -0.05, nh.t <= 1.05 else { continue }
-            let nsegs = ComponentIndex.segments(nb, openings: world.openings)
-            guard let nseg = ComponentIndex.segment(containing: ct, nsegs)?.1 else { continue }
-            last.tB = end
-            r.pieces[r.pieces.count - 1] = last
-            r.pieces.append(WallPiece(wallId: nb.id, tA: ct, tB: snap(nh.t, segment: nseg, length: nb.length)))
-            return r
+        // Onto the neighbour round a corner (the segment ends at the wall's end), only when the
+        // finger is clearly on that wall.
+        if let lp = landed {
+            for end in [seg.1, seg.0] where end <= 1e-9 || end >= 1 - 1e-9 {
+                let point = end >= 0.5 ? wall.b : wall.a
+                guard let nbr = neighbour(of: wall, at: point, world: world) else { continue }
+                let nb = nbr.0, ct = nbr.1
+                guard dist(nb) < dist(wall) - 0.02 else { continue }
+                let nt = PlanBuilder.projectParam(lp, nb.a, nb.b)
+                let into = ct < 0.5 ? nt * nb.length : (1 - nt) * nb.length
+                guard into >= cornerEnter, nt >= -0.05, nt <= 1.05 else { continue }
+                let nsegs = ComponentIndex.segments(nb, openings: world.openings)
+                guard let nseg = ComponentIndex.segment(containing: ct, nsegs)?.1 else { continue }
+                let nh = wallHit(origin: o, dir: d, wall: nb, floorY: fy)?.t ?? nt
+                last.tB = end
+                r.pieces[r.pieces.count - 1] = last
+                r.pieces.append(WallPiece(wallId: nb.id, tA: ct, tB: snap(nh, segment: nseg, length: nb.length)))
+                return r
+            }
         }
+        guard let h = wallHit(origin: o, dir: d, wall: wall, floorY: fy) else { return r }
         last.tB = snap(h.t, segment: seg, length: len)
         r.pieces[r.pieces.count - 1] = last
         return r
@@ -562,5 +568,96 @@ enum Suggest {
         let l = WorldVec(simd_dot(rel, ob.axisX), rel.y, simd_dot(rel, ob.axisZ))
         let q = simd_max(simd_abs(l) - ob.size / 2, WorldVec(0, 0, 0))
         return simd_length(q)
+    }
+}
+
+// MARK: - Walls have two sides (docs/MARKING.md H)
+
+enum WallSide {
+    static let a = "a", b = "b", cavity = "cavity"
+
+    /// Side "a" is where the wall's left normal points (a -> b in plan x, z); "b" the other.
+    static func normal(_ w: WorldWall) -> PlanVec {
+        let ab = w.b - w.a
+        let l = simd_length(ab)
+        return l > 1e-12 ? PlanVec(-ab.y, ab.x) / l : PlanVec(0, 1)
+    }
+
+    /// Which side of the wall a point (a camera) is on.
+    static func side(of p: PlanVec, wall w: WorldWall) -> String {
+        simd_dot(p - w.a, normal(w)) >= 0 ? a : b
+    }
+
+    /// The point on a wall's face (`side` "a" / "b"), `offset` metres off the wall line.
+    static func facePoint(_ w: WorldWall, t: Double, height: Double, floorY: Double, side: String, offset: Double = 0.01) -> WorldVec {
+        let n = normal(w) * (side == b ? -1 : 1)
+        let p = w.a + (w.b - w.a) * t + n * offset
+        return WorldVec(p.x, floorY + height, p.y)
+    }
+
+    /// The wall a point sits on (within `within` m of its line, inside its length).
+    static func wall(at p: WorldVec, world: CaptureWorld, within: Double = 0.15) -> WorldWall? {
+        world.nearestWall(to: PlanVec(p.x, p.z), maxDistance: within).map(\.wall)
+    }
+}
+
+enum Visibility {
+    /// A surface more than this in front of a mark hides it.
+    static let tolerance = 0.05
+
+    /// True when a wall of the room model stands between the camera and the point (by more than
+    /// 5 cm). Doors, openings and windows don't block.
+    static func occluded(_ p: WorldVec, camera c: WorldVec, world: CaptureWorld) -> Bool {
+        let fy = world.floorY ?? 0
+        let v = p - c
+        let dist = simd_length(v)
+        guard dist > 1e-6 else { return false }
+        let d = v / dist
+        for w in world.walls {
+            let ab = w.b - w.a
+            let n = WorldVec(-ab.y, 0, ab.x)
+            let denom = simd_dot(d, n)
+            guard abs(denom) > 1e-9 else { continue }
+            let t = simd_dot(WorldVec(w.a.x, 0, w.a.y) - WorldVec(c.x, 0, c.z), n) / denom
+            guard t > 0.02, t < dist - tolerance else { continue }
+            let q = c + d * t
+            let u = simd_dot(PlanVec(q.x, q.z) - w.a, ab) / max(simd_length_squared(ab), 1e-12)
+            let h = q.y - fy
+            guard u >= 0, u <= 1, h >= 0, h <= w.height else { continue }
+            let throughOpening = world.openings.contains { $0.wallId == w.id && u >= $0.t0 && u <= $0.t1 && h >= $0.bottom && h <= $0.top }
+            if !throughOpening { return true }
+        }
+        return false
+    }
+
+    /// One-sided marks show only from their side of the wall.
+    static func sideVisible(side: String?, wallId: String?, camera: WorldVec, world: CaptureWorld) -> Bool {
+        guard let s = side, s != WallSide.cavity, let w = world.wall(wallId) else { return true }
+        return WallSide.side(of: PlanVec(camera.x, camera.z), wall: w) == s
+    }
+
+    /// A mark as the camera should see it: nil when it is on the far side of its wall or behind
+    /// another wall; a cavity mark moved onto the face towards the camera.
+    static func prepare(_ m: OverlayMark, camera: WorldVec, world: CaptureWorld) -> OverlayMark? {
+        var m = m
+        if m.side == WallSide.cavity, let w = world.wall(m.wallId), let p = m.points.first {
+            let s = WallSide.side(of: PlanVec(camera.x, camera.z), wall: w)
+            let t = PlanBuilder.projectParam(PlanVec(p.x, p.z), w.a, w.b)
+            m.points = [WallSide.facePoint(w, t: t, height: p.y - (world.floorY ?? 0), floorY: world.floorY ?? 0, side: s, offset: 0.02)]
+        }
+        guard sideVisible(side: m.side, wallId: m.wallId, camera: camera, world: world) else { return nil }
+        // Hidden when every sample point is behind a wall.
+        var samples = [WorldVec]()
+        if let f = m.points.first { samples.append(f) }
+        if m.points.count > 1, let l = m.points.last { samples.append(l) }
+        if m.points.count > 2 { samples.append(m.points.reduce(WorldVec(0, 0, 0), +) / Double(m.points.count)) }
+        // Points on the floor or a wall face: test a hair in front of them (towards the camera).
+        let lifted = samples.map { p -> WorldVec in
+            let v = camera - p
+            let l = simd_length(v)
+            return l > 1e-6 ? p + v / l * 0.03 : p
+        }
+        if !lifted.isEmpty && lifted.allSatisfy({ occluded($0, camera: camera, world: world) }) { return nil }
+        return m
     }
 }

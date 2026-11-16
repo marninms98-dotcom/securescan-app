@@ -231,6 +231,12 @@ struct OverlayPainter {
             guard let r = plan.glyphs[m.id] else { return }
             let pt = CGPoint(x: r.midX, y: r.midY)
             let phase = (time.truncatingRemainder(dividingBy: 2)) / 2
+            if m.side == WallSide.cavity {
+                // Inside the wall: a faint dashed outline on the face, the same from both rooms.
+                let box = RoundedRectangle(cornerRadius: 10, style: .continuous).path(in: r.insetBy(dx: -14, dy: -14))
+                c.fill(box, with: .color(DS.Color.source.opacity(0.12)))
+                c.stroke(box, with: .color(.white.opacity(0.75)), style: StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+            }
             if m.confirmed {
                 // Confirmed: a solid disc behind the drop, and the ripple.
                 c.fill(Circle().path(in: CGRect(x: pt.x - 24, y: pt.y - 24, width: 48, height: 48)), with: .color(DS.Color.source.opacity(0.35)))

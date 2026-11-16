@@ -641,7 +641,7 @@ struct TouchLayer: UIViewRepresentable {
     func updateUIView(_ v: TouchLayerView, context: Context) { v.hud = hud }
 }
 
-final class TouchLayerView: UIView, UIGestureRecognizerDelegate {
+final class TouchLayerView: UIView {
     weak var hud: CaptureHUDModel?
     private let pan = UIPanGestureRecognizer()
     private let tap = UITapGestureRecognizer()
@@ -660,15 +660,13 @@ final class TouchLayerView: UIView, UIGestureRecognizerDelegate {
         twoTap.addTarget(self, action: #selector(onTwoTap))
         rotate.addTarget(self, action: #selector(onRotate(_:)))
         tap.require(toFail: twoTap)
-        for g in [pan, tap, twoTap, rotate] as [UIGestureRecognizer] {
-            g.delegate = self
-            addGestureRecognizer(g)
-        }
+        for g in [pan, tap, twoTap, rotate] as [UIGestureRecognizer] { addGestureRecognizer(g) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+    /// UIView asks this for its own recognizers: the pan only starts on something it can drag.
+    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
         guard let hud else { return false }
         if g === pan { return hud.dragBegan(at: g.location(in: self), size: bounds.size) }
         if g === rotate { return hud.twistTarget != nil }

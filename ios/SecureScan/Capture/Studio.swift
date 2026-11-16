@@ -31,15 +31,8 @@ enum StudioLaunch {
 /// The synthetic room (world: floor y = 0, x right, z = plan y; metres).
 enum StudioRoom {
     static let width = 3.45, depth = 2.80, height = SimulatedScan.wallHeight
-    static let walls: [WorldWall] = [
-        WorldWall(id: "w1", a: PlanVec(0, 0), b: PlanVec(width, 0), height: height),
-        WorldWall(id: "w2", a: PlanVec(width, 0), b: PlanVec(width, depth), height: height),
-        WorldWall(id: "w3", a: PlanVec(width, depth), b: PlanVec(0, depth), height: height),
-        WorldWall(id: "w4", a: PlanVec(0, depth), b: PlanVec(0, 0), height: height),
-    ]
-    static let world = CaptureWorld(floorY: 0, walls: walls,
-                                    rooms: [WorldRoom(name: "Bedroom", polygon: [PlanVec(0, 0), PlanVec(width, 0), PlanVec(width, depth), PlanVec(0, depth)])],
-                                    openings: StudioScenes.openings, objects: StudioScenes.objects)
+    static let walls = StudioScenes.walls
+    static let world = StudioScenes.world
     /// Drawers against w3 (x 2.30...3.15, z 2.35...2.80, 0.80 high).
     static let drawers = (x0: 2.30, x1: 3.15, z0: 2.35, z1: 2.80, h: 0.80)
     /// The doorway in w4 (z 1.75...2.57, 2.04 high): open, dark beyond.
@@ -203,6 +196,21 @@ enum StudioScript {
         }
         let w = StudioRoom.world
         switch scene {
+        // Walls have two sides (docs/MARKING.md H).
+        case "through-wall-hidden":
+            hud.tool = .moisture
+            fill(4)
+        case "cavity-leak-side-a", "cavity-leak-side-b":
+            e.phaseText = "Inspecting"
+            e.roomName = scene.hasSuffix("b") ? "Hallway" : "Bedroom"
+            hud.tool = .source
+            fill(4)
+        case "strip-out-other-side-hidden":
+            e.phaseText = "Marking"
+            e.roomName = "Hallway"
+            hud.tool = .stripOut
+            hud.stripPick = .skirting
+            fill(4)
         // Marking by component (docs/MARKING.md).
         case "hover-skirting":
             e.phaseText = "Marking"
@@ -622,6 +630,8 @@ enum StudioSceneBuilder {
         floorM.diffuse.wrapT = .repeat
         floorM.diffuse.contentsTransform = SCNMatrix4MakeScale(4, 4, 1)
         root.addChildNode(box(W + 0.2, 0.02, D + 0.2, at: WorldVec(W / 2, -0.01, D / 2), floorM))
+        // The next room's floor (beyond w1 and the door), so the far side reads as a room.
+        root.addChildNode(box(14, 0.02, 14, at: WorldVec(W / 2, -0.03, D / 2), mat(0x4A4744)))
         root.addChildNode(box(W + 0.2, 0.02, D + 0.2, at: WorldVec(W / 2, H + 0.01, D / 2), mat(0xE6E3DD)))
         let t = 0.06
         root.addChildNode(box(W, H, t, at: WorldVec(W / 2, H / 2, -t / 2), wall))                          // w1

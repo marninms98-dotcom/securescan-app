@@ -85,7 +85,7 @@ struct MarkDraft {
 enum CaptureDraft {
     case reading(CaptureShot, value: Double, material: String, reference: Bool)
     case photo(CaptureShot, caption: String)
-    case source(CaptureShot, cause: String, note: String, confirmed: Bool)
+    case source(CaptureShot, cause: String, note: String, confirmed: Bool, inside: Bool)
     case equipment(CaptureShot, type: String, asset: String)
     case mark(MarkDraft)
 }
