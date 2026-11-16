@@ -177,7 +177,7 @@ enum EquipmentModels {
         body.addChildNode(node(SCNCapsule(capRadius: 0.016, height: 0.21), charcoal, at: [0, top + 0.03, -0.04], euler: [.pi / 2, 0, 0]))
         // Rubber feet.
         for x: Float in [-0.11, 0.11] { for z: Float in [-0.14, 0.15] {
-            n.addChildNode(node(SCNBox(width: 0.045, height: lift, length: 0.045, chamferRadius: 0.006), rubber, at: [x, lift / 2, z]))
+            n.addChildNode(node(SCNBox(width: 0.045, height: CGFloat(lift), length: 0.045, chamferRadius: 0.006), rubber, at: [x, lift / 2, z]))
         } }
         return n
     }
@@ -219,7 +219,7 @@ enum EquipmentModels {
             let x = side * Float(W / 2 + 0.01)
             n.addChildNode(node(SCNCylinder(radius: 0.095, height: 0.04), rubber, at: [x, 0.095, -0.19], euler: [0, 0, .pi / 2]))
             n.addChildNode(node(SCNCylinder(radius: 0.04, height: 0.046), steel, at: [x, 0.095, -0.19], euler: [0, 0, .pi / 2]))
-            n.addChildNode(node(SCNBox(width: 0.06, height: base, length: 0.06, chamferRadius: 0.012), rubber, at: [side * 0.15, base / 2, 0.2]))
+            n.addChildNode(node(SCNBox(width: 0.06, height: CGFloat(base), length: 0.06, chamferRadius: 0.012), rubber, at: [side * 0.15, base / 2, 0.2]))
         }
         return n
     }
