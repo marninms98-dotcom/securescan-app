@@ -371,8 +371,9 @@ final class ModelViewModel: ObservableObject {
         for d in markup["equipment"] as? [[String: Any]] ?? [] {
             if let removed = d["removed"], !(removed is NSNull), (removed as? String)?.isEmpty != true { continue }
             guard let p = ScopeList.pt(d["pos"]) else { continue }
-            let label = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
-            content.markers.append(MarkerInfo(kind: "equipment", label: label.isEmpty ? PlanDocument.equipmentName((d["type"] as? String) ?? "other") : label,
+            // No label: the teal unit reads as equipment, and its asset number
+            // (in Items) would cover the readings' labels.
+            content.markers.append(MarkerInfo(kind: "equipment", label: nil,
                                               color: UIColor(DS.Color.equip), position: SIMD3(Float(p.x), 0.12, Float(p.y))))
         }
         let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
