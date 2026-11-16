@@ -152,6 +152,16 @@ enum EquipmentModels {
             body.addChildNode(node(SCNBox(width: 0.23, height: 0.005, length: 0.012, chamferRadius: 0.002), steel,
                                    at: [0, 0.07 + Float(k) * 0.022, 0.206]))
         }
+        // The outlet lip: a teal flange proud of the body on both sides, so the unit never reads
+        // as a drum from behind; teal runners along the duct's lower edges lead to it.
+        body.addChildNode(node(SCNBox(width: W + 0.03, height: 0.115, length: 0.03, chamferRadius: 0.01), accent, at: [0, 0.098, 0.19]))
+        for side: Float in [-1, 1] {
+            body.addChildNode(node(SCNBox(width: 0.012, height: 0.018, length: 0.2, chamferRadius: 0.005), accent,
+                                   at: [side * Float(W / 2 + 0.004), 0.05, 0.09]))
+        }
+        // A flat top deck across the volute (with the handle), breaking the round silhouette.
+        body.addChildNode(node(SCNBox(width: W - 0.04, height: 0.02, length: 0.2, chamferRadius: 0.008), tealDark,
+                               at: [0, Float(voluteCentre.y + voluteRadius(0.43)) - 0.012, -0.04]))
         let c = SIMD3<Float>(0, Float(voluteCentre.y), Float(voluteCentre.x))
         for side: Float in [-1, 1] {
             let x = side * Float(W / 2)

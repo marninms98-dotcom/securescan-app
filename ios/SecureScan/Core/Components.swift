@@ -109,7 +109,7 @@ struct Component: Equatable, Identifiable {
 extension CaptureWorld {
     /// A ray against the room model (walls with their heights, the floor and ceiling inside the
     /// rooms, objects): the first hit and its normal. For a finger on the screen.
-    func raycast(origin o: WorldVec, dir d: WorldVec) -> (WorldVec, WorldVec)? {
+    func raycast(origin o: WorldVec, dir d: WorldVec, objects withObjects: Bool = true) -> (WorldVec, WorldVec)? {
         let fy = floorY ?? 0
         var best: (Double, WorldVec)? = nil
         func consider(_ t: Double, _ n: WorldVec) { if t > 0.02, t < (best?.0 ?? .infinity) { best = (t, n) } }
@@ -134,7 +134,7 @@ extension CaptureWorld {
                 if rooms.isEmpty || room(containing: PlanVec(p.x, p.z)) != nil { consider(t, n) }
             }
         }
-        for ob in objects { if let t = ComponentIndex.rayBox(origin: o, dir: d, ob) { consider(t, WorldVec(0, 1, 0)) } }
+        if withObjects { for ob in objects { if let t = ComponentIndex.rayBox(origin: o, dir: d, ob) { consider(t, WorldVec(0, 1, 0)) } } }
         return best.map { (o + d * $0.0, $0.1) }
     }
 
@@ -354,8 +354,9 @@ enum Scrub {
         guard var last = r.pieces.last, let wall = world.wall(last.wallId) else { return r }
         let fy = world.floorY ?? 0
         let len = max(wall.length, 1e-9)
-        // Where the finger's ray really lands (walls, floor, objects), to tell which wall it is on.
-        let landed = world.raycast(origin: o, dir: d).map { PlanVec($0.0.x, $0.0.z) }
+        // Where the finger's ray lands on the walls or the floor (not on furniture), to tell which
+        // wall it is on.
+        let landed = world.raycast(origin: o, dir: d, objects: false).map { PlanVec($0.0.x, $0.0.z) }
         func dist(_ w: WorldWall) -> Double { landed.map { PlanBuilder.distanceToSegment($0, w.a, w.b) } ?? .infinity }
         // Back onto the previous wall: the last piece goes.
         if r.pieces.count > 1, let pw = world.wall(r.pieces[r.pieces.count - 2].wallId), let lp = landed, dist(pw) < dist(wall) - 0.02 {

@@ -156,7 +156,10 @@ jobs:
           rm -rf "$OUT" && mkdir -p "$OUT"
           shot() { sleep "$2"; xcrun simctl io "$UDID" screenshot "$OUT/$1.png"; xcrun simctl terminate "$UDID" "$BID" || true; sleep 2; }
           # UX2 Studio: the real capture HUD + overlay over a synthetic room, one scene per launch.
-          for SCENE in mode-moisture mode-stripout mode-equipment mode-source scan-start equipment-model-preview \
+          for SCENE in hover-skirting scrub-skirting strip-back-dragging cabinet-hover cabinet-selected floor-carpet floor-vinyl \
+                       floor-timber floor-tile moisture-tideline source-suspected source-confirmed airflow-drag suggestion-chip \
+                       through-wall-hidden cavity-leak-side-a cavity-leak-side-b strip-out-other-side-hidden \
+                       mode-moisture mode-stripout mode-equipment mode-source scan-start equipment-model-preview \
                        equipment-model-placed aim-wall aim-wall-bright aim-skirting aim-nothing reading-tray reading-saved line-progress \
                        line-tray-skirting lining-band-done area-progress area-tray photo-taken photo-preview-card photo-viewer \
                        photo-zoom-toggle review-drawer equipment-place equipment-airflow source-tray room-name-tray scan-coaching \
