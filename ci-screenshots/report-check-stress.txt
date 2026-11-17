@@ -36,5 +36,5 @@ link annotations: 255 (editor sent 255)
 links resolving to a valid page: 255 of 255
 links WebKit wrote itself (removed): 133
 text extractable via PDFKit: yes (20952 characters)
-file size: 3111928 bytes (2.97 MB)
-elapsed: 5.1 s
+file size: 3111929 bytes (2.97 MB)
+elapsed: 6.5 s
