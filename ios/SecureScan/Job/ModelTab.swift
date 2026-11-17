@@ -30,6 +30,8 @@ struct MarkerInfo {
     var priority: Int = 0
     /// Where the screen label points (default: the marker itself).
     var labelAnchor: SIMD3<Float>? = nil
+    /// Sources: confirmed (solid disc) rather than suspected (outlined rings).
+    var confirmed = false
 }
 
 /// A label drawn over the 3D view (screen space).
@@ -57,7 +59,18 @@ struct SceneContent {
     var floorAreas: [(poly: [PlanVec], done: Bool)] = []
     /// Drying equipment as 3D models (EquipmentModels): type, floor point, yaw (0 = +Z), airflow arrow.
     var equipment: [(type: String, position: SIMD3<Float>, yaw: Float, flow: Bool)] = []
+    /// Marks drawn by DollhouseMarks (removals, moisture washes), by layer.
+    var extra: [(layer: ModelLayer, node: SCNNode)] = []
+    /// The plan's walls (the moisture model is drawn on their faces).
+    var walls: [String: PlanWall] = [:]
+    /// Cabinets marked for removal (plan centres): their boxes are drawn red.
+    var removedCabinets: [(center: PlanVec, done: Bool)] = []
     var error: String?
+}
+
+final class NodesBox: @unchecked Sendable {
+    let value: (nodes: [SCNNode], hints: [(SIMD3<Float>, String)])
+    init(_ value: (nodes: [SCNNode], hints: [(SIMD3<Float>, String)])) { self.value = value }
 }
 
 final class SceneBox: @unchecked Sendable {
@@ -66,13 +79,14 @@ final class SceneBox: @unchecked Sendable {
 }
 
 enum ModelLayer: String, CaseIterable, Identifiable {
-    case readings = "Readings", lines = "Moisture lines", removals = "Removals",
+    case readings = "Readings", lines = "Moisture lines", model = "Moisture model", removals = "Removals",
          equipment = "Equipment", photos = "Photos and source", furniture = "Furniture"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .readings: return "percent"
         case .lines: return "point.topleft.down.to.point.bottomright.curvepath"
+        case .model: return "drop.fill"
         case .removals: return "scissors"
         case .equipment: return "fan"
         case .photos: return "camera"
@@ -95,6 +109,8 @@ final class ModelViewModel: ObservableObject {
     /// Screen labels, laid out after every camera move.
     @Published private(set) var labels: [ScreenLabel] = []
     @Published var selectedID: String? { didSet { relayout() } }
+    /// A solved moisture model is there to show.
+    @Published private(set) var hasMoisture = false
 
     private(set) var scene: SCNScene?
     private(set) var rooms: [Dollhouse.Room] = []
@@ -111,6 +127,9 @@ final class ModelViewModel: ObservableObject {
     private struct Anchor { var id: String; var point: SIMD3<Float>; var layer: ModelLayer; var text: String
                             var color: UIColor; var priority: Int; var onlyWhenSelected: Bool; var size: CGSize }
     private var anchors: [Anchor] = []
+    private var planWalls: [String: PlanWall] = [:]
+    private var moistureHash: String?
+    private var pendingMoisture: MoistureSolve?
 
     func load(folder: JobFolder, version: Int) {
         guard loadedVersion != version else { return }
@@ -143,21 +162,34 @@ final class ModelViewModel: ObservableObject {
             layers[l] = n
         }
         layers[.furniture] = built.furniture
+        planWalls = content.walls
+        // A cabinet to remove reads red, not pink: its own box takes the removal colour.
+        for n in built.furniture.childNodes {
+            let p = PlanVec(Double(n.position.x), Double(n.position.z))
+            guard let c = content.removedCabinets.first(where: { simd_distance($0.center, p) < 0.1 }) else { continue }
+            let m = SCNMaterial()
+            m.diffuse.contents = Self.removalColor(done: c.done, alpha: 1)
+            m.lightingModel = .lambert
+            n.geometry?.materials = [m]
+        }
         let scale = Float(extent)
         for line in content.lines { layers[.lines]!.addChildNode(Self.lineNode(line, scale: scale)) }
         for b in content.wallBands { layers[.removals]!.addChildNode(Self.wallBandNode(b.a, b.b, top: b.top, done: b.done)) }
         for f in content.floorAreas { if let n = Self.floorAreaNode(f.poly, done: f.done) { layers[.removals]!.addChildNode(n) } }
+        for e in content.extra { layers[e.layer]!.addChildNode(e.node) }
         anchors = []
         for (i, m) in content.markers.enumerated() {
             let layer: ModelLayer
             switch m.kind {
             case "equipment": layer = .equipment
             case "photo", "source": layer = .photos
-            case "boundary": layer = .lines
+            case "boundary", "wash": layer = .lines
+            case "removal": layer = .removals
             default: layer = .readings
             }
-            // Equipment is drawn as its 3D model (below); the marker only carries the label.
-            if m.kind != "equipment" { layers[layer]!.addChildNode(Self.markerNode(m, scale: scale)) }
+            // Equipment is drawn as its 3D model (below), removals and washes by DollhouseMarks;
+            // their markers only carry the label.
+            if !["equipment", "removal", "wash"].contains(m.kind) { layers[layer]!.addChildNode(Self.markerNode(m, scale: scale)) }
             if let text = m.label {
                 anchors.append(Anchor(id: "m\(i)", point: m.labelAnchor ?? m.position, layer: layer, text: text, color: m.color,
                                       priority: m.priority, onlyWhenSelected: m.kind == "equipment", size: Self.labelSize(text)))
@@ -183,6 +215,37 @@ final class ModelViewModel: ObservableObject {
         bounds = built.bounds
         fitPoints = built.fitPoints
         ready = true
+        moistureHash = nil
+        if let m = pendingMoisture { setMoisture(m) }
+    }
+
+    // MARK: The moisture model
+
+    /// Draws a solved moisture model (the "Moisture model" layer); nil clears it.
+    func setMoisture(_ s: MoistureSolve?) {
+        pendingMoisture = s
+        if hasMoisture != (s != nil) { hasMoisture = s != nil }
+        guard ready, let layer = layers[.model] else { return }
+        guard s?.inputsHash != moistureHash else { return }
+        moistureHash = s?.inputsHash
+        let walls = planWalls
+        anchors.removeAll { $0.layer == .model }
+        guard let s else { layer.childNodes.forEach { $0.removeFromParentNode() }; relayout(); return }
+        let draw = s.draw
+        Task {
+            let box = await Task.detached(priority: .userInitiated) { NodesBox(Moisture3D.nodes(draw, walls: walls)) }.value
+            guard self.moistureHash == s.inputsHash else { return }
+            layer.childNodes.forEach { $0.removeFromParentNode() }
+            for n in box.value.nodes {
+                n.enumerateHierarchy { c, _ in c.categoryBitMask = Dollhouse.markupCategory }
+                layer.addChildNode(n)
+            }
+            for (i, h) in box.value.hints.enumerated() {
+                anchors.append(Anchor(id: "model-hint-\(i)", point: h.0, layer: .model, text: h.1, color: UIColor(DS.Color.damp),
+                                      priority: 40, onlyWhenSelected: false, size: Self.labelSize(h.1)))
+            }
+            relayout()
+        }
     }
 
     // MARK: View state
@@ -208,7 +271,7 @@ final class ModelViewModel: ObservableObject {
 
     /// Where the floating controls are (labels keep clear of them).
     private func controlRects(_ size: CGSize) -> [CGRect] {
-        var r = [CGRect(x: 0, y: 0, width: 168, height: 132),                     // Orbit / Plan, Layers
+        var r = [CGRect(x: 0, y: 0, width: 200, height: 188),                     // Orbit / Plan, Layers, Moisture model
                  CGRect(x: size.width - 76, y: 0, width: 76, height: 256)]        // the right column
         if measuring { r.append(CGRect(x: size.width / 2 - 120, y: size.height - 72, width: 240, height: 72)) }
         return r
@@ -265,8 +328,17 @@ final class ModelViewModel: ObservableObject {
         let w = size.width, h = size.height
         let below = CGRect(x: 0.05, y: min(0.6, 262 / h), width: 0.9, height: max(0.3, (h - 262 - 12) / h))
         let beside = CGRect(x: 12 / w, y: 12 / h, width: (w - 12 - 80) / w, height: (h - 24) / h)
+        var lo = bounds.min, hi = bounds.max, pts = fitPoints
+        #if DEBUG
+        // Screenshots of the marks: frame the largest room only (SECURESCAN_3D_FOCUS=1).
+        if ProcessInfo.processInfo.environment["SECURESCAN_3D_FOCUS"] == "1",
+           let r = rooms.max(by: { FloorArea.area($0.polygon) < FloorArea.area($1.polygon) }) {
+            lo = r.min; hi = r.max
+            pts = r.polygon.flatMap { p in [SIMD3<Float>(Float(p.x), 0, Float(p.y)), SIMD3<Float>(Float(p.x), Float(Dollhouse.cutHeight), Float(p.y))] }
+        }
+        #endif
         func make(_ rect: CGRect, _ azimuth: Double) -> (SCNNode, SIMD3<Float>) {
-            Dollhouse.camera(lo: bounds.min, hi: bounds.max, aspect: aspect, plan: mode == .plan, points: fitPoints,
+            Dollhouse.camera(lo: lo, hi: hi, aspect: aspect, plan: mode == .plan, points: pts,
                              azimuth: azimuth, margin: 0.98, rect: rect)
         }
         // Bigger on screen = closer camera (orbit) or smaller orthographic scale (plan).
@@ -451,8 +523,11 @@ final class ModelViewModel: ObservableObject {
     nonisolated static var lineBlue: UIColor { UIColor(DS.Color.source) }
 
     nonisolated static func buildContent(folder: JobFolder) -> SceneContent {
-        let plan = (try? Data(contentsOf: folder.planURL)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        var plan = (try? Data(contentsOf: folder.planURL)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         guard !plan.isEmpty else { return SceneContent(error: "This job has no plan yet. Scan it to see it in 3D.") }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SECURESCAN_3D_MARKS"] == "1" { plan = DollhouseMarks.withDemoMarks(plan) }
+        #endif
         guard let built = Dollhouse.build(plan: plan) else { return SceneContent(error: "This plan has no rooms to show in 3D.") }
         var content = SceneContent(built: built)
         let markup = plan["markup"] as? [String: Any] ?? [:]
@@ -466,18 +541,30 @@ final class ModelViewModel: ObservableObject {
             return SIMD3<Float>(Float(p.x), min(h, cut), Float(p.y))
         }
 
+        let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        /// On its own face of its wall (or inside the wall for cavity marks), per docs/MARKING.md H.
+        func sided(_ d: [String: Any], _ pos: SIMD3<Float>, out: Double) -> SIMD3<Float> {
+            guard let side = d["side"] as? String, let wid = d["wallId"] as? String, let w = walls[wid],
+                  let t = PlanDocument.number(d["wallT"]) else { return pos }
+            return DollhouseMarks.facePosition(w, t: t, height: Double(pos.y), side: side, out: out)
+        }
         var byId: [String: SIMD3<Float>] = [:]
         var marks: [MoistureLines.Mark] = []
+        var wallMarks: [String: (t: Double, h: Double, side: String?)] = [:]
         for d in markup["readings"] as? [[String: Any]] ?? [] {
-            guard let pos = place(d) else { continue }
+            guard let pos0 = place(d) else { continue }
+            let pos = sided(d, pos0, out: 0.08)
             let kind = (d["kind"] as? String) ?? "reading"
             let n = PlanDocument.number(d["n"]).map { Int($0) }
             switch kind {
             case "boundary":
-                content.markers.append(MarkerInfo(kind: kind, label: nil, color: lineBlue, position: pos))
+                // No marker of its own: the wash and its tide line show the line (docs/MARKING.md D).
                 if let id = d["id"] as? String {
-                    byId[id] = pos
+                    byId[id] = pos0
                     marks.append(MoistureLines.Mark(id: id, wallId: d["wallId"] as? String, wallT: PlanDocument.number(d["wallT"])))
+                    if let t = PlanDocument.number(d["wallT"]) {
+                        wallMarks[id] = (t, PlanDocument.number(d["height"]) ?? Double(pos0.y), d["side"] as? String)
+                    }
                 }
             case "photo":
                 content.markers.append(MarkerInfo(kind: kind, label: n.map { "P\($0)" } ?? "P", color: .systemGray, position: pos))
@@ -491,9 +578,16 @@ final class ModelViewModel: ObservableObject {
             }
         }
         for d in markup["sources"] as? [[String: Any]] ?? [] {
-            guard let pos = place(d) else { continue }
+            guard let pos0 = place(d) else { continue }
+            // Well off the face, so its rings clear the wash and the wall's other marks.
+            let pos = sided(d, pos0, out: 0.2)
             let text = ((d["label"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
-            content.markers.append(MarkerInfo(kind: "source", label: text.isEmpty ? "Source" : text, color: lineBlue, position: pos, priority: 25))
+            let confirmed = (d["status"] as? String) == "confirmed"
+            let cavity = (d["side"] as? String) == "cavity"
+            let detail = cavity ? "inside wall" : (confirmed ? "Confirmed" : "Suspected")
+            var m = MarkerInfo(kind: "source", label: "\(text.isEmpty ? (cavity ? "Leak" : "Source") : text) · \(detail)", color: lineBlue, position: pos, priority: 25)
+            m.confirmed = confirmed
+            content.markers.append(m)
         }
         for d in markup["equipment"] as? [[String: Any]] ?? [] {
             if let removed = d["removed"], !(removed is NSNull), (removed as? String)?.isEmpty != true { continue }
@@ -510,20 +604,21 @@ final class ModelViewModel: ObservableObject {
             content.markers.append(MarkerInfo(kind: "equipment", label: label.isEmpty ? name : "\(label) · \(name)",
                                               color: UIColor(DS.Color.equip), position: SIMD3(Float(p.x), top, Float(p.y)), priority: 0))
         }
-        let walls = Dictionary(Revisit.walls(plan).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for x in markup["removals"] as? [[String: Any]] ?? [] {
-            let done = (x["status"] as? String) == "done"
-            if let wid = x["wallId"] as? String, let w = walls[wid] {
-                let t0 = PlanDocument.number(x["t0"]) ?? 0, t1 = PlanDocument.number(x["t1"]) ?? 1
-                let item = (x["item"] as? String) ?? "other"
-                let mm = PlanDocument.number(x["heightMm"]) ?? (item == "skirting" ? 100 : 600)
-                let top = min(max(mm / 1000, 0.08), Dollhouse.cutHeight)
-                content.wallBands.append((w.a + (w.b - w.a) * t0, w.a + (w.b - w.a) * t1, top, done))
-            } else if let area = (x["area"] as? [Any])?.compactMap(ScopeList.pt), area.count >= 3 {
-                content.floorAreas.append((area, done))
-            }
-        }
+        // Removals and wet floors in the AR view's language (docs/MARKING.md D, H).
+        let drawn = DollhouseMarks.build(markup: markup, walls: walls, objects: plan["objects"] as? [[String: Any]] ?? [])
+        content.extra += drawn.removals.map { (layer: ModelLayer.removals, node: $0) } + drawn.moisture.map { (layer: ModelLayer.lines, node: $0) }
+        content.markers += drawn.labels
+        content.removedCabinets = drawn.cabinets
+        content.walls = walls
         for ids in MoistureLines.lines(marks) {
+            // On its wall's face: the blue wash to the tide line.
+            let wm = ids.compactMap { wallMarks[$0] }
+            if wm.count == ids.count, let wid = marks.first(where: { $0.id == ids[0] })?.wallId, let w = walls[wid],
+               let wash = DollhouseMarks.moistureWash(w, points: wm.map { (t: $0.t, h: $0.h) }.sorted { $0.t < $1.t }, side: wm[0].side) {
+                content.extra += wash.nodes.map { (layer: ModelLayer.lines, node: $0) }
+                content.markers.append(wash.label)
+                continue
+            }
             let pts = ids.compactMap { byId[$0] }
             guard pts.count >= 2 else { continue }
             content.lines.append(MoistureLine3D(points: pts, floorY: pts.map { _ in 0 }))
@@ -534,7 +629,7 @@ final class ModelViewModel: ObservableObject {
     // MARK: Markup nodes (main)
 
     /// Drawn on top of the model, so markers are never hidden behind walls.
-    static func overlayMaterial(_ color: UIColor, constant: Bool = true) -> SCNMaterial {
+    nonisolated static func overlayMaterial(_ color: UIColor, constant: Bool = true) -> SCNMaterial {
         let m = SCNMaterial()
         m.diffuse.contents = color
         m.lightingModel = constant ? .constant : .lambert
@@ -561,6 +656,27 @@ final class ModelViewModel: ObservableObject {
         let dot = SCNNode(geometry: geometry)
         dot.renderingOrder = 200
         node.addChildNode(dot)
+        if m.kind == "source" {
+            // Confirmed: a solid disc behind the drop; suspected: an outlined outer ring.
+            let facing = SCNNode()
+            facing.constraints = [SCNBillboardConstraint()]
+            if m.confirmed {
+                let disc = SCNPlane(width: r * 4.2, height: r * 4.2)
+                disc.cornerRadius = r * 2.1
+                disc.materials = [overlayMaterial(lineBlue.withAlphaComponent(0.35))]
+                let dn = SCNNode(geometry: disc)
+                dn.renderingOrder = 199
+                facing.addChildNode(dn)
+            } else {
+                let outer = SCNTorus(ringRadius: r * 2.2, pipeRadius: r * 0.12)
+                outer.materials = [overlayMaterial(lineBlue.withAlphaComponent(0.6))]
+                let on = SCNNode(geometry: outer)
+                on.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
+                on.renderingOrder = 199
+                facing.addChildNode(on)
+            }
+            node.addChildNode(facing)
+        }
         if m.kind == "reading" || m.kind == "source" {
             // White ring round the head reads as a pin, from any angle.
             let ring = SCNTorus(ringRadius: r * (m.kind == "source" ? 1.9 : 1.25), pipeRadius: r * 0.22)
@@ -699,6 +815,7 @@ struct ModelTab: View {
         }
         .onAppear { model.load(folder: vm.folder, version: vm.planVersion) }
         .onChange(of: vm.planVersion) { _, v in model.load(folder: vm.folder, version: v) }
+        .onReceive(vm.moisture.$solve) { model.setMoisture($0) }
     }
 
     /// Labels in screen space, laid out by LabelLayout after every camera move.
@@ -732,6 +849,7 @@ struct ModelTab: View {
             VStack(alignment: .leading, spacing: 12) {
                 modeSwitch
                 layersMenu
+                if model.hasMoisture { modelToggle }
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -795,6 +913,27 @@ struct ModelTab: View {
         }
         .buttonStyle(DSPressStyle())
         .accessibilityLabel(label)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// The moisture model on / off (docs/MOISTURE.md), with how sure it is.
+    private var modelToggle: some View {
+        let on = !model.hidden.contains(.model)
+        return Button { DS.Haptic.selection(); model.toggle(.model) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: on ? "drop.fill" : "drop")
+                Text("Moisture model")
+            }
+            .font(DS.Font.calloutBold)
+            .foregroundStyle(on ? DS.Color.ink : .white)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+            .background(Capsule().fill(on ? Color.white : DS.Color.ink))
+            .overlay(Capsule().strokeBorder(Color.black.opacity(on ? 0.12 : 0), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(DSPressStyle())
+        .accessibilityLabel("Moisture model")
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 

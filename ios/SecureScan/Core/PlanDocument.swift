@@ -71,6 +71,7 @@ enum PlanDocument {
             "reference": r.reference,
             "source": "ar",
         ]
+        if let s = r.status { d["status"] = s }
         applyGeometry(to: &d, from: r)
         return d
     }
@@ -137,6 +138,7 @@ enum PlanDocument {
             "source": "ar",
         ]
         if x.area == nil { d["heightMm"] = Int(x.heightMm.isFinite ? x.heightMm.rounded() : 0) }
+        if let s = x.side { d["side"] = s }
         if let p = x.photo, !p.isEmpty {
             var e: [String: Any] = ["visit": visit, "photo": p, "takenAt": x.takenAt, "stage": "before"]
             if let c = x.cam { e["cam"] = pt(c) }
@@ -230,6 +232,7 @@ enum PlanDocument {
     static func applyFloorGeometry(to d: inout [String: Any], from r: PlanReading) {
         d["pos"] = pt(r.pos)
         if let c = r.cam { d["cam"] = pt(c) } else { d.removeValue(forKey: "cam") }
+        if let s = r.side { d["side"] = s }
     }
 
     /// The fields the app owns on an AR item: where it is (and where the

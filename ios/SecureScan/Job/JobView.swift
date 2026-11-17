@@ -41,10 +41,13 @@ final class JobViewModel: ObservableObject {
     @Published var showScope = false
     /// Items saved during a scan the app was closed in, not yet on the plan.
     @Published var unplacedCount = 0
+    /// The moisture model of this job (docs/MOISTURE.md).
+    let moisture: MoistureJob
 
     init(jobID: UUID) {
         self.jobID = jobID
         self.folder = JobFiles.folder(for: jobID)
+        self.moisture = MoistureJob(folder: JobFiles.folder(for: jobID), jobID: jobID)
         // A folder without job.json (crash mid-create) still gets a usable meta,
         // so the editor has a fallback document and edits can rewrite job.json.
         self.meta = JobFiles.readMeta(folder)
@@ -56,7 +59,7 @@ final class JobViewModel: ObservableObject {
 
     // MARK: Return visits
 
-    var canReturnVisit: Bool { hasPlan && meta?.demo != true || ProcessInfo.processInfo.environment["SECURESCAN_PREVIEW"] == "revisit" }
+    var canReturnVisit: Bool { hasPlan && (meta?.demo != true || SimDemo.active) || ProcessInfo.processInfo.environment["SECURESCAN_PREVIEW"] == "revisit" }
 
     func refreshVisitInfo() {
         let url = folder.planURL
@@ -211,6 +214,7 @@ final class JobViewModel: ObservableObject {
     /// The editor saved: keep the list metadata's address / job ref in step.
     func editorSaved(address: String?, jobRef: String?) {
         SyncCenter.shared.jobChanged(jobID)  // SecureSuite sync hook
+        moisture.refresh()
         guard var m = meta else { return }
         var changed = false
         if let a = address, a != m.address { m.address = a; changed = true }
@@ -385,6 +389,7 @@ struct JobView: View {
         .onAppear {
             vm.processVoice()
             vm.refreshVisitInfo()
+            vm.moisture.refresh()
             let env = ProcessInfo.processInfo.environment
             if env["SECURESCAN_PREVIEW"] == "revisit" { vm.showRevisit = true }
             if env["SECURESCAN_PREVIEW"] == "documents" {
@@ -394,7 +399,7 @@ struct JobView: View {
                 vm.makeDocument(k)
             }
         }
-        .onChange(of: vm.planVersion) { _, _ in vm.refreshVisitInfo() }
+        .onChange(of: vm.planVersion) { _, _ in vm.refreshVisitInfo(); vm.moisture.refresh() }
         .onChange(of: vm.requestedTab) { _, t in
             if let t, let jt = JobTab(rawValue: t) { tab = jt; vm.requestedTab = nil }
         }
@@ -415,7 +420,9 @@ struct JobView: View {
             }
         }
         .fullScreenCover(isPresented: $scanning) {
-            if let meta = vm.meta {
+            if SimDemo.active {
+                SimCameraView { scanning = false }
+            } else if let meta = vm.meta {
                 Group {
                     if UserDefaults.standard.bool(forKey: "markWhileScanning") {
                         LiveScanView(job: meta, onFinished: { _ in scanFinished() }, onDiscarded: { scanning = false }, onClassic: {})
@@ -426,14 +433,22 @@ struct JobView: View {
             }
         }
         .fullScreenCover(isPresented: $vm.showScope) {
-            RevisitView(folder: vm.folder, scope: true,
-                        onClose: { vm.showScope = false; vm.revisitClosed() },
-                        onPlanInstead: { vm.showScope = false })
+            if SimDemo.active {
+                SimCameraView { vm.showScope = false }
+            } else {
+                RevisitView(folder: vm.folder, scope: true,
+                            onClose: { vm.showScope = false; vm.revisitClosed() },
+                            onPlanInstead: { vm.showScope = false })
+            }
         }
         .fullScreenCover(isPresented: $vm.showRevisit) {
-            RevisitView(folder: vm.folder,
-                        onClose: { vm.showRevisit = false; vm.revisitClosed() },
-                        onPlanInstead: { vm.showRevisit = false; vm.remeasureOnPlan() })
+            if SimDemo.active {
+                SimCameraView { vm.showRevisit = false }
+            } else {
+                RevisitView(folder: vm.folder,
+                            onClose: { vm.showRevisit = false; vm.revisitClosed() },
+                            onPlanInstead: { vm.showRevisit = false; vm.remeasureOnPlan() })
+            }
         }
         .secureSuiteJobScreen(vm.jobID)  // SecureSuite sync hook: open/closed + link picker
         // Leaving the job stops its "Record note" recording (and transcribes it).

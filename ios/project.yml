@@ -83,6 +83,8 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: SecureScanTests
+      # The moisture model (pure Swift, docs/MOISTURE.md).
+      - path: SecureScan/Core/Moisture
       - path: SecureScan/Core/PlanBuilder.swift
       - path: SecureScan/Core/PlanDocument.swift
       - path: SecureScan/Core/SimulatedScan.swift
@@ -106,6 +108,9 @@ targets:
       - path: SecureScan/Core/StudioScenes.swift
       - path: SecureScan/Sync/Logic
       - path: SecureScan/Core/CaptureFrame.swift
+      - path: SecureScan/Core/Components.swift
+      - path: SecureScan/Core/MoistureLive.swift
+      - path: SecureScan/Job/LabelLayout.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.secureworkswa.securescan.tests

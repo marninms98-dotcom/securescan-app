@@ -90,6 +90,8 @@ enum JobProcessor {
             pb.end = PBPose(cameraPosition: ec, cameraForward: ef, hit: v(r.endHit))
         }
         pb.heightMm = r.heightMm
+        pb.status = r.status
+        pb.side = r.side
         pb.corners = (r.corners ?? []).compactMap { c -> PBPose? in
             guard c.count >= 6 else { return nil }
             return PBPose(cameraPosition: WorldVec(c[0], c[1], c[2]), cameraForward: WorldVec(c[3], c[4], c[5]),
@@ -132,6 +134,7 @@ enum JobProcessor {
                                            createdAt: meta.createdAt, now: Date(), geometry: g)
         }
         doc = Self.applyAirflow(doc, extras: extras, transform: g.transform)
+        doc = Self.applyModelTweaks(doc, extras: extras, geometry: g)
         try PlanDocument.data(doc).write(to: folder.planURL, options: .atomic)
 
         // Cache the resolved world points for the 3D markers.
@@ -181,6 +184,18 @@ enum JobProcessor {
         }
         markup["equipment"] = eq
         d["markup"] = markup
+        return d
+    }
+
+    /// The camera's moisture-model corrections (scan world) onto the plan's walls and frame.
+    static func applyModelTweaks(_ doc: [String: Any], extras: ScanExtras, geometry g: PlanGeometry) -> [String: Any] {
+        guard let tweaks = extras.modelTweaks, !tweaks.isEmpty else { return doc }
+        let walls = g.walls.map { WorldWall(id: $0.id, a: $0.a, b: $0.b, height: $0.height) }
+        var d = doc
+        for t in tweaks {
+            guard let mt = t.tweak(walls: walls, toPlan: { g.transform.point(WorldVec($0.x, 0, $0.y)) }) else { continue }
+            d = MoisturePlan.adding(mt, to: d)
+        }
         return d
     }
 

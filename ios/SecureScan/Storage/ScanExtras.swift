@@ -19,6 +19,8 @@ struct ScanExtras: Codable, Equatable {
     var roomNames: [String: String] = [:]
     /// Item id -> horizontal world direction [dx, dz] (scan world space).
     var airflow: [String: [Double]] = [:]
+    /// The moisture model's corrections made in the camera (Moisture > Adjust), in scan world space.
+    var modelTweaks: [LiveTweak]? = nil
 
     static func url(_ folder: JobFolder) -> URL { folder.url.appendingPathComponent("scan-extras.json") }
 

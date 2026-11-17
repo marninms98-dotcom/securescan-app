@@ -467,6 +467,35 @@ final class RevisitModel: ObservableObject, CaptureEngine {
     }
     func trayCancelled() { remeasureFor = nil }
 
+    // MARK: CaptureEngine - the moisture model's corrections (docs/MOISTURE.md)
+
+    /// The plan's earlier corrections, in this session's world (wall ones are along / up their wall).
+    func savedModelTweaks() -> [MoistTweak] {
+        guard let a = alignment else { return [] }
+        let model = (plan["markup"] as? [String: Any])?["moistureModel"] as? [String: Any]
+        return (model?["tweaks"] as? [[String: Any]] ?? []).compactMap(MoisturePlan.tweak).filter { !$0.id.hasPrefix("adj-") }.map { t in
+            var t = t
+            if t.wallId == nil || t.kind == .barrier || t.kind == .floorOutline {
+                t.points = t.points.map { let w = a.world(PlanVec($0.x, $0.y), y: 0); return MoistVec(w.x, w.z) }
+            }
+            return t
+        }
+    }
+
+    /// This visit's corrections onto plan.json's markup.moistureModel.tweaks.
+    func modelTweaksChanged(_ tweaks: [LiveTweak]) {
+        guard let a = alignment else { return }
+        let ws = walls.map { WorldWall(id: $0.id, a: $0.a, b: $0.b, height: $0.height) }
+        var markup = plan["markup"] as? [String: Any] ?? [:]
+        var model = markup["moistureModel"] as? [String: Any] ?? ["version": MoisturePlan.version]
+        var list = (model["tweaks"] as? [[String: Any]] ?? []).filter { !(($0["id"] as? String) ?? "").hasPrefix("adj-") }
+        list += tweaks.compactMap { $0.tweak(walls: ws, toPlan: { a.point(WorldVec($0.x, 0, $0.y)) }) }.map(MoisturePlan.json)
+        model["tweaks"] = list
+        markup["moistureModel"] = model
+        plan["markup"] = markup
+        savePlan()
+    }
+
     // MARK: CaptureEngine - the world
 
     var world: CaptureWorld {
@@ -479,7 +508,28 @@ final class RevisitModel: ObservableObject, CaptureEngine {
         let rs = rooms.enumerated().map { i, poly in
             WorldRoom(name: planRoomName(i) ?? "Room \(i + 1)", polygon: poly.map { let w = a.world($0, y: 0); return PlanVec(w.x, w.z) })
         }
-        let w = CaptureWorld(floorY: floorY, walls: ws, rooms: rs)
+        var w = CaptureWorld(floorY: floorY, walls: ws, rooms: rs)
+        // Openings and objects from the saved plan, for marking by component (docs/MARKING.md).
+        let fy = floorY ?? 0
+        for o in plan["openings"] as? [[String: Any]] ?? [] {
+            guard let id = o["id"] as? String, let wid = o["wallId"] as? String, let pw = walls.first(where: { $0.id == wid }),
+                  let pa = Revisit.point(o["a"]), let pb = Revisit.point(o["b"]) else { continue }
+            let ta = PlanBuilder.projectParam(pa, pw.a, pw.b), tb = PlanBuilder.projectParam(pb, pw.a, pw.b)
+            let sill = PlanDocument.number(o["sill"]) ?? 0, h = PlanDocument.number(o["height"]) ?? 2.04
+            w.openings.append(WorldOpening(id: id, kind: (o["type"] as? String) ?? "opening", wallId: wid,
+                                           t0: max(0, min(ta, tb)), t1: min(1, max(ta, tb)), bottom: sill, top: sill + h))
+        }
+        for o in plan["objects"] as? [[String: Any]] ?? [] {
+            guard let id = o["id"] as? String, let cat = o["category"] as? String, let c = Revisit.point(o["center"]),
+                  let sz = o["size"] as? [Any], sz.count >= 2 else { continue }
+            let r = PlanDocument.number(o["rotation"]) ?? 0
+            let h = PlanDocument.number(o["height"]) ?? WorldObject.defaultHeight(cat)
+            let wc = a.world(c, y: fy + h / 2)
+            let wx = a.world(c + PlanVec(cos(r), sin(r)), y: 0) - a.world(c, y: 0)
+            w.objects.append(WorldObject(id: id, category: cat, center: wc,
+                                         size: WorldVec(PlanDocument.number(sz[0]) ?? 0.6, h, PlanDocument.number(sz[1]) ?? 0.6),
+                                         yaw: atan2(-wx.z, wx.x)))
+        }
         worldCache = w
         return w
     }
@@ -528,9 +578,13 @@ final class RevisitModel: ObservableObject, CaptureEngine {
         case .photo(let s, let caption):
             let pb = Self.pb(s, kind: "photo", material: "wall", note: caption)
             return await add(pb, shot: s, alignment: a, kind: "photo", title: { [weak self] in "P\(self?.lastNumber("photo") ?? 0)" }, detail: caption)
-        case .source(let s, let cause, let note):
+        case .source(let s, let cause, let note, let confirmed, let inside):
             let label = note.trimmingCharacters(in: .whitespaces).isEmpty ? cause : "\(cause) — \(note)"
-            let pb = Self.pb(s, kind: "source", material: "wall", note: label)
+            var pb = Self.pb(s, kind: "source", material: "wall", note: label)
+            pb.status = confirmed ? "confirmed" : "suspected"
+            if let h = s.hit, let w = WallSide.wall(at: h, world: world, within: 0.2) {
+                pb.side = inside ? WallSide.cavity : WallSide.side(of: PlanVec(s.camera.x, s.camera.z), wall: w)
+            }
             return await add(pb, shot: s, alignment: a, kind: "source", title: { "Source" }, detail: cause)
         case .equipment(let s, let type, let asset):
             let pb = Self.pb(s, kind: "equipment", material: type, note: asset)

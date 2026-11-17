@@ -114,6 +114,10 @@ struct PBReading {
     var wholeRoom: Bool = false
     var floorType: String? = nil
     var underlay: Bool = false
+    /// kind "source": "suspected" | "confirmed" (docs/MARKING.md; nil = suspected).
+    var status: String? = nil
+    /// Wall-attached items: "a" | "b" (by the wall's normal) | "cavity" (inside the wall).
+    var side: String? = nil
 }
 
 /// Camera pose and raycast hit of one tap.
@@ -140,6 +144,8 @@ struct PlanRemoval {
     var floorType: String?
     var underlay: Bool = false
     var cam: PlanVec?
+    /// "a" | "b" (docs/MARKING.md H; optional).
+    var side: String? = nil
 }
 
 /// A floor-type zone (markup.floors): the room the camera was in.
@@ -243,6 +249,10 @@ struct PlanReading {
     var worldPoint: WorldVec?
     /// Camera position at capture, in plan coordinates ("cam" in plan.json).
     var cam: PlanVec? = nil
+    /// Sources: "suspected" | "confirmed" (optional; docs/MARKING.md).
+    var status: String? = nil
+    /// "a" | "b" | "cavity" (optional; docs/MARKING.md H).
+    var side: String? = nil
 }
 
 struct PlanGeometry {
@@ -726,12 +736,26 @@ enum PlanBuilder {
             height = isFloor ? 0 : max(0, y - base)
         }
 
+        // The side, against the plan wall's own a -> b (the live wall may have run the other way).
+        var side = r.side
+        if let wid = wallId, let w = walls.first(where: { $0.id == wid }), side == "a" || side == "b",
+           r.cameraPosition.x.isFinite && r.cameraPosition.z.isFinite {
+            side = Self.side(of: camPlan, wall: w)
+        }
         return PlanReading(id: r.id, kind: r.kind, n: nil, pos: pos,
                            value: r.kind == "reading" ? r.value : nil, material: r.material,
                            note: r.note, photo: r.photo, takenAt: r.takenAt,
                            height: height, wallId: wallId, wallT: wallT,
                            reference: r.reference, worldPoint: world,
-                           cam: (r.cameraPosition.x.isFinite && r.cameraPosition.z.isFinite) ? camPlan : nil)
+                           cam: (r.cameraPosition.x.isFinite && r.cameraPosition.z.isFinite) ? camPlan : nil,
+                           status: r.status, side: side)
+    }
+
+    /// Which side of a plan wall a point is on (docs/MARKING.md H, docs/MOISTURE.md): "a" when it
+    /// is on the side of the wall's left normal n = (-d.y, d.x), d = b - a; else "b".
+    static func side(of p: PlanVec, wall w: PlanWall) -> String {
+        let d = w.b - w.a
+        return simd_dot(p - w.a, PlanVec(-d.y, d.x)) >= 0 ? "a" : "b"
     }
 
     /// Equipment stands on the floor: the floor point under the crosshair (the
@@ -783,6 +807,7 @@ enum PlanBuilder {
         var out = PlanRemoval(id: r.id, item: r.material, heightMm: r.heightMm ?? 0, note: r.note, takenAt: r.takenAt,
                               photo: r.photo, wallId: nil, t0: nil, t1: nil, area: nil,
                               floorType: r.floorType, underlay: r.underlay, cam: cam)
+        out.side = r.side
 
         if flooring {
             if r.wholeRoom {
@@ -838,6 +863,7 @@ enum PlanBuilder {
         out.wallId = w.id
         out.t0 = min(u, v)
         out.t1 = max(u, v)
+        if let c = out.cam, out.side == "a" || out.side == "b" { out.side = side(of: c, wall: w) }
         return .placed(out)
     }
 

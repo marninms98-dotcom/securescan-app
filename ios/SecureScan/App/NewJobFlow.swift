@@ -28,7 +28,10 @@ struct NewJobFlow: View {
 
     var body: some View {
         if let job = scanningJob {
-            if live {
+            if SimDemo.active {
+                // The simulator has no camera: the Studio room, then the new (empty) job.
+                SimCameraView { onComplete(job.id) }
+            } else if live {
                 LiveScanView(job: job, onFinished: onComplete, onDiscarded: onCancel, onClassic: { live = false })
             } else {
                 ScanView(job: job, onFinished: onComplete, onDiscarded: onCancel)

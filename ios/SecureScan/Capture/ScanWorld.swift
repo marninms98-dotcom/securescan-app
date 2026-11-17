@@ -16,7 +16,8 @@ import simd
 
 enum ScanWorld {
     /// A CapturedRoom in its session's world space: wall lines, the room outline, the floor height.
-    static func from(_ room: CapturedRoom, name: String, idPrefix: String) -> (walls: [WorldWall], room: WorldRoom?, floorY: Double?) {
+    static func from(_ room: CapturedRoom, name: String, idPrefix: String)
+        -> (walls: [WorldWall], room: WorldRoom?, floorY: Double?, openings: [WorldOpening], objects: [WorldObject]) {
         var walls: [WorldWall] = []
         var bases: [Double] = []
         for (i, w) in room.walls.enumerated() {
@@ -35,7 +36,32 @@ enum ScanWorld {
         }
         let pts = walls.flatMap { [$0.a, $0.b] }
         let hull = PlanBuilder.convexHull(pts)
-        return (walls, hull.count >= 3 ? WorldRoom(name: name, polygon: hull) : nil, floorY)
+        let fy = floorY ?? 0
+        // Doors, windows and openings: onto their wall, as a stretch with a bottom and top.
+        var openings: [WorldOpening] = []
+        let surfaces: [(CapturedRoom.Surface, String)] = room.doors.map { ($0, "door") } + room.windows.map { ($0, "window") } + room.openings.map { ($0, "opening") }
+        for (i, (s, kind)) in surfaces.enumerated() {
+            let t = s.transform
+            let c = SIMD3<Double>(Double(t.columns.3.x), Double(t.columns.3.y), Double(t.columns.3.z))
+            let x = SIMD3<Double>(Double(t.columns.0.x), Double(t.columns.0.y), Double(t.columns.0.z))
+            let half = Double(s.dimensions.x) / 2, hh = Double(s.dimensions.y) / 2
+            let pa = PlanVec(c.x - x.x * half, c.z - x.z * half), pb = PlanVec(c.x + x.x * half, c.z + x.z * half)
+            let mid = (pa + pb) / 2
+            guard let near = walls.min(by: { PlanBuilder.distanceToSegment(mid, $0.a, $0.b) < PlanBuilder.distanceToSegment(mid, $1.a, $1.b) }),
+                  PlanBuilder.distanceToSegment(mid, near.a, near.b) < 0.3 else { continue }
+            let ta = PlanBuilder.projectParam(pa, near.a, near.b), tb = PlanBuilder.projectParam(pb, near.a, near.b)
+            openings.append(WorldOpening(id: "\(idPrefix)o\(i)", kind: kind, wallId: near.id, t0: max(0, min(ta, tb)), t1: min(1, max(ta, tb)),
+                                         bottom: max(0, c.y - hh - fy), top: c.y + hh - fy))
+        }
+        // Objects: box centre, size and yaw.
+        let objects: [WorldObject] = room.objects.enumerated().map { i, o in
+            let t = o.transform
+            let yaw = atan2(-Double(t.columns.0.z), Double(t.columns.0.x))
+            return WorldObject(id: "\(idPrefix)b\(i)", category: String(describing: o.category),
+                               center: WorldVec(Double(t.columns.3.x), Double(t.columns.3.y), Double(t.columns.3.z)),
+                               size: WorldVec(Double(o.dimensions.x), Double(o.dimensions.y), Double(o.dimensions.z)), yaw: yaw)
+        }
+        return (walls, hull.count >= 3 ? WorldRoom(name: name, polygon: hull) : nil, floorY, openings, objects)
     }
 
     /// Every wall, door, window, opening and object found so far (for the new-structure tick).
