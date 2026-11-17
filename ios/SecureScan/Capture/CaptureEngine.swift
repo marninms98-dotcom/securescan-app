@@ -211,9 +211,22 @@ protocol CaptureEngine: AnyObject {
     func camera3D(viewport: CGSize) -> Camera3D?
     /// The torch button (back camera with a torch, AR running).
     var hasTorch: Bool { get }
+
+    // The moisture model (docs/MOISTURE.md)
+    /// The plan's earlier corrections, in this session's world.
+    func savedModelTweaks() -> [MoistTweak]
+    /// This session's corrections changed (keep them with the job).
+    func modelTweaksChanged(_ tweaks: [LiveTweak])
+    /// The simulator's demo camera: a finger on empty space turns it (false = not supported).
+    func lookDrag(dx: Double, dy: Double) -> Bool
 }
 
 extension CaptureEngine {
+    /// The moisture model's corrections already on the plan (in this session's world).
+    func savedModelTweaks() -> [MoistTweak] { [] }
+    /// The scoper's corrections this session changed (keep them with the job).
+    func modelTweaksChanged(_ tweaks: [LiveTweak]) {}
+    func lookDrag(dx: Double, dy: Double) -> Bool { false }
     var zoomState: ZoomState { .unavailable }
     func beginHandoff() -> CaptureShot? { nil }
     func endHandoff() {}

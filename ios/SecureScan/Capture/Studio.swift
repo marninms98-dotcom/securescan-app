@@ -123,8 +123,14 @@ final class StudioEngine: ObservableObject, CaptureEngine {
         }
     }
 
-    func perform(quiet id: String) {}
-    func requestClose() {}
+    /// The simulator's demo camera (SimDemo): saves go into the room, fingers look around, and
+    /// Close / Finish leave the screen.
+    var live = false
+    var onClose: (() -> Void)?
+    private var yaw = 0.0, pitch = 0.0
+
+    func perform(quiet id: String) { if live && (id == "finish" || id == "roomDone") { onClose?() } }
+    func requestClose() { if live { onClose?() } }
     func toggleRecording() {}
     func renameRoom(_ name: String) { roomName = name }
     func roomSections() -> [String] { sections }
@@ -144,11 +150,90 @@ final class StudioEngine: ObservableObject, CaptureEngine {
         return CaptureShot(id: CaptureIDs.new("st-"), takenAt: "", camera: camera, forward: s?.forward ?? WorldVec(0, 0, -1), hit: s?.hit, normal: s?.normal)
     }
 
-    func save(_ d: CaptureDraft) async -> Result<SavedCapture, PlainWords.Problem> { .failure(PlainWords.problem("")) }
-    func remove(ids: [String]) {}
+    func save(_ d: CaptureDraft) async -> Result<SavedCapture, PlainWords.Problem> {
+        guard live else { return .failure(PlainWords.problem("")) }
+        let id = CaptureIDs.new("sim-")
+        func at(_ s: CaptureShot) -> WorldVec { s.hit ?? s.camera + s.forward }
+        func onWall(_ m: inout OverlayMark, _ p: WorldVec) {
+            if p.y > 0.03, let w = WallSide.wall(at: p, world: world, within: 0.12) {
+                m.wallId = w.id
+                m.side = WallSide.side(of: PlanVec(camera.x, camera.z), wall: w)
+            }
+        }
+        let entry: CaptureStack.Entry
+        var airflowFor: String? = nil
+        switch d {
+        case .reading(let s, let value, let material, let reference):
+            let n = saved.filter { if case .reading = $0.style { return true } else { return false } }.count + 1
+            var m = StudioScenes.pin(id, at(s), value, n)
+            if reference { m.style = .reading(status: "none", reference: true) }
+            onWall(&m, at(s))
+            saved.append(m)
+            entry = StudioScript.entry(id, "reading", "\(CaptureCopy.readingTag(n)) · \(CaptureCopy.number(value))%", CaptureCopy.materialName(material))
+        case .photo(let s, let caption):
+            saved.append(OverlayMark(id: id, style: .photo, points: [at(s)], tag: "Photo"))
+            entry = StudioScript.entry(id, "photo", "Photo", caption.isEmpty ? roomName : caption)
+        case .source(let s, let cause, _, let confirmed, let inside):
+            var m = OverlayMark(id: id, style: .source, points: [at(s)], tag: "\(cause) · \(confirmed ? "Confirmed" : "Suspected")")
+            m.confirmed = confirmed
+            onWall(&m, at(s))
+            if inside && m.wallId != nil { m.side = WallSide.cavity }
+            saved.append(m)
+            entry = StudioScript.entry(id, "source", "Source", cause)
+        case .equipment(let s, let type, _):
+            let p = at(s)
+            let n = units.filter { $0.type == type }.count + 1
+            let tag = type == "airMover" ? String(format: "AM-%02d", n) : "\(CaptureCopy.equipmentName(type)) \(n)"
+            units.append(EquipmentGuard.Unit(id: id, type: type, pos: PlanVec(p.x, p.z), hasAirflow: false, tag: tag))
+            saved.append(OverlayMark(id: id, style: .equipment(type: type, planned: false), points: [WorldVec(p.x, 0, p.z)], tag: tag))
+            entry = StudioScript.entry(id, "equipment", tag, roomName)
+            if type == "airMover" { airflowFor = id }
+        case .mark(let md):
+            let pts = md.shots.map(at)
+            var m: OverlayMark
+            switch md.meaning {
+            case .moistureLine: m = OverlayMark(id: id, style: .moisture, points: pts, tag: "Moisture line")
+            case .wetFloor: m = OverlayMark(id: id, style: .wetFloor, points: pts.map { WorldVec($0.x, 0.01, $0.z) }, tag: "Wet floor")
+            case .liftFlooring:
+                m = OverlayMark(id: id, style: .liftFlooring, points: pts.map { WorldVec($0.x, 0.01, $0.z) }, tag: "Flooring")
+                m.floorType = md.floorType
+            case .skirting: m = OverlayMark(id: id, style: .skirting, points: pts.map { WorldVec($0.x, 0, $0.z) }, tag: "Skirting")
+            case .wallLining: m = OverlayMark(id: id, style: .lining, points: pts.map { WorldVec($0.x, 0, $0.z) }, top: Double(md.heightMm) / 1000, tag: "Wall lining")
+            case .cabinetry: m = OverlayMark(id: id, style: .cabinet, points: pts, tag: "Cabinetry")
+            }
+            if let p = pts.first { onWall(&m, p) }
+            saved.append(m)
+            entry = StudioScript.entry(id, "mark", md.meaning.tag, roomName)
+        }
+        objectWillChange.send()
+        return .success(SavedCapture(entry: entry, airflowFor: airflowFor))
+    }
+
+    /// One finger on empty space turns the camera (simulator demo only).
+    func lookDrag(dx: Double, dy: Double) -> Bool {
+        guard live else { return false }
+        let v = target - camera
+        let flat = simd_length(WorldVec(v.x, 0, v.z))
+        var az = atan2(v.z, v.x), el = atan2(v.y, flat)
+        az += dx * 0.006
+        el = min(0.2, max(-1.2, el - dy * 0.006))
+        target = camera + WorldVec(cos(az) * cos(el), sin(el), sin(az) * cos(el)) * 2
+        objectWillChange.send()
+        return true
+    }
+    var looks: Bool { live }
+    func remove(ids: [String]) {
+        guard live else { return }
+        saved.removeAll { ids.contains($0.id) }
+        units.removeAll { ids.contains($0.id) }
+        objectWillChange.send()
+    }
     func edit(id: String, _ e: ItemEdit) {}
     func equipmentUnits() -> [EquipmentGuard.Unit] { units }
-    func setAirflow(id: String, direction: WorldVec) -> Bool { true }
+    func setAirflow(id: String, direction: WorldVec) -> Bool {
+        if live, let i = saved.firstIndex(where: { $0.id == id }) { saved[i].airflow = direction; objectWillChange.send() }
+        return true
+    }
     func primaryOverride(tool: CaptureTool, aim: Aim) -> EnginePrimary? { override }
     var zoomState: ZoomState { .available }
     var hasTorch: Bool { true }
@@ -279,6 +364,29 @@ enum StudioScript {
             e.units = [EquipmentGuard.Unit(id: "a1", type: "airMover", pos: PlanVec(1.6, 1.3), hasAirflow: true, tag: "AM-01")]
             fill(6)
             hud.airflowDrag = ("a1", simd_normalize(WorldVec(-1, 0, -1.1)))
+        case "model-wash", "model-adjust", "model-second-source", "model-suggestion":
+            final()
+            e.phaseText = "Inspecting"
+            hud.tool = .moisture
+            fill(8)
+            hud.offersModelSuggestions = scene == "model-suggestion"
+            if scene == "model-adjust" {
+                hud.beginAdjust()
+                hud.adjustTool = .wet
+                // An earlier correction (drawn as the scoper's, with the pencil) and the stroke under the finger.
+                hud.modelTweaks = [LiveTweak(id: "adj-1", kind: .wet, onWall: false, points: [WorldVec(1.7, 0, 1.7), WorldVec(1.9, 0, 1.8), WorldVec(2.1, 0, 1.75)],
+                                             floorY: 0, from: PlanVec(1.15, 2.6), wallId: nil, radius: 0.3)]
+                hud.adjustStroke = LiveTweak(id: "adj-2", kind: .wet, onWall: true,
+                                             points: stride(from: 1.55, through: 2.05, by: 0.1).map { WorldVec($0, 0.62 + 0.05 * sin($0 * 9), 0.0) },
+                                             floorY: 0, from: PlanVec(1.15, 2.6), wallId: "w1")
+            }
+            hud.solveModelNow()
+        case "sim-live":
+            // The simulator's camera (SimDemo): the room with a burst pipe and readings, live.
+            final()
+            e.phaseText = "Demo room"
+            hud.tool = .moisture
+            hud.solveModelNow()
         case "suggestion-chip":
             hud.tool = .moisture
             fill(3)
@@ -514,10 +622,12 @@ struct StudioView: View {
     let scene: String
     @StateObject private var engine: StudioEngine
 
-    init(scene: String) {
+    /// `onClose`: the simulator's demo camera (live: saves, look around, Close leaves).
+    init(scene: String, onClose: (() -> Void)? = nil) {
         self.scene = scene
         let e = StudioEngine()
         e.bright = scene == "aim-wall-bright"
+        if let onClose { e.live = true; e.onClose = onClose }
         _engine = StateObject(wrappedValue: e)
     }
     @State private var ready = false
@@ -539,7 +649,7 @@ struct StudioView: View {
         .statusBarHidden()
         .background(Color.black)
         .onAppear {
-            engine.hud.hintsEnabled = false
+            engine.hud.hintsEnabled = engine.live
             StudioScript.run(scene, engine)
             engine.objectWillChange.send()
             engine.hud.tick()

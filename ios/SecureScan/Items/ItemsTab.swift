@@ -123,6 +123,7 @@ struct ItemsTab: View {
                 if !model.snapshot.fixes.isEmpty && filter == .all {
                     Section { fixCard } header: { header("Needs a quick fix", count: model.snapshot.fixes.count) }
                 }
+                if filter == .all { MoistureTotalsCard(moisture: vm.moisture) }
                 ForEach(groups, id: \.id) { g in
                     Section {
                         card(g.items)
@@ -436,5 +437,51 @@ struct ItemEditSheet: View {
             }
         }
         .presentationDetents(isReading || thumb != nil ? Set<PresentationDetent>([.large]) : Set<PresentationDetent>([.medium, .large]))
+    }
+}
+
+/// The moisture model's quantities for the quote (docs/MOISTURE.md): wall lining m², floor m²,
+/// skirting lm, each split into measured (backed by a reading or the scoper) and estimated.
+struct MoistureTotalsCard: View {
+    @ObservedObject var moisture: MoistureJob
+
+    var body: some View {
+        if let s = moisture.solve, s.report.totals.wallLining.total + s.report.totals.floor.total + s.report.totals.skirting.total > 0.01 {
+            let rows = MoistureWords.totals(s.report.totals)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Moisture model").font(DS.Font.calloutBold)
+                    Spacer()
+                    Text(s.words.text.replacingOccurrences(of: "Model · ", with: "")).font(DS.Font.callout).foregroundStyle(.secondary)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 14)
+                .padding(.bottom, 6)
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.title).font(DS.Font.body.weight(.medium))
+                                Text(r.total < 0.05 ? "none" : r.detail).font(DS.Font.callout).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                            Spacer(minLength: 8)
+                            Text(r.value).font(DS.Font.body.weight(.semibold)).monospacedDigit()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .accessibilityElement(children: .combine)
+                        if i < rows.count - 1 { Divider().padding(.leading, 16) }
+                    }
+                    Divider()
+                    Text("Estimated areas are the model's guide, not a measurement: take readings there to confirm.")
+                        .font(DS.Font.callout).foregroundStyle(.secondary)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                }
+                .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous))
+                .padding(.horizontal, 16)
+            }
+            .padding(.top, 2)
+        }
     }
 }

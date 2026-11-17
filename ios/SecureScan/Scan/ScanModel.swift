@@ -193,6 +193,14 @@ final class ScanModel: ObservableObject, CaptureEngine {
         return controller?.liveSections ?? []
     }
 
+    // MARK: CaptureEngine - the moisture model's corrections (docs/MOISTURE.md)
+
+    /// Kept with the scan (world space); JobProcessor puts them on the plan after Finish.
+    func modelTweaksChanged(_ tweaks: [LiveTweak]) {
+        extras.modelTweaks = tweaks
+        if !preview { extras.save(folder) }
+    }
+
     // MARK: CaptureEngine - the world
 
     var world: CaptureWorld { controller?.liveWorld ?? .empty }

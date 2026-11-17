@@ -467,6 +467,35 @@ final class RevisitModel: ObservableObject, CaptureEngine {
     }
     func trayCancelled() { remeasureFor = nil }
 
+    // MARK: CaptureEngine - the moisture model's corrections (docs/MOISTURE.md)
+
+    /// The plan's earlier corrections, in this session's world (wall ones are along / up their wall).
+    func savedModelTweaks() -> [MoistTweak] {
+        guard let a = alignment else { return [] }
+        let model = (plan["markup"] as? [String: Any])?["moistureModel"] as? [String: Any]
+        return (model?["tweaks"] as? [[String: Any]] ?? []).compactMap(MoisturePlan.tweak).filter { !$0.id.hasPrefix("adj-") }.map { t in
+            var t = t
+            if t.wallId == nil || t.kind == .barrier || t.kind == .floorOutline {
+                t.points = t.points.map { let w = a.world(PlanVec($0.x, $0.y), y: 0); return MoistVec(w.x, w.z) }
+            }
+            return t
+        }
+    }
+
+    /// This visit's corrections onto plan.json's markup.moistureModel.tweaks.
+    func modelTweaksChanged(_ tweaks: [LiveTweak]) {
+        guard let a = alignment else { return }
+        let ws = walls.map { WorldWall(id: $0.id, a: $0.a, b: $0.b, height: $0.height) }
+        var markup = plan["markup"] as? [String: Any] ?? [:]
+        var model = markup["moistureModel"] as? [String: Any] ?? ["version": MoisturePlan.version]
+        var list = (model["tweaks"] as? [[String: Any]] ?? []).filter { !(($0["id"] as? String) ?? "").hasPrefix("adj-") }
+        list += tweaks.compactMap { $0.tweak(walls: ws, toPlan: { a.point(WorldVec($0.x, 0, $0.y)) }) }.map(MoisturePlan.json)
+        model["tweaks"] = list
+        markup["moistureModel"] = model
+        plan["markup"] = markup
+        savePlan()
+    }
+
     // MARK: CaptureEngine - the world
 
     var world: CaptureWorld {

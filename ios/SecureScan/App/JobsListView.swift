@@ -29,6 +29,7 @@ struct JobsListView: View {
         #if DEBUG
         if ProcessInfo.processInfo.environment["SECURESCAN_LIDAR"] == "1" { return true }
         #endif
+        if SimDemo.active { return true }
         return RoomCaptureSession.isSupported
     }
     private let lidarSupported = JobsListView.lidarSupported
@@ -230,7 +231,7 @@ struct JobsListView: View {
     /// Automated screenshots only: launching with SECURESCAN_DEMO=1 opens the
     /// demo job, creating it when there is none.
     private func openDemoIfRequested() {
-        guard !didAutoOpen, ProcessInfo.processInfo.environment["SECURESCAN_DEMO"] == "1" else { return }
+        guard !didAutoOpen, ProcessInfo.processInfo.environment["SECURESCAN_DEMO"] == "1" || SimDemo.active else { return }
         didAutoOpen = true
         let demo = store.jobs.first(where: { $0.jobRef == "DEMO" })
             ?? store.jobs.first(where: { $0.demo == true && $0.jobRef != "STRESS" })
@@ -251,7 +252,12 @@ struct JobsListView: View {
         Task {
             defer { creatingDemo = false }
             do {
-                let meta = try await Task.detached(priority: .userInitiated) { try JobProcessor.createDemoJob(stress: stress) }.value
+                let marks = SimDemo.active
+                let meta = try await Task.detached(priority: .userInitiated) { () throws -> JobMeta in
+                    let m = try JobProcessor.createDemoJob(stress: stress)
+                    if marks { SimDemo.addMarks(JobFiles.folder(for: m.id)) }
+                    return m
+                }.value
                 store.reload()
                 path.append(meta.id)
             } catch {

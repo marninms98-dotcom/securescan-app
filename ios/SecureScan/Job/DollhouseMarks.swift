@@ -29,6 +29,8 @@ enum DollhouseMarks {
         var moisture: [SCNNode] = []
         /// Labels: removal / wash tags (no marker node of their own).
         var labels: [MarkerInfo] = []
+        /// Cabinets being removed (plan centres), drawn red in their own box.
+        var cabinets: [(center: PlanVec, done: Bool)] = []
     }
 
     static let red = UIColor(red: 1.0, green: 0.271, blue: 0.227, alpha: 1)       // #FF453A
@@ -201,6 +203,7 @@ enum DollhouseMarks {
                         let kick = (x["note"] as? String) == MarkIntent.kickBoardNote
                         let h = kick ? 0.15 : min(Furniture.height(ob.category), cut)
                         out.removals.append(wireBox(center: ob.center, size: SIMD2(ob.size.x, ob.size.y), height: h, rotation: ob.rotation, color: color))
+                        if !kick { out.cabinets.append((ob.center, done)) }
                         out.labels.append(MarkerInfo(kind: "removal", label: kick ? "Kick board · \(fmt(ob.size.x))" : "Remove cabinetry · base \(fmt(ob.size.x))",
                                                      color: color, position: SIMD3<Float>(Float(ob.center.x), Float(h) + 0.05, Float(ob.center.y)), priority: 12))
                     } else {
@@ -271,18 +274,20 @@ enum DollhouseMarks {
                 let q = w.a + (w.b - w.a) * t + n
                 return SCNVector3(Float(q.x), Float(y), Float(q.y))
             }
-            var washV: [SCNVector3] = [], tideV: [SCNVector3] = []
-            var washI: [Int32] = [], tideI: [Int32] = []
+            var washV: [SCNVector3] = [], tideV: [SCNVector3] = [], caseV: [SCNVector3] = []
+            var washI: [Int32] = []
             for (i, q) in pts.enumerated() {
                 washV += [p(q.t, 0.004), p(q.t, q.h)]
-                tideV += [p(q.t, q.h - 0.012), p(q.t, q.h + 0.012)]
+                // The tide line on top: 4 cm of tide blue on a white casing, readable at the default zoom.
+                tideV += [p(q.t, q.h - 0.02), p(q.t, q.h + 0.02)]
+                caseV += [p(q.t, q.h - 0.032), p(q.t, q.h + 0.032)]
                 if i > 0 {
                     let k = Int32(i * 2)
                     washI += [k - 2, k, k + 1, k - 2, k + 1, k - 1]
-                    tideI += [k - 2, k, k + 1, k - 2, k + 1, k - 1]
                 }
             }
-            for (v, idx, mat, order) in [(washV, washI, flat(blue.withAlphaComponent(0.32)), 150), (tideV, tideI, flat(tide), 160)] {
+            for (v, idx, mat, order) in [(washV, washI, flat(blue.withAlphaComponent(0.5)), 150), (caseV, washI, flat(.white), 159),
+                                         (tideV, washI, flat(tide), 160)] {
                 let g = SCNGeometry(sources: [SCNGeometrySource(vertices: v)], elements: [SCNGeometryElement(indices: idx, primitiveType: .triangles)])
                 g.materials = [mat]
                 let node = SCNNode(geometry: g)

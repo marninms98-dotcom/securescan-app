@@ -531,7 +531,7 @@ enum CaptureCopy {
     /// The sub-picker under the viewport for each mode (empty = none).
     static func subPicker(_ t: CaptureTool) -> [(key: String, title: String)] {
         switch t {
-        case .moisture: return [("reading", "Reading"), ("line", "Moisture line"), ("area", "Wet floor")]
+        case .moisture: return [("reading", "Reading"), ("line", "Moisture line"), ("area", "Wet floor"), ("adjust", "Adjust")]
         case .stripOut: return [("skirting", "Skirting"), ("wallLining", "Wall"), ("cabinetry", "Cabinets"), ("liftFlooring", "Floor")]
         case .equipment: return [("airMover", "Air mover"), ("dehumidifier", "Dehumidifier"), ("airScrubber", "Scrubber"), ("heater", "Heater")]
         case .source, .remeasure: return []

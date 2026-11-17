@@ -189,7 +189,9 @@ struct CaptureHUD: View {
                 VStack(spacing: 8) {
                     Spacer(minLength: 0)
                     photoCardRow
-                    if let sg = hud.suggestion { suggestionChip(sg) } else { chipsRow }
+                    if let sg = hud.suggestion { suggestionChip(sg) }
+                    else if optionChips.isEmpty, let mc = hud.modelChip { modelChip(mc, size: size) }
+                    else { chipsRow }
                     subPicker
                 }
                 .padding(.bottom, 12)
@@ -420,6 +422,38 @@ struct CaptureHUD: View {
         }
         .padding(.horizontal, 20)
         .frame(height: 34)
+    }
+
+    /// The moisture model's state: "Model · 9 readings · fits well", or a second source likely,
+    /// with an arrow to where the model thinks it is.
+    private func modelChip(_ m: MoistureWords.State, size: CGSize) -> some View {
+        var angle: Double? = nil
+        if m.secondSource, let p = hud.modelHintPoint, let proj = hud.engine.projector(viewport: size) {
+            let from = ScreenVec(Double(size.width) / 2, Double(size.height) - 70)
+            let d: ScreenVec
+            if let s = proj.project(p), proj.onScreen(s, inset: 0) { d = s - from } else { d = proj.offscreenDirection(p) }
+            if simd_length(d) > 1 { angle = atan2(d.y, d.x) }
+        }
+        return HStack(spacing: 8) {
+            Image(systemName: m.secondSource ? "exclamationmark.circle.fill" : "drop.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(m.secondSource ? DS.Color.damp : DS.Color.tide)
+            Text(m.text).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.85)
+            if let a = angle {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(DS.Color.ink)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.white))
+                    .rotationEffect(.radians(a))
+                    .accessibilityLabel("Towards the likely source")
+            }
+        }
+        .padding(.leading, 13).padding(.trailing, angle == nil ? 13 : 5)
+        .frame(height: 34)
+        .dsCapsule()
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
     }
 
     private func suggestionChip(_ s: Suggestion) -> some View {

@@ -43,7 +43,8 @@ final class EditorViewController: UIViewController, WKScriptMessageHandler, WKNa
     private var webView: WKWebView?
     private var isReady = false
     /// Serial queue: plan.json reads and writes never overlap and stay in order.
-    private let ioQueue = DispatchQueue(label: "com.secureworkswa.securescan.planio", qos: .userInitiated)
+    /// Shared with the moisture model's write-back (MoistureJob), so plan.json is never written twice at once.
+    private let ioQueue = MoistureJob.planIO
     private var pdfRenderer: HTMLPDFRenderer?
 
     init(folder: JobFolder, fallbackMeta: JobMeta?) {

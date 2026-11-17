@@ -140,11 +140,32 @@ final class CaptureHUDModel: ObservableObject {
     /// Undo for scrub steps (two-finger tap / Undo pill).
     var markUndo: [MarkSnapshot] = []
     var dragMode: DragMode?
+    /// The simulator's demo camera: the finger's last point while looking around.
+    var lookLast: CGPoint?
 
     /// The 3D equipment layer is on screen (the overlay then draws tags only).
     @Published var models3D = false
     /// Two-finger twist on a unit: the yaw added while the fingers are down (radians).
     @Published var twist: (id: String, angle: Double)?
+
+    // The moisture model (docs/MOISTURE.md; logic in MoistureHUD.swift)
+    /// The latest solve of the room as captured so far (20 cm cells while capturing).
+    @Published var model: MoistureSolve?
+    /// Its wash, edges and hints as world marks.
+    @Published var modelMarks: [OverlayMark] = []
+    /// Moisture > Adjust: brush, tide line, "no spread past here".
+    @Published var adjusting = false
+    @Published var adjustTool: LiveTweak.Kind = .wet
+    /// The scoper's corrections this session (Undo pops them).
+    @Published var modelTweaks: [LiveTweak] = []
+    /// The stroke under the finger in Adjust.
+    @Published var adjustStroke: LiveTweak?
+    let modelRunner = MoistureRunner()
+    var modelSignature: Int?
+    /// Model suggestions already offered (or dismissed) this session.
+    var modelOffered: Set<String> = []
+    /// The model's suggestions go to the suggestion chip (Studio scenes turn it off to show the state chip).
+    var offersModelSuggestions = true
 
     private var undoTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
@@ -178,6 +199,7 @@ final class CaptureHUDModel: ObservableObject {
     func tick() {
         let d = EngineDisplay(engine)
         if d != display { display = d }
+        updateModel()
         // While a tray is open the reticle is frozen on the captured point.
         guard tray == nil else { return }
         let a = engine.aimSample().map { AimInterpreter.interpret($0, world: engine.world, snapEnds: tool.markFamily != nil) } ?? .none
@@ -222,6 +244,7 @@ final class CaptureHUDModel: ObservableObject {
         clearMarkingDrafts()
         hover = nil
         floorTypesShown = false
+        endAdjust()
         tool = t
     }
 
@@ -229,6 +252,7 @@ final class CaptureHUDModel: ObservableObject {
 
     var subPicker: [(key: String, title: String)] {
         if tool == .stripOut && floorTypesShown { return [(key: "back", title: "‹")] + CaptureCopy.floorMaterials }
+        if tool == .moisture && adjusting { return [(key: "back", title: "‹")] + Self.adjustTools }
         return CaptureCopy.subPicker(tool)
     }
 
@@ -240,7 +264,9 @@ final class CaptureHUDModel: ObservableObject {
 
     var subSelection: String? {
         switch tool {
-        case .moisture: return drawArmed == .line ? "line" : drawArmed == .area ? "area" : "reading"
+        case .moisture:
+            if adjusting { return adjustTool.rawValue }
+            return drawArmed == .line ? "line" : drawArmed == .area ? "area" : "reading"
         case .stripOut: return floorTypesShown ? stripFloorType : stripKind.rawValue
         case .equipment: return equipmentType
         default: return nil
@@ -253,6 +279,12 @@ final class CaptureHUDModel: ObservableObject {
         switch tool {
         case .moisture:
             guard markPoints.isEmpty else { return }
+            if adjusting {
+                if key == "back" { endAdjust(); return }
+                if let k = LiveTweak.Kind(rawValue: key) { adjustTool = k }
+                return
+            }
+            if key == "adjust" { beginAdjust(); return }
             drawArmed = key == "line" ? .line : key == "area" ? .area : nil
         case .stripOut:
             if key == "back" { floorTypesShown = false; return }
@@ -282,6 +314,7 @@ final class CaptureHUDModel: ObservableObject {
         if let c = display.coaching { return c }
         guard tray == nil else { return nil }
         if airflowFor != nil { return CaptureCopy.aimAirflow }
+        if adjusting { return adjustCard }
         if !markPoints.isEmpty && aim.snapped { return CaptureCopy.snappedEnd }
         if let mc = markingCard { return mc }
         if tool == .moisture && markPoints.isEmpty {
@@ -322,6 +355,7 @@ final class CaptureHUDModel: ObservableObject {
         if retakeFor != nil { return (nil, "Retake photo", Pill(id: "cancelRetake", title: "Cancel")) }
         if airflowFor != nil { return (nil, p.title, Pill(id: "skipAirflow", title: "Skip")) }
         if !markPoints.isEmpty { return (Pill(id: "undoPoint", title: "Undo"), p.title, Pill(id: "cancelMark", title: "Cancel")) }
+        if adjusting { return (Pill(id: "undoTweak", title: "Undo", enabled: !modelTweaks.isEmpty), adjustCaption, Pill(id: "endAdjust", title: "Done")) }
         if let mp = markingPills { return mp }
         let q = display.quiet.map { Pill(id: "quiet:" + $0.id, title: $0.title, enabled: $0.enabled, prominent: $0.prominent) }
         let contextual = !p.enabled || engine.primaryOverride(tool: tool, aim: aim) != nil || existingUnit != nil || hover != nil
@@ -336,6 +370,8 @@ final class CaptureHUDModel: ObservableObject {
         case "skipAirflow": skipAirflow()
         case "undoPoint": undoMarkPoint()
         case "cancelMark": cancelMark()
+        case "undoTweak": undoTweak()
+        case "endAdjust": endAdjust()
         default:
             if id.hasPrefix("quiet:") { engine.perform(quiet: String(id.dropFirst(6))) }
         }
@@ -358,6 +394,7 @@ final class CaptureHUDModel: ObservableObject {
         // One primary colour everywhere: meaning colours live on chips and world marks.
         if let o = engine.primaryOverride(tool: tool, aim: aim) { return Primary(title: o.title, enabled: o.enabled) }
         if airflowFor != nil { return Primary(title: CaptureCopy.setAirflow, enabled: aim.blocked != CaptureCopy.findingRoom) }
+        if adjusting { return Primary(title: "Done adjusting", enabled: true) }
         if let m = markingPrimary { return m }
         if let why = aim.blocked { return Primary(title: why, enabled: false) }
         switch tool {
@@ -375,7 +412,7 @@ final class CaptureHUDModel: ObservableObject {
     var primaryIcon: String {
         if let o = engine.primaryOverride(tool: tool, aim: aim) { return o.icon }
         if airflowFor != nil { return "arrow.turn.up.right" }
-        if drafting { return "checkmark" }
+        if drafting || adjusting { return "checkmark" }
         if let h = hover, h.kind != .waterCandidate, h.kind != .ceiling { return "plus" }
         if aim.blocked != nil { return "scope" }
         switch tool {
@@ -455,6 +492,7 @@ final class CaptureHUDModel: ObservableObject {
         if let t = tray { saveTray(t); return }
         if let o = engine.primaryOverride(tool: tool, aim: aim) { o.action(); return }
         if let id = airflowFor { setAirflow(id); return }
+        if adjusting { endAdjust(); return }
         if drafting { commitMarking(); return }
         if let h = hover {
             if h.kind == .waterCandidate || h.kind == .ceiling { beginSource(at: h.point) } else { selectWhole(h) }
@@ -1106,6 +1144,12 @@ final class CaptureHUDModel: ObservableObject {
     /// The saved marks with the review's selection highlighted.
     func allMarks() -> [OverlayMark] {
         var saved = engine.overlayMarks()
+        // The moisture model under everything in Moisture mode; the scoper's tide lines then
+        // keep their line only (docs/MOISTURE.md).
+        if showsModel {
+            for i in saved.indices where saved[i].style == .moistureWash { saved[i].lineOnly = true }
+            saved = modelMarks + barrierMarks() + saved
+        }
         // Nothing shows through a wall; one-sided marks only from their side; cavity marks on the
         // face you're looking at (docs/MARKING.md H).
         if let cam = engine.aimSample()?.camera {
@@ -1117,7 +1161,7 @@ final class CaptureHUDModel: ObservableObject {
             let ids = Set(e.ids + [e.id])
             for i in saved.indices where ids.contains(saved[i].id) { saved[i].selected = true }
         }
-        var all = saved + draftMarks()
+        var all = saved + draftMarks() + (adjusting ? adjustMarks() : [])
         if models3D {
             // Units near enough are 3D models (tags only here); far ones keep the 2D glyph.
             let cam = engine.aimSample()?.camera

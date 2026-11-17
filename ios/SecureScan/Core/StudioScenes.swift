@@ -35,7 +35,10 @@ enum StudioScenes {
                           "floor-carpet", "floor-vinyl", "floor-timber", "floor-tile", "moisture-tideline",
                           "source-suspected", "source-confirmed", "airflow-drag", "suggestion-chip"]
 
-    static let all = marking + sides + ["mode-moisture", "mode-stripout", "mode-equipment", "mode-source", "scan-start",
+    /// The moisture model on the camera (docs/MOISTURE.md).
+    static let model = ["model-wash", "model-adjust", "model-second-source", "model-suggestion"]
+
+    static let all = marking + sides + model + ["mode-moisture", "mode-stripout", "mode-equipment", "mode-source", "scan-start",
                       "equipment-model-preview", "equipment-model-placed",
                       "aim-wall", "aim-wall-bright", "aim-skirting", "aim-nothing", "reading-tray", "reading-saved", "line-progress",
                       "line-tray-skirting", "lining-band-done", "area-progress", "area-tray", "photo-taken", "photo-preview-card",
@@ -132,6 +135,24 @@ enum StudioScenes {
                 return StudioSceneData(name: name, camera: WorldVec(1.7, 1.45, -2.3), target: WorldVec(1.7, 0.45, 0.0),
                                        marks: [lining, outerSkirting, behind])
             }
+        // The moisture model (docs/MOISTURE.md): a burst pipe in w1, readings on the wall and floor.
+        case "model-wash", "model-adjust", "model-second-source", "model-suggestion", "sim-live":
+            func onWall(_ m: OverlayMark, _ w: String) -> OverlayMark { var m = m; m.wallId = w; m.side = WallSide.a; return m }
+            var marks = [
+                onWall(OverlayMark(id: "s1", style: .source, points: [WorldVec(2.7, 0.25, 0.0)], tag: "Burst pipe · Suspected"), "w1"),
+                onWall(pin("r1", WorldVec(2.25, 0.3, 0.0), 31, 1), "w1"),
+                onWall(pin("r2", WorldVec(1.25, 0.25, 0.0), 19, 2), "w1"),
+                pin("r3", WorldVec(2.4, 0.0, 0.8), 27, 3),
+                pin("r4", WorldVec(1.5, 0.0, 1.5), 13, 4),
+                onWall(pin("r5", WorldVec(0.45, 0.2, 0.0), 12, 5), "w1"),
+            ]
+            if name == "model-second-source" {
+                // Wet by the door on w4, far from the pipe: the physics can't explain it.
+                marks.append(onWall(pin("r6", WorldVec(0.0, 0.3, 1.45), 33, 6), "w4"))
+                marks.append(pin("r7", WorldVec(0.5, 0.0, 1.5), 26, 7))
+                return StudioSceneData(name: name, camera: WorldVec(2.9, 1.5, 2.45), target: WorldVec(0.7, 0.35, 0.9), marks: marks)
+            }
+            return StudioSceneData(name: name, camera: WorldVec(1.15, 1.5, 2.6), target: WorldVec(1.9, 0.3, 0.25), marks: marks)
         // Marking by component (docs/MARKING.md).
         case "hover-skirting":
             return StudioSceneData(name: name, camera: WorldVec(2.6, 1.4, 2.3), target: WorldVec(1.25, 0.04, 0.0))

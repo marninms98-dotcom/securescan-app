@@ -47,6 +47,15 @@ struct OverlayMark: Identifiable, Equatable {
         case readout
         /// An air mover's coverage on the floor (points = [unit], airflow = direction).
         case airflowCone
+        /// The moisture model (docs/MOISTURE.md): a wet area on a wall face or the floor
+        /// (points = closed outline). Provenance "measured" (solid), "estimated" (lighter),
+        /// "scoper" (solid, with a pencil glyph).
+        case modelArea(String)
+        /// The model's wet-dry edge (points = polyline): solid where measured or set by the
+        /// scoper, a fine dashed line where estimated.
+        case modelEdge(String)
+        /// The model's second-source hint: "look here" (points = [the spot]).
+        case modelHint
     }
 
     enum HoverKind: Equatable {
@@ -95,6 +104,8 @@ struct OverlayMark: Identifiable, Equatable {
     /// "cavity" = inside the wall, shown on whichever face you look at). docs/MARKING.md H.
     var wallId: String? = nil
     var side: String? = nil
+    /// A moisture wash drawn as its tide line only (the model's fill shows the area).
+    var lineOnly = false
 }
 
 enum OverlayBuild {

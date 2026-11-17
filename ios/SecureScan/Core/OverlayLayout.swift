@@ -131,6 +131,8 @@ enum OverlayLayout {
                 if let p = m.points.first, let s = proj.project(p) { plan.glyphs[m.id] = CGRect(x: s.x - 11, y: s.y - 11, width: 22, height: 22) }
             case .source:
                 if let p = m.points.first, let s = proj.project(p) { plan.glyphs[m.id] = CGRect(x: s.x - 13, y: s.y - 13, width: 26, height: 26) }
+            case .modelHint:
+                if let p = m.points.first, let s = proj.project(p) { plan.glyphs[m.id] = CGRect(x: s.x - 15, y: s.y - 15, width: 30, height: 30) }
             case .equipment:
                 guard let p = m.points.first else { continue }
                 if let d = m.airflow {
@@ -276,8 +278,10 @@ enum OverlayLayout {
             case .readout:
                 // Beside the point, clear of the reticle ring, vertically centred on it.
                 if let p = m.points.first, let s = proj.project(p) { anchor = CGPoint(x: s.x + 26, y: s.y + 12); leading = true }
-            case .airflowCone:
+            case .airflowCone, .modelArea, .modelEdge:
                 continue
+            case .modelHint:
+                if let g = plan.glyphs[m.id] { anchor = CGPoint(x: g.midX, y: g.minY - 3) }
             case .wetFloor, .liftFlooring, .areaDraft:
                 guard !m.points.isEmpty else { continue }
                 let c = m.points.reduce(WorldVec(0, 0, 0), +) / Double(m.points.count)

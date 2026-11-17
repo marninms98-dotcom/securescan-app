@@ -28,6 +28,8 @@ struct MarkSnapshot {
 /// What a finger drag on the viewport is doing.
 enum DragMode: Equatable {
     case skirting, strip, floor, tide, cut
+    /// The simulator's demo camera turning under the finger.
+    case look
     case airflow(String)
 }
 
@@ -188,12 +190,14 @@ extension CaptureHUDModel {
     }
 
     func tapAt(_ p: CGPoint, size: CGSize) {
+        if adjusting { adjustTap(at: p, size: size); return }
         guard !drafting || hoverKind == .waterCandidate, let c = component(at: p, size: size) else { return }
         selectWhole(c)
     }
 
     /// A finger came down: is it the cut line, an airflow tip, or a scrub? (false = not ours)
     func dragBegan(at p: CGPoint, size: CGSize) -> Bool {
+        if adjusting { return tray == nil && adjustBegan(at: p, size: size) }
         guard tray == nil, let proj = engine.projector(viewport: size), let fr = ray(at: p, size: size) else { return false }
         let o = fr.0, d = fr.1
         let w = engine.world
@@ -223,7 +227,7 @@ extension CaptureHUDModel {
             }
         }
         // A scrub on the component under the finger.
-        guard let k = hoverKind, k != .cabinet, k != .waterCandidate else { return false }
+        guard let k = hoverKind, k != .cabinet, k != .waterCandidate else { return beginLook(at: p) }
         let c = component(at: p, size: size)
         markUndo.append(snapshot)
         switch k {
@@ -258,14 +262,28 @@ extension CaptureHUDModel {
             dragMode = .floor
         default:
             markUndo.removeLast()
-            return false
+            return beginLook(at: p)
         }
         hover = nil
         updateScrubReadout()
         return true
     }
 
+    /// Nothing to drag under the finger: the simulator's demo camera turns instead.
+    private func beginLook(at p: CGPoint) -> Bool {
+        guard engine.lookDrag(dx: 0, dy: 0) else { return false }
+        dragMode = .look
+        lookLast = p
+        return true
+    }
+
     func dragMoved(to p: CGPoint, size: CGSize) {
+        if adjustStroke != nil { adjustMoved(to: p, size: size); return }
+        if dragMode == .look {
+            if let l = lookLast { _ = engine.lookDrag(dx: Double(l.x - p.x), dy: Double(l.y - p.y)) }
+            lookLast = p
+            return
+        }
         guard let mode = dragMode, let fr = ray(at: p, size: size) else { return }
         let o = fr.0, d = fr.1
         let w = engine.world
@@ -306,11 +324,14 @@ extension CaptureHUDModel {
             let q = o + d * t
             let dir = WorldVec(q.x - u.x, 0, q.z - u.z)
             if simd_length(dir) > 0.2 { airflowDrag = (id, simd_normalize(dir)) }
+        case .look:
+            break
         }
         updateScrubReadout()
     }
 
     func dragEnded() {
+        if adjustStroke != nil { adjustEnded(); return }
         if case .airflow(let id)? = dragMode, let a = airflowDrag, a.id == id {
             if engine.setAirflow(id: id, direction: a.dir) { DS.Haptic.save() }
             airflowDrag = nil
@@ -321,6 +342,7 @@ extension CaptureHUDModel {
 
     /// Two-finger tap / the Undo pill: back one scrub step.
     func undoScrub() {
+        if adjusting { undoTweak(); return }
         if let s = markUndo.popLast() {
             run = s.run; strip = s.strip; floorPaint = s.floorPaint; tide = s.tide
             DS.Haptic.undo()
@@ -509,6 +531,26 @@ extension CaptureHUDModel {
         case .removeCabinet(let id):
             stripPick = .cabinetry
             cabinetPick = id
+        case .modelStrip(let id, let t0, let t1, let mm):
+            stripPick = .wallLining
+            guard let wall = w.wall(id) else { return }
+            let segs = ComponentIndex.segments(wall, openings: w.openings)
+            let seg = ComponentIndex.segment(containing: (t0 + t1) / 2, segs)?.1 ?? (0, 1)
+            strip = StripBack(wallId: id, t0: max(min(t0, t1), seg.0), t1: min(max(t0, t1), seg.1), heightMm: mm)
+        case .modelSkirting(let id, let t0, let t1):
+            stripPick = .skirting
+            guard let wall = w.wall(id) else { return }
+            let pieces = ComponentIndex.segments(wall, openings: w.openings).compactMap { s -> WallPiece? in
+                let a = max(s.0, min(t0, t1)), b = min(s.1, max(t0, t1))
+                return b - a > 0.01 ? WallPiece(wallId: id, tA: a, tB: b) : nil
+            }
+            if !pieces.isEmpty { run = WallRun(pieces: pieces) }
+        case .modelFloor(let poly, let covering, _):
+            stripPick = .liftFlooring
+            floorTypesShown = true
+            stripFloorType = CaptureCopy.floorMaterials.contains { $0.key == covering } ? covering : "carpet"
+            underlayOn = stripFloorType == "carpet"
+            floorWhole = poly
         }
         DS.Haptic.selection()
     }

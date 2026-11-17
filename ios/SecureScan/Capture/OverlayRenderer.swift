@@ -121,7 +121,7 @@ struct OverlayPainter {
     static func isUnder(_ m: OverlayMark) -> Bool {
         switch m.style {
         case .wetFloor, .liftFlooring, .areaDraft, .lining, .skirting, .moisture, .lineDraft,
-             .cabinet, .moistureWash, .airflowCone: return true
+             .cabinet, .moistureWash, .airflowCone, .modelArea, .modelEdge: return true
         case .hover(let k): return k != .ring
         default: return false
         }
@@ -132,6 +132,8 @@ struct OverlayPainter {
         let order: (OverlayMark) -> Int = { m in
             switch m.style {
             case .airflowCone: return -1
+            case .modelArea: return -1
+            case .modelEdge: return 0
             case .wetFloor, .liftFlooring, .areaDraft, .hover(.floor): return 0
             case .moistureWash, .hover(.face), .hover(.faceBlue): return 1
             case .lining: return 1
@@ -168,7 +170,7 @@ struct OverlayPainter {
     func tagFill(_ m: OverlayMark) -> Color {
         switch m.style {
         case .skirting, .lining, .liftFlooring, .cabinet: return DS.Color.remove.opacity(0.88)
-        case .moisture, .wetFloor, .source: return DS.Color.source.opacity(0.88)
+        case .moisture, .wetFloor, .source, .modelHint: return DS.Color.source.opacity(0.88)
         default: return Self.glass
         }
     }
@@ -328,6 +330,37 @@ struct OverlayPainter {
             moistureWash(m, in: &c)
         case .readout:
             break
+        case .modelArea(let prov):
+            modelArea(m, provenance: prov, in: &c)
+        case .modelEdge(let prov):
+            for run in proj.projectPolyline(m.points) {
+                let p = path(run, closed: false)
+                if prov == "brushWet" || prov == "brushDry" {
+                    // The Adjust brush's stroke: a broad soft band (blue = wet, white = dry).
+                    c.stroke(p, with: .color((prov == "brushWet" ? DS.Color.source : Color.white).opacity(0.42)),
+                             style: StrokeStyle(lineWidth: 30, lineCap: .round, lineJoin: .round))
+                    c.stroke(p, with: .color(.white.opacity(0.9)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round, dash: [2, 5]))
+                } else if prov == "barrier" {
+                    c.stroke(p, with: .color(DS.Color.ink.opacity(0.45)), style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    c.stroke(p, with: .color(.white), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    if run.count >= 2 {
+                        for q in [run[0], run[run.count - 1]] { endCap(cg(q), ring: false, in: &c) }
+                    }
+                } else if prov == "estimated" {
+                    c.stroke(p, with: .color(DS.Color.tide.opacity(0.95)), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [4, 4]))
+                } else {
+                    c.stroke(p, with: .color(DS.Color.ink.opacity(0.28)), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                    c.stroke(p, with: .color(DS.Color.tide), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                }
+            }
+        case .modelHint:
+            guard let r = plan.glyphs[m.id] else { return }
+            let pulse = 0.5 + 0.5 * sin(time * 3)
+            let ring = Circle().path(in: r.insetBy(dx: -3 * pulse, dy: -3 * pulse))
+            c.stroke(ring, with: .color(DS.Color.ink.opacity(0.3)), style: StrokeStyle(lineWidth: 4.5))
+            c.stroke(ring, with: .color(.white), style: StrokeStyle(lineWidth: 2.2, dash: [5, 4]))
+            c.fill(Circle().path(in: r.insetBy(dx: 9, dy: 9)), with: .color(DS.Color.source))
+            c.stroke(Circle().path(in: r.insetBy(dx: 9, dy: 9)), with: .color(.white), lineWidth: 1.5)
         case .airflowCone:
             guard let p = m.points.first, let d = m.airflow else { return }
             let h = simd_length(WorldVec(d.x, 0, d.z)) > 1e-9 ? simd_normalize(WorldVec(d.x, 0, d.z)) : WorldVec(1, 0, 0)
@@ -505,6 +538,22 @@ struct OverlayPainter {
         }
     }
 
+    /// The moisture model's wet area: measured solid, estimated lighter, the scoper's own
+    /// correction solid with a small pencil glyph (docs/MOISTURE.md "Honest by design").
+    func modelArea(_ m: OverlayMark, provenance prov: String, in c: inout GraphicsContext) {
+        let sp = proj.projectPolygon(m.points)
+        guard sp.count >= 3 else { return }
+        let shape = path(sp, closed: true)
+        c.fill(shape, with: .color(DS.Color.source.opacity(prov == "estimated" ? 0.17 : 0.36)))
+        guard prov == "scoper" else { return }
+        let xs = sp.map(\.x), ys = sp.map(\.y)
+        guard let x0 = xs.min(), let x1 = xs.max(), let y0 = ys.min(), let y1 = ys.max(), x1 - x0 > 30, y1 - y0 > 20 else { return }
+        let ctr = CGPoint(x: (x0 + x1) / 2, y: (y0 + y1) / 2)
+        let r = CGRect(x: ctr.x - 11, y: ctr.y - 11, width: 22, height: 22)
+        c.fill(Circle().path(in: r), with: .color(Self.glass))
+        symbol("pencil", in: r.insetBy(dx: 5, dy: 5), c: &c)
+    }
+
     /// Moisture extent on a wall: a blue wash from the floor up to a soft wavy tide line.
     func moistureWash(_ m: OverlayMark, in c: inout GraphicsContext) {
         guard m.points.count >= 2 else { return }
@@ -536,7 +585,7 @@ struct OverlayPainter {
         for q in wavy.dropFirst() { wash.addLine(to: q) }
         for q in base.reversed() { wash.addLine(to: cg(q)) }
         wash.closeSubpath()
-        c.fill(wash, with: .color(DS.Color.source.opacity(0.32)))
+        if !m.lineOnly { c.fill(wash, with: .color(DS.Color.source.opacity(0.32))) }
         var edge = Path()
         edge.move(to: f)
         for q in wavy.dropFirst() { edge.addLine(to: q) }

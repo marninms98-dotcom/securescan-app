@@ -563,6 +563,11 @@ struct Suggestion: Equatable {
         case stripWall(wallId: String, mm: Int?)
         case liftCarpet(areaId: String)
         case removeCabinet(objectId: String)
+        /// The moisture model's suggestions (docs/MOISTURE.md): a strip-back, a skirting run,
+        /// a floor area, with where they go.
+        case modelStrip(wallId: String, t0: Double, t1: Double, mm: Int)
+        case modelSkirting(wallId: String, t0: Double, t1: Double)
+        case modelFloor(polygon: [PlanVec], covering: String, key: String)
     }
     var kind: Kind
     var text: String
@@ -575,6 +580,9 @@ struct Suggestion: Equatable {
         case .stripWall(let w, _): return "strip-\(w)"
         case .liftCarpet(let a): return "carpet-\(a)"
         case .removeCabinet(let o): return "cab-\(o)"
+        case .modelStrip(let w, _, _, let mm): return "model-strip-\(w)-\(mm)"
+        case .modelSkirting(let w, _, _): return "model-skirting-\(w)"
+        case .modelFloor(_, _, let k): return "model-floor-\(k)"
         }
     }
 }
