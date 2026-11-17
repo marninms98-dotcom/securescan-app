@@ -629,7 +629,7 @@ final class ModelViewModel: ObservableObject {
     // MARK: Markup nodes (main)
 
     /// Drawn on top of the model, so markers are never hidden behind walls.
-    static func overlayMaterial(_ color: UIColor, constant: Bool = true) -> SCNMaterial {
+    nonisolated static func overlayMaterial(_ color: UIColor, constant: Bool = true) -> SCNMaterial {
         let m = SCNMaterial()
         m.diffuse.contents = color
         m.lightingModel = constant ? .constant : .lambert
