@@ -28,6 +28,7 @@
 		2449A5BD387271AD9B97D93E /* Photos.swift in Sources */ = {isa = PBXBuildFile; fileRef = E674AF7A46AD9963C946755D /* Photos.swift */; };
 		2533A1F481C60D93B502F512 /* JobView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E11FBFFF26ED1A5296D33F /* JobView.swift */; };
 		2940F1B46A0C0A128E587650 /* CaptureHUDModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16612738B9304308FC4DC1C4 /* CaptureHUDModel.swift */; };
+		2BDBF4CDF1B4F025046DEEB9 /* SimDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5706ABECEEE4CB72F05C91 /* SimDemo.swift */; };
 		2C88FAC9B218758A324749F9 /* Sweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B269C5F9F876B39DCED60A /* Sweep.swift */; };
 		2DFE12DD4A508F2E7E9788FB /* JobsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F9EEDA32A2B45D18BA5D9C3 /* JobsListView.swift */; };
 		2EE122F6FEB937260754E304 /* DemoSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B6AF0FC89F477DE670A015E /* DemoSeed.swift */; };
@@ -35,6 +36,7 @@
 		3199C90C80FC88A12902B63E /* PlanBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F1DC83DFE5F5BC26F5BF31 /* PlanBuilder.swift */; };
 		337E965D1C949C0C7984A497 /* CameraControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B8E52536B4359801BAF590 /* CameraControls.swift */; };
 		33AA069708820C6733AE28BB /* EquipmentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F2B5831B4A8109CEB00A86 /* EquipmentModels.swift */; };
+		344D4590A4B7FDE5E6EA5FFB /* MoistureLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60A23079CE68700DEB91C3E /* MoistureLive.swift */; };
 		381C871EF44B350B6A603F2E /* Studio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 892F8056D63D0AB2E99AE0E0 /* Studio.swift */; };
 		3B03553DFD91F67AC6090CE0 /* SyncManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 334EFEC82FBEB0E2E0F896B7 /* SyncManifest.swift */; };
 		3EBFB56EC11A088078140541 /* LabelLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2F12EEBAFD1F9D7CA0E86B /* LabelLayout.swift */; };
@@ -73,6 +75,7 @@
 		725C0FF61D3A06C66FDAD1C6 /* ScanWorld.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EBAF4775CB74B9033656953 /* ScanWorld.swift */; };
 		73E81F2D7D06F3D2AD2C6569 /* ModelTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 885E8794E64583D57BCB461D /* ModelTab.swift */; };
 		744A2548BD3C02E55737141E /* SecureScanApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44BA0EBB05E4AC51CA697313 /* SecureScanApp.swift */; };
+		75F7813082384AEF63C07824 /* MoistureJob.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C192C8EF9E0093C17DCF994 /* MoistureJob.swift */; };
 		76D708F1901A261AA350A143 /* PackNames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99AEF8B1F5F07A956A653E96 /* PackNames.swift */; };
 		793DCA99FA5C52947822A59A /* SyncStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B979C430FCDDE2AF494DFAD7 /* SyncStatus.swift */; };
 		7CA0EB6B2557A96614DCF856 /* MoistureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BEE030ED17422506FDB9BB /* MoistureEngine.swift */; };
@@ -98,10 +101,12 @@
 		98C89BDF68E23CFFD3A22AE5 /* SyncAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA8A058477DD87C5438F0BB /* SyncAuth.swift */; };
 		98E6623015E77D9C82A040CA /* CaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D9D7640E3301580E5072F43 /* CaptureEngine.swift */; };
 		9A9A10DBEB78C4D7749DF437 /* JobStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32ECF4547052B48F86E69D1E /* JobStore.swift */; };
+		9B00AA948BF03A29D5774871 /* Moisture3D.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13722C412A5CE7834F6472D0 /* Moisture3D.swift */; };
 		9C0437FD0A09F0A793730A50 /* EditorViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75160D182A87CDD7718FCFBF /* EditorViewController.swift */; };
 		9C6CBB6FFF051A3A392DB190 /* RecordToggle.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8982D66B35C64BAB0906BF2 /* RecordToggle.swift */; };
 		9CD01FAB99446E8FB8E95F74 /* OverlayLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5070F87B056970F22663AB2D /* OverlayLayout.swift */; };
 		9FB76C54AD51C7B45BAE7F9C /* PlanDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2197DC1A6B584C593A2AB /* PlanDocument.swift */; };
+		A0F65EBFFD138AD116987AFA /* LabelLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2F12EEBAFD1F9D7CA0E86B /* LabelLayout.swift */; };
 		A1205C0362BBAE3F507D028F /* SyncSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14312EE6E338176A4B8DEAE /* SyncSession.swift */; };
 		A43EB9E8F939E022AA9658DD /* ReportLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C7F81CDFDB8AA74346BF55 /* ReportLayout.swift */; };
 		A69BE5EB59D04D657933239D /* MoistureDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D4EE451007CED31635070D /* MoistureDebug.swift */; };
@@ -133,10 +138,13 @@
 		C929940DC5C0A1EF4F69CEEB /* SyncSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14312EE6E338176A4B8DEAE /* SyncSession.swift */; };
 		CA89FC760193E0ED385D2A59 /* Modes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 082D373B3599A42D55CD3CA3 /* Modes.swift */; };
 		CC2301103811483D0FA47F7B /* Revisit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6650B690EFD1F269235B4F2A /* Revisit.swift */; };
+		D4BB28122E6B8BCAAC984C43 /* MoistureLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C308B4CF06F54C4AF7191745 /* MoistureLiveTests.swift */; };
 		D7C02BAB270942A154C2FC2B /* OverlayLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5070F87B056970F22663AB2D /* OverlayLayout.swift */; };
+		D90FDA6F55D544D3F7A5B4BA /* MoistureLive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60A23079CE68700DEB91C3E /* MoistureLive.swift */; };
 		DA6181F99B1F28862406F00B /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400DDEE925593DF18AF3B58 /* VoiceNotes.swift */; };
 		DAD9C63B09D4677CF6E6E712 /* SyncPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FA3474DBCF86ABBE1A86E6A /* SyncPaths.swift */; };
 		DBEE091A1684FC448CF1FAC2 /* Sweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B269C5F9F876B39DCED60A /* Sweep.swift */; };
+		DCF66F4DA6E361143A6D0D8D /* MoistureHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709A64B2E102C0C85DB38F3F /* MoistureHUD.swift */; };
 		DFEA6E00D6C4A237EBB611E8 /* SupabaseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873979FA38A6578C163A1511 /* SupabaseClient.swift */; };
 		E01357908278E9C34AB5F662 /* RevisitARViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD76E1808F26326A58D22EF /* RevisitARViewController.swift */; };
 		E204800E1AEDA9E9B157982A /* VoiceNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5400DDEE925593DF18AF3B58 /* VoiceNotes.swift */; };
@@ -172,6 +180,7 @@
 		0DCB75420E3736447CB1521E /* JobPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPack.swift; sourceTree = "<group>"; };
 		10EB0FFC1E7F9BEEB8A6E54A /* CaptureLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureLogic.swift; sourceTree = "<group>"; };
 		11D5FA49899F060EED33034B /* PlanMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanMerge.swift; sourceTree = "<group>"; };
+		13722C412A5CE7834F6472D0 /* Moisture3D.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Moisture3D.swift; sourceTree = "<group>"; };
 		13959156A026C0CFE9BE624A /* ScanOpenMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanOpenMarker.swift; sourceTree = "<group>"; };
 		15BEE030ED17422506FDB9BB /* MoistureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureEngine.swift; sourceTree = "<group>"; };
 		16612738B9304308FC4DC1C4 /* CaptureHUDModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureHUDModel.swift; sourceTree = "<group>"; };
@@ -194,6 +203,7 @@
 		37909C65AC744DC7078072E8 /* MoistureMaterials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureMaterials.swift; sourceTree = "<group>"; };
 		38E2197DC1A6B584C593A2AB /* PlanDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanDocument.swift; sourceTree = "<group>"; };
 		39C20CADF6502F316B25D3D7 /* Trays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Trays.swift; sourceTree = "<group>"; };
+		3A5706ABECEEE4CB72F05C91 /* SimDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimDemo.swift; sourceTree = "<group>"; };
 		3ABDB05C165E2EC2E4FFC7A2 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		3FA3474DBCF86ABBE1A86E6A /* SyncPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPaths.swift; sourceTree = "<group>"; };
 		3FA8A058477DD87C5438F0BB /* SyncAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncAuth.swift; sourceTree = "<group>"; };
@@ -205,6 +215,7 @@
 		45FA37CE90CC1E3377A4D1BF /* ComponentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComponentTests.swift; sourceTree = "<group>"; };
 		47DB9C74270293AAFB7188FE /* Torch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Torch.swift; sourceTree = "<group>"; };
 		4B93888769208D41E42B8B6E /* SecureScanTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SecureScanTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4C192C8EF9E0093C17DCF994 /* MoistureJob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureJob.swift; sourceTree = "<group>"; };
 		4D9D7640E3301580E5072F43 /* CaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureEngine.swift; sourceTree = "<group>"; };
 		4ED45266E268D00911E4916A /* InputFeel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFeel.swift; sourceTree = "<group>"; };
 		5070F87B056970F22663AB2D /* OverlayLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayLayout.swift; sourceTree = "<group>"; };
@@ -221,6 +232,7 @@
 		65B25CAE287771CCB010EEA0 /* JobPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPickerView.swift; sourceTree = "<group>"; };
 		6650B690EFD1F269235B4F2A /* Revisit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Revisit.swift; sourceTree = "<group>"; };
 		6856E1ADC4D84C8E216376D6 /* MoistureFixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureFixtureTests.swift; sourceTree = "<group>"; };
+		709A64B2E102C0C85DB38F3F /* MoistureHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureHUD.swift; sourceTree = "<group>"; };
 		72349662F88DFF0DAD368B42 /* NewJobFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewJobFlow.swift; sourceTree = "<group>"; };
 		74742F8CAD4F433EFCA5048E /* JobSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobSummary.swift; sourceTree = "<group>"; };
 		75160D182A87CDD7718FCFBF /* EditorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewController.swift; sourceTree = "<group>"; };
@@ -249,6 +261,7 @@
 		B593F6274E4F5530AD79F206 /* LiveScanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveScanView.swift; sourceTree = "<group>"; };
 		B5DFCE9C23CC177BA047DE2F /* SyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncTests.swift; sourceTree = "<group>"; };
 		B5F51742705F6813F3EC90CD /* SyncViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncViews.swift; sourceTree = "<group>"; };
+		B60A23079CE68700DEB91C3E /* MoistureLive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureLive.swift; sourceTree = "<group>"; };
 		B6234205DEE44BA2EC3B5AFA /* SimulatedScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatedScan.swift; sourceTree = "<group>"; };
 		B6E1391DF96BE52BBA8B018B /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		B803BF23EB1DC217D36928D7 /* ScanCaptureControlling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCaptureControlling.swift; sourceTree = "<group>"; };
@@ -256,6 +269,7 @@
 		BB09B78C73572450CFC63953 /* EditorNamesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorNamesStore.swift; sourceTree = "<group>"; };
 		BE3747205C11AA47219D3100 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BE55844FCB0D65267AB81647 /* OverlayModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayModel.swift; sourceTree = "<group>"; };
+		C308B4CF06F54C4AF7191745 /* MoistureLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoistureLiveTests.swift; sourceTree = "<group>"; };
 		C3A512759B5FF6ED14D263B5 /* InputFeelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFeelTests.swift; sourceTree = "<group>"; };
 		C494151986E37147B8A62358 /* JobProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobProcessor.swift; sourceTree = "<group>"; };
 		CAAE56E02E65BDCAC4C7118F /* ScanViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanViewController.swift; sourceTree = "<group>"; };
@@ -310,6 +324,8 @@
 				96E11FBFFF26ED1A5296D33F /* JobView.swift */,
 				0B2F12EEBAFD1F9D7CA0E86B /* LabelLayout.swift */,
 				885E8794E64583D57BCB461D /* ModelTab.swift */,
+				13722C412A5CE7834F6472D0 /* Moisture3D.swift */,
+				4C192C8EF9E0093C17DCF994 /* MoistureJob.swift */,
 				0DC23E3F3755B25110A92E02 /* ReportPDF.swift */,
 			);
 			path = Job;
@@ -343,6 +359,7 @@
 				0AC59C4B9C256AB0D12255E4 /* MarkupTests.swift */,
 				F69575822ECB508760CDC2F2 /* ModesTests.swift */,
 				6856E1ADC4D84C8E216376D6 /* MoistureFixtureTests.swift */,
+				C308B4CF06F54C4AF7191745 /* MoistureLiveTests.swift */,
 				D1D267174DEF41AB2F40D592 /* MoistureModelTests.swift */,
 				23CFA44C764579C40ABD046D /* PlanBuilderTests.swift */,
 				78C7E9C8FDD3AF64698DBA8D /* RevisitTests.swift */,
@@ -450,6 +467,7 @@
 				4ED45266E268D00911E4916A /* InputFeel.swift */,
 				3FED7702BA69074CDCF1E9E0 /* MarkupGeometry.swift */,
 				082D373B3599A42D55CD3CA3 /* Modes.swift */,
+				B60A23079CE68700DEB91C3E /* MoistureLive.swift */,
 				5070F87B056970F22663AB2D /* OverlayLayout.swift */,
 				BE55844FCB0D65267AB81647 /* OverlayModel.swift */,
 				99AEF8B1F5F07A956A653E96 /* PackNames.swift */,
@@ -478,6 +496,7 @@
 				72349662F88DFF0DAD368B42 /* NewJobFlow.swift */,
 				44BA0EBB05E4AC51CA697313 /* SecureScanApp.swift */,
 				52ABE9FB9301A9E92B954140 /* SettingsView.swift */,
+				3A5706ABECEEE4CB72F05C91 /* SimDemo.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -501,6 +520,7 @@
 				16612738B9304308FC4DC1C4 /* CaptureHUDModel.swift */,
 				59F2B5831B4A8109CEB00A86 /* EquipmentModels.swift */,
 				CEF6AB57C10DA8E9CBE723E8 /* Marking.swift */,
+				709A64B2E102C0C85DB38F3F /* MoistureHUD.swift */,
 				F43BBFEDEDB818E33C7455CF /* OverlayRenderer.swift */,
 				53B45A9E5D9AC939DA70DAEB /* PhotoCapture.swift */,
 				E674AF7A46AD9963C946755D /* Photos.swift */,
@@ -658,6 +678,7 @@
 				8F538AE833AB689C93358980 /* InputFeel.swift in Sources */,
 				AB4430B8EDCC36F0A43F6239 /* InputFeelTests.swift in Sources */,
 				B2C2339FAC8F256B1CA48159 /* InputGapsTests.swift in Sources */,
+				A0F65EBFFD138AD116987AFA /* LabelLayout.swift in Sources */,
 				8765C48A013B68D939D37755 /* MarkupGeometry.swift in Sources */,
 				7FEC28C6F80CA2043808D5D5 /* MarkupTests.swift in Sources */,
 				CA89FC760193E0ED385D2A59 /* Modes.swift in Sources */,
@@ -666,6 +687,8 @@
 				7016BA68FEC7EBAF7F877325 /* MoistureEngine.swift in Sources */,
 				0749F008B02C808BEF2BFE7B /* MoistureFixtureTests.swift in Sources */,
 				FED8F5DB2B907F9E0EB07D89 /* MoistureGrid.swift in Sources */,
+				344D4590A4B7FDE5E6EA5FFB /* MoistureLive.swift in Sources */,
+				D4BB28122E6B8BCAAC984C43 /* MoistureLiveTests.swift in Sources */,
 				677F6C01D0104FC91DC9F909 /* MoistureMaterials.swift in Sources */,
 				043324CFD573CDDFFA1C2C01 /* MoistureModelTests.swift in Sources */,
 				EE2D633590955676C2AF062A /* MoisturePlan.swift in Sources */,
@@ -743,9 +766,13 @@
 				FE9B1162ABFDE5D03AB8FDF5 /* MarkupGeometry.swift in Sources */,
 				73E81F2D7D06F3D2AD2C6569 /* ModelTab.swift in Sources */,
 				0856DD40078E1D7D1D41E665 /* Modes.swift in Sources */,
+				9B00AA948BF03A29D5774871 /* Moisture3D.swift in Sources */,
 				A69BE5EB59D04D657933239D /* MoistureDebug.swift in Sources */,
 				7CA0EB6B2557A96614DCF856 /* MoistureEngine.swift in Sources */,
 				EB09D4C96637682F006A7012 /* MoistureGrid.swift in Sources */,
+				DCF66F4DA6E361143A6D0D8D /* MoistureHUD.swift in Sources */,
+				75F7813082384AEF63C07824 /* MoistureJob.swift in Sources */,
+				D90FDA6F55D544D3F7A5B4BA /* MoistureLive.swift in Sources */,
 				C23D029E08337C5B98D1644D /* MoistureMaterials.swift in Sources */,
 				F997DDEDB869CBDE6EBCD15D /* MoisturePlan.swift in Sources */,
 				459BE75CE31B436489ABA381 /* MoistureShapes.swift in Sources */,
@@ -782,6 +809,7 @@
 				744A2548BD3C02E55737141E /* SecureScanApp.swift in Sources */,
 				E8FB7BB1D511F112D4C83661 /* SettingsView.swift in Sources */,
 				71E45AD01800549076AD90EA /* SignInView.swift in Sources */,
+				2BDBF4CDF1B4F025046DEEB9 /* SimDemo.swift in Sources */,
 				046AE6D70F2912CC555D4988 /* SimulatedScan.swift in Sources */,
 				381C871EF44B350B6A603F2E /* Studio.swift in Sources */,
 				F73E721DDD770AF259786E18 /* StudioScenes.swift in Sources */,
